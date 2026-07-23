@@ -442,16 +442,18 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
 
   const toggleFavorite = useCallback(
     (instanceId: ProviderInstanceId, model: string) => {
-      const newFavorites = [...favorites];
-      const index = newFavorites.findIndex((f) => f.provider === instanceId && f.model === model);
-      if (index >= 0) {
-        newFavorites.splice(index, 1);
-      } else {
-        newFavorites.push({ provider: instanceId, model });
-      }
-      updateSettings({ favorites: newFavorites });
+      updateSettings((settings) => {
+        const newFavorites = [...settings.favorites];
+        const index = newFavorites.findIndex((f) => f.provider === instanceId && f.model === model);
+        if (index >= 0) {
+          newFavorites.splice(index, 1);
+        } else {
+          newFavorites.push({ provider: instanceId, model });
+        }
+        return { favorites: newFavorites };
+      });
     },
-    [favorites, updateSettings],
+    [updateSettings],
   );
 
   const modelJumpCommandByKey = useMemo(() => {

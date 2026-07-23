@@ -9,8 +9,8 @@
  * access is intentionally named as such so environment-sensitive consumers
  * cannot silently read the wrong server's settings.
  */
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { useAtomValue } from "@effect/atom-react";
+import { useCallback, useContext, useMemo, useSyncExternalStore } from "react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
   type EnvironmentId,
@@ -25,6 +25,10 @@ import {
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { ensureLocalApi } from "~/localApi";
 import {
   getThemeDefinition,
@@ -48,6 +52,31 @@ let clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
 let clientSettingsHydrated = false;
 let clientSettingsHydrationPromise: Promise<void> | null = null;
 let clientSettingsHydrationGeneration = 0;
+
+export function createClientSettingsPatchQueue(input: {
+  readonly read: () => ClientSettings;
+  readonly publish: (settings: ClientSettings) => void;
+  readonly persist: (settings: ClientSettings) => Promise<void>;
+  readonly onPersistenceError?: (error: unknown) => void;
+}): (
+  update: ClientSettingsPatch | ((settings: ClientSettings) => ClientSettingsPatch),
+) => Promise<void> {
+  let persistenceTail = Promise.resolve();
+
+  return (update) => {
+    const operation = persistenceTail.then(async () => {
+      const currentSettings = input.read();
+      const patch = typeof update === "function" ? update(currentSettings) : update;
+      const settings = { ...currentSettings, ...patch };
+      await input.persist(settings);
+      input.publish(settings);
+    });
+    persistenceTail = operation.catch((error: unknown) => {
+      input.onPersistenceError?.(error);
+    });
+    return operation;
+  };
+}
 
 function emitClientSettingsChange() {
   for (const listener of clientSettingsListeners) {
@@ -138,17 +167,21 @@ async function hydrateClientSettings(): Promise<void> {
   return clientSettingsHydrationPromise;
 }
 
-function persistClientSettings(settings: ClientSettings): void {
-  replaceClientSettingsSnapshot(settings);
-  void ensureLocalApi()
-    .persistence.setClientSettings(settings)
-    .catch((error) => {
+function createClientSettingsPersistenceQueue() {
+  return createClientSettingsPatchQueue({
+    read: getClientSettingsSnapshot,
+    publish: replaceClientSettingsSnapshot,
+    persist: (settings) => ensureLocalApi().persistence.setClientSettings(settings),
+    onPersistenceError: (error) => {
       console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`, {
         operation: "persist",
         ...safeErrorLogAttributes(error),
       });
-    });
+    },
+  });
 }
+
+let persistClientSettingsPatch = createClientSettingsPersistenceQueue();
 
 // ── Key sets for routing patches ─────────────────────────────────────
 
@@ -300,34 +333,203 @@ export function usePrimarySettings<T = UnifiedSettings>(
  * Server keys are optimistically patched in atom-backed server state, then
  * persisted via RPC. Client keys go through client persistence.
  */
-function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
+type UnifiedSettingsUpdate =
+  | UnifiedSettingsPatch
+  | ((settings: UnifiedSettings) => UnifiedSettingsPatch);
+
+export type SettingsOperationQueue = <A>(operation: () => Promise<A>) => Promise<A>;
+
+export function createSettingsOperationQueue(): SettingsOperationQueue {
+  let tail = Promise.resolve();
+  return <A>(operation: () => Promise<A>) => {
+    const result = tail.then(operation);
+    tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+}
+
+export interface SettingsOperationState {
+  readonly enqueue: SettingsOperationQueue;
+  readonly resolveServerSettings: (projected: ServerSettings) => ServerSettings;
+  readonly persistAuthoritativeServerSettings: (
+    persist: () => Promise<ServerSettings>,
+    projectedAtCompletion: () => ServerSettings,
+  ) => Promise<ServerSettings>;
+}
+
+function settingsValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => settingsValuesEqual(value, right[index]))
+    );
+  }
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = Object.keys(leftRecord);
+  return (
+    keys.length === Object.keys(rightRecord).length &&
+    keys.every(
+      (key) =>
+        Object.hasOwn(rightRecord, key) && settingsValuesEqual(leftRecord[key], rightRecord[key]),
+    )
+  );
+}
+
+export function createSettingsOperationState(): SettingsOperationState {
+  let lastProjectedServerSettings: ServerSettings | null = null;
+  let durableServerSettings: ServerSettings | null = null;
+  let pendingAuthoritativeSettings: ServerSettings[] = [];
+  return {
+    enqueue: createSettingsOperationQueue(),
+    resolveServerSettings(projected) {
+      if (projected !== lastProjectedServerSettings) {
+        lastProjectedServerSettings = projected;
+        const acknowledgedIndex = pendingAuthoritativeSettings.findLastIndex((authoritative) =>
+          settingsValuesEqual(authoritative, projected),
+        );
+        if (
+          acknowledgedIndex >= 0 &&
+          acknowledgedIndex === pendingAuthoritativeSettings.length - 1
+        ) {
+          durableServerSettings = projected;
+          pendingAuthoritativeSettings = [];
+        } else if (acknowledgedIndex < 0) {
+          durableServerSettings = projected;
+          pendingAuthoritativeSettings = [];
+        }
+      }
+      return durableServerSettings ?? projected;
+    },
+    async persistAuthoritativeServerSettings(persist, projectedAtCompletion) {
+      const authoritative = await persist();
+      durableServerSettings = authoritative;
+      pendingAuthoritativeSettings.push(authoritative);
+      lastProjectedServerSettings = projectedAtCompletion();
+      return authoritative;
+    },
+  };
+}
+
+const settingsOperationQueuesByRegistry = new WeakMap<
+  object,
+  Map<string, SettingsOperationState>
+>();
+
+function settingsOperationQueueFor(registry: object, environmentId: EnvironmentId | null) {
+  let queues = settingsOperationQueuesByRegistry.get(registry);
+  if (!queues) {
+    queues = new Map();
+    settingsOperationQueuesByRegistry.set(registry, queues);
+  }
+  const key = environmentId ?? "primary";
+  let state = queues.get(key);
+  if (!state) {
+    state = createSettingsOperationState();
+    queues.set(key, state);
+  }
+  return state;
+}
+
+export async function persistIndependentSettingsPatches(input: {
+  readonly persistServer?: () => Promise<void>;
+  readonly persistClient?: () => Promise<void>;
+}): Promise<void> {
+  const operations = [input.persistServer, input.persistClient]
+    .filter((persist): persist is () => Promise<void> => persist !== undefined)
+    .map((persist) => Promise.resolve().then(persist));
+  const results = await Promise.allSettled(operations);
+  const failures = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (failures.length > 0) throw failures[0];
+}
+
+function usePersistSettingsTarget(environmentId: EnvironmentId | null) {
+  const registry = useContext(RegistryContext);
+  const operationState = useMemo(
+    () => settingsOperationQueueFor(registry, environmentId),
+    [environmentId, registry],
+  );
   const persistServerSettings = useAtomCommand(
     serverEnvironment.updateSettings,
     "server settings update",
   );
-  const updateSettings = useCallback(
-    (patch: UnifiedSettingsPatch) => {
-      const { serverPatch, clientPatch } = splitPatch(patch);
-
-      if (Object.keys(serverPatch).length > 0) {
-        if (environmentId) {
-          void persistServerSettings({
-            environmentId,
-            input: { patch: serverPatch },
-          });
-        }
-      }
-      if (Object.keys(clientPatch).length > 0) {
-        persistClientSettings({
-          ...getClientSettingsSnapshot(),
-          ...clientPatch,
-        });
-      }
-    },
-    [environmentId, persistServerSettings],
+  const getProjectedServerSettings = useCallback(
+    () =>
+      registry.get(
+        environmentId === null
+          ? primaryServerSettingsAtom
+          : serverEnvironment.settingsValueAtom(environmentId),
+      ) ?? DEFAULT_SERVER_SETTINGS,
+    [environmentId, registry],
   );
+  return useCallback(
+    (update: UnifiedSettingsUpdate): Promise<void> =>
+      operationState.enqueue(async () => {
+        const serverSettings = operationState.resolveServerSettings(getProjectedServerSettings());
+        const resolvePatch = (clientSettings: ClientSettings) =>
+          typeof update === "function"
+            ? update(mergeEnvironmentSettings(serverSettings, clientSettings))
+            : update;
+        const patch = resolvePatch(getClientSettingsSnapshot());
+        const { serverPatch, clientPatch } = splitPatch(patch);
 
-  return updateSettings;
+        await persistIndependentSettingsPatches({
+          ...(Object.keys(serverPatch).length > 0
+            ? {
+                persistServer: async () => {
+                  if (!environmentId) {
+                    throw new Error("The primary environment is unavailable.");
+                  }
+                  await operationState.persistAuthoritativeServerSettings(async () => {
+                    const result = await persistServerSettings({
+                      environmentId,
+                      input: { patch: serverPatch },
+                    });
+                    if (result._tag !== "Failure") return result.value;
+                    if (isAtomCommandInterrupted(result)) {
+                      throw new Error("The settings update was interrupted.");
+                    }
+                    const error = squashAtomCommandFailure(result);
+                    throw error instanceof Error ? error : new Error("Could not persist settings.");
+                  }, getProjectedServerSettings);
+                },
+              }
+            : {}),
+          ...(Object.keys(clientPatch).length > 0
+            ? {
+                persistClient: () =>
+                  typeof update === "function"
+                    ? persistClientSettingsPatch(
+                        (clientSettings) => splitPatch(resolvePatch(clientSettings)).clientPatch,
+                      )
+                    : persistClientSettingsPatch(clientPatch),
+              }
+            : {}),
+        });
+      }),
+    [environmentId, getProjectedServerSettings, operationState, persistServerSettings],
+  );
+}
+
+function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
+  const persistSettings = usePersistSettingsTarget(environmentId);
+  return useCallback(
+    (update: UnifiedSettingsUpdate) => {
+      void persistSettings(update).catch(() => undefined);
+    },
+    [persistSettings],
+  );
 }
 
 export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
@@ -338,13 +540,31 @@ export function useUpdatePrimarySettings() {
   return useUpdateSettingsTarget(usePrimaryEnvironment()?.environmentId ?? null);
 }
 
+export function usePersistEnvironmentSettings(environmentId: EnvironmentId) {
+  return usePersistSettingsTarget(environmentId);
+}
+
+export function usePersistPrimarySettings() {
+  return usePersistSettingsTarget(usePrimaryEnvironment()?.environmentId ?? null);
+}
+
 export function useUpdateClientSettings() {
-  return useCallback((patch: ClientSettingsPatch) => {
-    persistClientSettings({
-      ...getClientSettingsSnapshot(),
-      ...patch,
-    });
-  }, []);
+  return useCallback(
+    (update: ClientSettingsPatch | ((settings: ClientSettings) => ClientSettingsPatch)) => {
+      void persistClientSettingsPatch(update).catch(() => undefined);
+    },
+    [],
+  );
+}
+
+/** Persist a client settings patch and wait until every earlier client write has settled. */
+export function usePersistClientSettings() {
+  return useCallback(
+    (
+      update: ClientSettingsPatch | ((settings: ClientSettings) => ClientSettingsPatch),
+    ): Promise<void> => persistClientSettingsPatch(update),
+    [],
+  );
 }
 
 export function __resetClientSettingsPersistenceForTests(): void {
@@ -354,6 +574,7 @@ export function __resetClientSettingsPersistenceForTests(): void {
   clientSettingsHydrationPromise = null;
   clientSettingsListeners.clear();
   clientSettingsHydrationListeners.clear();
+  persistClientSettingsPatch = createClientSettingsPersistenceQueue();
 }
 
 export function __setClientSettingsForTests(settings: ClientSettings): void {

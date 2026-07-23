@@ -10,10 +10,10 @@ import {
   createCancelableHyprnavDelay,
   computeActiveHyprnavCleanup,
   createActiveHyprnavRequestKey,
-  type HyprnavPublicationHistory,
   hyprnavCredentialRefreshDelay,
+  hyprnavPublicationHistory,
+  hyprnavSyncNeedsScopeRetry,
   isHyprnavDesktopRuntimeAvailable,
-  loadHyprnavPublicationHistory,
   markActiveHyprnavPublicationAttempt,
   persistHyprnavPublicationHistory,
   publishHyprnavRequests,
@@ -21,14 +21,15 @@ import {
   resolveActiveHyprnavSyncTarget,
   resolveEffectiveHyprnavSettings,
 } from "../hyprnavRuntime";
+import { usePrimaryEnvironmentId } from "../state/environments";
 import { useProject, useThreadShell } from "../state/entities";
 import { primaryServerAvailableEditorsAtom } from "../state/server";
 import { toastManager } from "./ui/toast";
 
 const HYPRNAV_BACKGROUND_RETRY_DELAY_MS = 5_000;
-const publicationHistory: HyprnavPublicationHistory = loadHyprnavPublicationHistory();
 
 export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const thread = useThreadShell(threadRef);
   const project = useProject(
     thread ? scopeProjectRef(thread.environmentId, thread.projectId) : null,
@@ -40,8 +41,8 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
     [defaults, project?.hyprnav],
   );
   const target = useMemo(
-    () => resolveActiveHyprnavSyncTarget({ project, thread }),
-    [project, thread],
+    () => resolveActiveHyprnavSyncTarget({ primaryEnvironmentId, project, thread }),
+    [primaryEnvironmentId, project, thread],
   );
   const requestKey = createActiveHyprnavRequestKey({
     target,
@@ -59,48 +60,51 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
     const delay = createCancelableHyprnavDelay();
     const credentialRefreshDelay = hyprnavCredentialRefreshDelay(effectiveSettings);
     const cleanup = computeActiveHyprnavCleanup({
-      history: publicationHistory,
+      history: hyprnavPublicationHistory,
       target,
       settings: effectiveSettings,
     });
+    const request = {
+      projectRoot: target.projectRoot,
+      worktreePath: target.worktreePath,
+      threadId: target.threadId,
+      threadTitle: target.threadTitle,
+      hyprnav: effectiveSettings,
+      clearBindings: cleanup.clearBindings,
+      clearNames: cleanup.clearNames,
+      lock: true,
+    } as const;
     void (async () => {
       for (;;) {
         if (cancelled) return;
         try {
           const result = await publishHyprnavRequests({
-            requests: [
-              {
-                projectRoot: target.projectRoot,
-                worktreePath: target.worktreePath,
-                threadId: target.threadId,
-                threadTitle: target.threadTitle,
-                hyprnav: effectiveSettings,
-                clearBindings: cleanup.clearBindings,
-                clearNames: cleanup.clearNames,
-                lock: true,
-              },
-            ],
+            requests: [request],
             availableEditors,
             resolvePreferredEditor: resolveAndPersistPreferredEditor,
             isCurrent: () => !cancelled,
             onBeforeSync: () => {
               markActiveHyprnavPublicationAttempt({
-                history: publicationHistory,
+                history: hyprnavPublicationHistory,
                 target,
                 settings: effectiveSettings,
               });
-              persistHyprnavPublicationHistory(publicationHistory);
+              persistHyprnavPublicationHistory(hyprnavPublicationHistory);
             },
           });
           if (cancelled) return;
           if (result.status === "ok") {
             recordActiveHyprnavPublication({
-              history: publicationHistory,
+              history: hyprnavPublicationHistory,
               target,
               settings: effectiveSettings,
               ...(result.appliedScopes ? { appliedScopes: result.appliedScopes } : {}),
             });
-            persistHyprnavPublicationHistory(publicationHistory);
+            persistHyprnavPublicationHistory(hyprnavPublicationHistory);
+            if (hyprnavSyncNeedsScopeRetry(request, result)) {
+              await delay.wait(HYPRNAV_BACKGROUND_RETRY_DELAY_MS);
+              continue;
+            }
             if (credentialRefreshDelay === null) return;
             await delay.wait(credentialRefreshDelay);
             continue;

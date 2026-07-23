@@ -200,6 +200,10 @@ export default defineConfig(() => {
       include: [
         "@clerk/clerk-js",
         "@clerk/react/internal",
+        "@base-ui/react/field",
+        "@base-ui/react/radio",
+        "@base-ui/react/radio-group",
+        "@base-ui/react/switch",
         "@pierre/diffs",
         "@pierre/diffs/editor",
         "@pierre/diffs/react",

@@ -31,6 +31,26 @@ export interface SidebarProjectPickerEntry {
   isPreferred: boolean;
 }
 
+export function deduplicateProjectsByPhysicalKey(input: {
+  projects: ReadonlyArray<Project>;
+  settings: ProjectGroupingSettings;
+  primaryEnvironmentId: EnvironmentId | null;
+}): Project[] {
+  const projectsByPhysicalKey = new Map<string, Project>();
+  for (const group of buildProjectGroups({
+    projects: input.projects,
+    settings: input.settings,
+    preferredEnvironmentId: input.primaryEnvironmentId,
+  })) {
+    for (const member of group.members) {
+      if (!projectsByPhysicalKey.has(member.physicalProjectKey)) {
+        projectsByPhysicalKey.set(member.physicalProjectKey, member.project);
+      }
+    }
+  }
+  return [...projectsByPhysicalKey.values()];
+}
+
 export function buildPhysicalToLogicalProjectKeyMap(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;

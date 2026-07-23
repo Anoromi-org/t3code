@@ -109,6 +109,7 @@ import {
   SettingsSection,
 } from "./settingsLayout";
 import { ProjectFaviconPickerDialog } from "./ProjectFaviconPickerDialog";
+import { ProjectHyprnavSettingsButton } from "./projectHyprnavNavigation";
 
 export const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> = {
   repository: "Group by repository",
@@ -809,6 +810,21 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
                   Choose file
                 </Button>
               </div>
+            }
+          />
+        </SettingsSection>
+
+        <SettingsSection title="Hyprnav">
+          <SettingsRow
+            title="Workspace navigation"
+            description="Configure scoped Hyprnav bindings for this project group."
+            control={
+              <ProjectHyprnavSettingsButton
+                target={{
+                  environmentId: representative.environmentId,
+                  projectId: representative.id,
+                }}
+              />
             }
           />
         </SettingsSection>
