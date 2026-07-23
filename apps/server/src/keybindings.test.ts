@@ -188,6 +188,45 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
+  it.effect("repairs only the exact generated command-palette shortcut config", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const legacyGenerated = Keybindings.DEFAULT_KEYBINDINGS.filter(
+        (rule) => rule.command !== "navigation.commandMenu",
+      ).map((rule) =>
+        rule.command === "commandPalette.toggle" ? { ...rule, key: "mod+e" } : rule,
+      );
+      yield* writeKeybindingsConfig(keybindingsConfigPath, legacyGenerated);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      assert.deepEqual(
+        yield* readKeybindingsConfig(keybindingsConfigPath),
+        Keybindings.DEFAULT_KEYBINDINGS,
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("preserves a customized command-palette shortcut", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+e", command: "commandPalette.toggle", when: "!terminalFocus" },
+        { key: "mod+shift+t", command: "terminal.toggle" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "commandPalette.toggle" && rule.key === "mod+e"),
+      );
+      assert.isFalse(persisted.some((rule) => rule.command === "navigation.commandMenu"));
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
   it.effect("ships configurable thread navigation defaults", () =>
     Effect.sync(() => {
       const defaultsByCommand = new Map(
@@ -212,6 +251,8 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("terminal.splitVertical"), "mod+shift+d");
       assert.equal(defaultsByCommand.get("modelPicker.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("modelPicker.jump.9"), "mod+9");
+      assert.equal(defaultsByCommand.get("commandPalette.toggle"), "mod+k");
+      assert.equal(defaultsByCommand.get("navigation.commandMenu"), "mod+e");
     }),
   );
 

@@ -213,6 +213,12 @@ jobs:
       - name: Test resource monitor
         run: cargo test --locked --manifest-path native/resource-monitor/Cargo.toml
 
+      - name: Install Chromium for browser tests
+        run: vp run --filter @t3tools/web test:browser:install
+
+      - name: Browser tests
+        run: vp run --filter @t3tools/web test:browser
+
   # The static analysis below needs a macOS runner, which bills ~6.7x a Linux
   # minute, so gate it on the native sources it actually lints instead of paying
   # for it on every push. Detection is API-only (no checkout) and fails open: if

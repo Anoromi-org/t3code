@@ -242,6 +242,7 @@ export function projectEvent(
             faviconPath: payload.faviconPath ?? null,
             projectIcon: payload.projectIcon ?? null,
             scripts: payload.scripts,
+            hyprnav: payload.hyprnav ?? null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
@@ -284,6 +285,7 @@ export function projectEvent(
                     ? { projectIcon: payload.projectIcon }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.hyprnav !== undefined ? { hyprnav: payload.hyprnav } : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,

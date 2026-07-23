@@ -163,6 +163,7 @@ import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../sta
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
+import { isNavigationCommandMenuOpen } from "../navigationCommandMenu";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -452,6 +453,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       if (event.defaultPrevented) return;
       // Resolve with the complete shortcut context so customized bindings
       // using any documented `when` condition (e.g. previewFocus) work.
+      if (isNavigationCommandMenuOpen()) return;
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
           terminalFocus: isTerminalFocused(),

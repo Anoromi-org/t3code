@@ -11,6 +11,7 @@ import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -292,6 +293,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             },
           ],
           defaultThreadEnvMode: null,
+          hyprnav: null,
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
           deletedAt: null,
@@ -421,6 +423,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             },
           ],
           defaultThreadEnvMode: null,
+          hyprnav: null,
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
         },
@@ -859,6 +862,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           workspace_root,
           default_model_selection_json,
           scripts_json,
+          hyprnav_json,
           created_at,
           updated_at,
           deleted_at
@@ -870,6 +874,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '/tmp/workspace',
             '{"provider":"codex","model":"gpt-5-codex"}',
             '[]',
+            '{"bindings":[{"id":"targeted-shell","slot":5,"scope":"project","workspace":{"mode":"managed"},"action":"worktree-terminal"}]}',
             '2026-03-01T00:00:00.000Z',
             '2026-03-01T00:00:01.000Z',
             NULL
@@ -880,6 +885,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '/tmp/deleted',
             NULL,
             '[]',
+            'null',
             '2026-03-01T00:00:02.000Z',
             '2026-03-01T00:00:03.000Z',
             '2026-03-01T00:00:04.000Z'
@@ -960,7 +966,26 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(project._tag, "Some");
         if (project._tag === "Some") {
           assert.equal(project.value.id, asProjectId("project-active"));
+          assert.deepEqual(project.value.hyprnav, {
+            bindings: [
+              {
+                id: "targeted-shell",
+                slot: 5,
+                scope: "project",
+                workspace: { mode: "managed" },
+                action: "worktree-terminal",
+              },
+            ],
+          });
         }
+
+        const projectShell = yield* snapshotQuery.getProjectShellById(
+          asProjectId("project-active"),
+        );
+        assert.deepEqual(
+          Option.getOrNull(projectShell)?.hyprnav,
+          Option.getOrNull(project)?.hyprnav,
+        );
 
         const missingProject = yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/missing");
         assert.equal(missingProject._tag, "None");
