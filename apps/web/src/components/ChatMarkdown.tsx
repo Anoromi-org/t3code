@@ -136,7 +136,6 @@ import {
   resolveMarkdownFileLinkMeta,
   rewriteMarkdownFileUriHref,
   shouldOpenMarkdownFileLinkInBrowserByDefault,
-  shouldOpenMarkdownFileLinkInEditor,
   type MarkdownFileLinkMeta,
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
@@ -1074,7 +1073,7 @@ function UncachedShikiCodeBlock({
   );
 }
 
-interface MarkdownFileLinkProps {
+export interface MarkdownFileLinkProps {
   href: string;
   targetPath: string;
   iconPath: string;
@@ -1751,7 +1750,7 @@ function MarkdownExternalLinkContent({
   );
 }
 
-const MarkdownFileLink = memo(function MarkdownFileLink({
+export const MarkdownFileLink = memo(function MarkdownFileLink({
   href,
   targetPath,
   iconPath,
@@ -1950,6 +1949,9 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
               ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
               : []),
             ...(onReveal && revealLabel ? ([{ id: "reveal", label: revealLabel }] as const) : []),
+            ...(threadRef && panelPath
+              ? ([{ id: "open-in-preview", label: "Open in file preview" }] as const)
+              : []),
             { id: "copy-relative", label: "Copy relative path" },
             { id: "copy-full", label: "Copy full path" },
           ] as const,
@@ -1970,6 +1972,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         }
         if (clicked === "reveal") {
           handleRevealInFileManager();
+          return;
+        }
+        if (clicked === "open-in-preview") {
+          handleOpenInFilePreview();
           return;
         }
         if (clicked === "copy-relative") {
@@ -1999,6 +2005,9 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       openInEditorMenuLabel,
       revealLabel,
       targetPath,
+      handleOpenInFilePreview,
+      threadRef,
+      panelPath,
     ],
   );
 
@@ -2050,7 +2059,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                if (onOpen && shouldOpenMarkdownFileLinkInEditor(event)) {
+                if (onOpen) {
                   handleOpenInEditor();
                   return;
                 }
