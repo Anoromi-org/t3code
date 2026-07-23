@@ -443,21 +443,26 @@ export const ServerConfig = Schema.Struct({
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
-const ServerUpsertKeybindingReplaceTarget = Schema.Struct({
+export const ServerKeybindingRuleTarget = Schema.Struct({
   key: KeybindingValue,
   command: KeybindingCommand,
   when: Schema.optional(KeybindingWhen),
 });
+export type ServerKeybindingRuleTarget = typeof ServerKeybindingRuleTarget.Type;
 
 export const ServerUpsertKeybindingInput = Schema.Struct({
   key: KeybindingValue,
   command: KeybindingCommand,
   when: Schema.optional(KeybindingWhen),
-  replace: Schema.optional(ServerUpsertKeybindingReplaceTarget),
+  replace: Schema.optional(ServerKeybindingRuleTarget),
+  replaceAllForCommand: Schema.optional(Schema.Literal(true)),
 });
 export type ServerUpsertKeybindingInput = typeof ServerUpsertKeybindingInput.Type;
 
-export const ServerRemoveKeybindingInput = ServerUpsertKeybindingReplaceTarget;
+export const ServerRemoveKeybindingInput = Schema.Union([
+  ServerKeybindingRuleTarget,
+  Schema.Struct({ command: KeybindingCommand, all: Schema.Literal(true) }),
+]);
 export type ServerRemoveKeybindingInput = typeof ServerRemoveKeybindingInput.Type;
 
 export const ServerUpsertKeybindingResult = Schema.Struct({

@@ -45,6 +45,7 @@ import {
 } from "@t3tools/shared/model";
 import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { truncate } from "@t3tools/shared/String";
 import { nextTerminalId, resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { Debouncer } from "@tanstack/react-pacer";
@@ -121,8 +122,7 @@ import {
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import { isCommandPaletteOpen } from "../commandPaletteBus";
-import { isNavigationCommandMenuOpen } from "../navigationCommandMenu";
+import { isAnyCommandSurfaceOpen, isCommandSurfaceOpen } from "../commandSurface";
 import {
   buildTemporaryWorktreeBranchName,
   deriveLocalBranchNameFromRemoteRef,
@@ -162,6 +162,12 @@ import {
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
+import { ProjectActionsPanel } from "./ProjectActionsPanel";
+import {
+  resolveOpenProjectActionsShortcutDisposition,
+  type GitActionRequest,
+  type GitActionRequestKind,
+} from "./ProjectActionsPanel.logic";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
@@ -174,7 +180,10 @@ import {
 import { cn, randomHex } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
+import {
+  persistProjectScriptsWithKeybindingRollback,
+  projectScriptKeybindingMutation,
+} from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
   buildProjectScript,
@@ -230,7 +239,6 @@ import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import {
   primaryServerAvailableEditorsAtom,
-  primaryServerKeybindingsAtom,
   primaryServerSettingsAtom,
   serverEnvironment,
 } from "../state/server";
@@ -1200,6 +1208,9 @@ function ChatViewContent(props: ChatViewProps) {
   const routeThreadKey = useMemo(() => scopedThreadKey(routeThreadRef), [routeThreadRef]);
   const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
+    reportFailure: false,
+  });
+  const removeKeybinding = useAtomCommand(serverEnvironment.removeKeybinding, {
     reportFailure: false,
   });
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
@@ -2595,8 +2606,17 @@ function ChatViewContent(props: ChatViewProps) {
           input: { cwd: gitStatusCwd },
         }),
   );
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const environmentServerConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const keybindings = environmentServerConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
+  const [projectActionsOpen, setProjectActionsOpen] = useState(false);
+  const [requestedGitAction, setRequestedGitAction] = useState<GitActionRequest | null>(null);
+  const requestGitAction = useCallback((action: GitActionRequestKind) => {
+    setRequestedGitAction({ requestId: randomHex(12), action });
+  }, []);
+  const handleRequestedGitAction = useCallback((requestId: string) => {
+    setRequestedGitAction((current) => (current?.requestId === requestId ? null : current));
+  }, []);
   // Prefer an instance-id match so a custom Codex instance (e.g.
   // `codex_personal`) surfaces its own status/message in the banner rather
   // than the default Codex's. Falls back to first-match-by-kind when no
@@ -3104,37 +3124,40 @@ function ChatViewContent(props: ChatViewProps) {
       keybinding?: string | null;
       keybindingCommand: KeybindingCommand;
     }): Promise<AtomCommandResult<void, unknown>> => {
-      const updateResult = mapAtomCommandResult(
-        await updateProject({
-          environmentId,
-          input: {
-            projectId: input.projectId,
-            scripts: input.nextScripts,
-          },
-        }),
-        () => undefined,
-      );
-      if (updateResult._tag === "Failure") {
-        return updateResult;
-      }
-
-      const keybindingRule = decodeProjectScriptKeybindingRule({
+      const keybindingMutation = projectScriptKeybindingMutation({
+        keybindings,
         keybinding: input.keybinding,
         command: input.keybindingCommand,
       });
 
-      if (isElectron && keybindingRule) {
-        return mapAtomCommandResult(
-          await upsertKeybinding({
+      const updateScripts = (scripts: ReadonlyArray<ProjectScript>) =>
+        updateProject({
+          environmentId,
+          input: { projectId: input.projectId, scripts },
+        }).then((result) => mapAtomCommandResult(result, () => undefined));
+      const mutateKeybinding = () => {
+        if (!isElectron || keybindingMutation.type === "none") {
+          return Promise.resolve(AsyncResult.success(undefined));
+        }
+        if (keybindingMutation.type === "upsert") {
+          return upsertKeybinding({
             environmentId,
-            input: keybindingRule,
-          }),
-          () => undefined,
-        );
-      }
-      return updateResult;
+            input: keybindingMutation.input,
+          }).then((result) => mapAtomCommandResult(result, () => undefined));
+        }
+        return removeKeybinding({
+          environmentId,
+          input: keybindingMutation.input,
+        }).then((result) => mapAtomCommandResult(result, () => undefined));
+      };
+
+      return persistProjectScriptsWithKeybindingRollback({
+        updateScripts: () => updateScripts(input.nextScripts),
+        mutateKeybinding,
+        rollbackScripts: () => updateScripts(input.previousScripts),
+      });
     },
-    [environmentId, updateProject, upsertKeybinding],
+    [environmentId, keybindings, removeKeybinding, updateProject, upsertKeybinding],
   );
   const saveProjectScript = useCallback(
     async (input: NewProjectScriptInput): Promise<AtomCommandResult<void, unknown>> => {
@@ -4690,10 +4713,29 @@ function ChatViewContent(props: ChatViewProps) {
         event.stopPropagation();
         return;
       }
-      if (!activeThreadId || isCommandPaletteOpen() || isNavigationCommandMenuOpen()) {
+      if (!activeThreadId) {
         return;
       }
       const terminalFocusOwner = getTerminalFocusOwner();
+      if (isCommandSurfaceOpen("project-actions")) {
+        const command = resolveShortcutCommand(event, keybindings, {
+          context: {
+            terminalFocus: false,
+            terminalOpen: Boolean(terminalUiState.terminalOpen),
+            modelPickerOpen: false,
+          },
+        });
+        const disposition = resolveOpenProjectActionsShortcutDisposition(command);
+        if (disposition !== "ignore") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (disposition === "close") {
+            setProjectActionsOpen(false);
+          }
+        }
+        return;
+      }
+      if (isAnyCommandSurfaceOpen()) return;
       if (event.defaultPrevented && terminalFocusOwner === null) {
         return;
       }
@@ -4719,6 +4761,14 @@ function ChatViewContent(props: ChatViewProps) {
         context: shortcutContext,
       });
       if (!command) return;
+
+      if (command === "projectActions.toggle") {
+        if (!activeProject) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setProjectActionsOpen(true);
+        return;
+      }
 
       if (command === "terminal.toggle") {
         event.preventDefault();
@@ -6376,6 +6426,8 @@ function ChatViewContent(props: ChatViewProps) {
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
+            requestedGitAction={requestedGitAction}
+            onRequestedGitActionHandled={handleRequestedGitAction}
           />
         </header>
 
@@ -6804,6 +6856,21 @@ function ChatViewContent(props: ChatViewProps) {
           onClose={closeExpandedImage}
         />
       )}
+      {activeProject ? (
+        <ProjectActionsPanel
+          availableEditors={
+            activeThread.environmentId === primaryEnvironmentId ? availableEditors : []
+          }
+          environmentId={activeThread.environmentId}
+          gitCwd={gitCwd}
+          keybindings={keybindings}
+          onOpenChange={setProjectActionsOpen}
+          onRequestGitAction={requestGitAction}
+          onRunProjectScript={runProjectScript}
+          open={projectActionsOpen}
+          scripts={activeProject.scripts}
+        />
+      ) : null}
     </div>
   );
 }

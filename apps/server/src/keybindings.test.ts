@@ -190,11 +190,40 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
   it.effect("repairs only the exact generated command-palette shortcut config", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
-      const legacyGenerated = Keybindings.DEFAULT_KEYBINDINGS.filter(
-        (rule) => rule.command !== "navigation.commandMenu",
-      ).map((rule) =>
-        rule.command === "commandPalette.toggle" ? { ...rule, key: "mod+e" } : rule,
-      );
+      const legacyGenerated: KeybindingRule[] = [
+        { key: "mod+b", command: "sidebar.toggle" },
+        { key: "mod+j", command: "terminal.toggle" },
+        { key: "mod+alt+b", command: "rightPanel.toggle" },
+        { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+        { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
+        { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
+        { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
+        { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+        { key: "mod+shift+j", command: "preview.toggle" },
+        { key: "mod+r", command: "preview.refresh", when: "previewFocus" },
+        { key: "mod+l", command: "preview.focusUrl", when: "previewFocus" },
+        { key: "mod+=", command: "preview.zoomIn", when: "previewFocus" },
+        { key: "mod++", command: "preview.zoomIn", when: "previewFocus" },
+        { key: "mod+-", command: "preview.zoomOut", when: "previewFocus" },
+        { key: "mod+0", command: "preview.resetZoom", when: "previewFocus" },
+        { key: "mod+e", command: "commandPalette.toggle", when: "!terminalFocus" },
+        { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
+        { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
+        { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+        { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },
+        { key: "mod+o", command: "editor.openFavorite" },
+        { key: "mod+shift+[", command: "thread.previous" },
+        { key: "mod+shift+]", command: "thread.next" },
+        ...Array.from({ length: 9 }, (_, index) => ({
+          key: `mod+${index + 1}`,
+          command: `thread.jump.${index + 1}` as KeybindingRule["command"],
+        })),
+        ...Array.from({ length: 9 }, (_, index) => ({
+          key: `mod+${index + 1}`,
+          command: `modelPicker.jump.${index + 1}` as KeybindingRule["command"],
+          when: "modelPickerOpen",
+        })),
+      ];
       yield* writeKeybindingsConfig(keybindingsConfigPath, legacyGenerated);
 
       const keybindings = yield* Keybindings.Keybindings;
@@ -203,6 +232,66 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.deepEqual(
         yield* readKeybindingsConfig(keybindingsConfigPath),
         Keybindings.DEFAULT_KEYBINDINGS,
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("migrates the legacy command bar binding to project actions", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      yield* fileSystem.makeDirectory(path.dirname(keybindingsConfigPath), { recursive: true });
+      yield* fileSystem.writeFileString(
+        keybindingsConfigPath,
+        `[
+  {
+    "key": "mod+shift+p",
+    "command": "commandBar.toggle",
+    "when": "!terminalFocus"
+  }
+]
+`,
+      );
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some(
+          (rule) =>
+            rule.command === "projectActions.toggle" &&
+            rule.key === "mod+shift+p" &&
+            rule.when === "!terminalFocus",
+        ),
+      );
+      assert.isFalse(persisted.some((rule) => String(rule.command) === "commandBar.toggle"));
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("moves only the former default file picker shortcut", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+p", command: "filePicker.toggle", when: "!terminalFocus" },
+        { key: "mod+alt+p", command: "filePicker.toggle" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some(
+          (rule) =>
+            rule.command === "filePicker.toggle" &&
+            rule.key === "mod+shift+p" &&
+            rule.when === "!terminalFocus",
+        ),
+      );
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "filePicker.toggle" && rule.key === "mod+alt+p"),
       );
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
@@ -238,7 +327,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("thread.jump.9"), "mod+9");
       assert.equal(defaultsByCommand.get("modelPicker.toggle"), "mod+shift+m");
       assert.equal(defaultsByCommand.get("themeEditor.toggle"), "mod+alt+shift+t");
-      assert.equal(defaultsByCommand.get("filePicker.toggle"), "mod+p");
+      assert.equal(defaultsByCommand.get("filePicker.toggle"), "mod+shift+p");
       assert.equal(defaultsByCommand.get("projectSearch.toggle"), "mod+shift+f");
       assert.equal(defaultsByCommand.get("sidebar.toggle"), "mod+b");
       assert.equal(defaultsByCommand.get("rightPanel.toggle"), "mod+alt+b");
@@ -246,6 +335,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("modelPicker.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("modelPicker.jump.9"), "mod+9");
       assert.equal(defaultsByCommand.get("commandPalette.toggle"), "mod+k");
+      assert.equal(defaultsByCommand.get("projectActions.toggle"), "mod+p");
       assert.equal(defaultsByCommand.get("navigation.commandMenu"), "mod+e");
     }),
   );
@@ -495,6 +585,52 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
       const persistedView = persisted.map(({ key, command }) => ({ key, command }));
       assert.deepEqual(persistedView, [{ key: "mod+shift+r", command: "script.run-tests.run" }]);
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("removes every custom keybinding for a command", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "cmd+r", command: "script.run-tests.run" },
+        { key: "mod+shift+r", command: "script.run-tests.run", when: "terminalFocus" },
+        { key: "mod+j", command: "terminal.toggle" },
+      ]);
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings.Keybindings;
+        return yield* keybindings.removeKeybindingRule({
+          command: "script.run-tests.run",
+          all: true,
+        });
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(persisted, [{ key: "mod+j", command: "terminal.toggle" }]);
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("replaces every custom keybinding for a command", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "cmd+r", command: "script.run-tests.run" },
+        { key: "mod+shift+r", command: "script.run-tests.run", when: "terminalFocus" },
+        { key: "mod+j", command: "terminal.toggle" },
+      ]);
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings.Keybindings;
+        return yield* keybindings.upsertKeybindingRule({
+          key: "mod+t",
+          command: "script.run-tests.run",
+          replaceAllForCommand: true,
+        });
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(persisted, [
+        { key: "mod+j", command: "terminal.toggle" },
+        { key: "mod+t", command: "script.run-tests.run" },
+      ]);
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
