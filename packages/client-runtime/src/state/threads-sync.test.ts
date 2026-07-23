@@ -455,7 +455,7 @@ describe("EnvironmentThreads", () => {
     }),
   );
 
-  it.effect("does not resurrect a deleted thread when the app returns to the foreground", () =>
+  it.effect("does not resubscribe a deleted thread when the app returns to the foreground", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         cached: BASE_THREAD,
@@ -471,16 +471,35 @@ describe("EnvironmentThreads", () => {
 
       expect(yield* Ref.get(harness.loaderCalls)).toBe(0);
       yield* Queue.offer(harness.wakeups, "application-active");
+      yield* Queue.offer(harness.wakeups, "application-active-probe");
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        yield* Effect.yieldNow;
+      }
+
+      const latest = yield* Ref.get(harness.latest);
+      expect(yield* Ref.get(harness.subscriptionCount)).toBe(1);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(0);
+      expect(latest.status).toBe("deleted");
+      expect(Option.isNone(latest.data)).toBe(true);
+    }),
+  );
+
+  it.effect("resumes from the deletion cursor when the RPC session is replaced", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ cached: BASE_THREAD, completionMarker: true });
+      yield* Queue.offer(harness.inputs, snapshot(BASE_THREAD));
+      yield* Queue.offer(harness.inputs, deleted());
+      yield* awaitThreadState(harness.observed, (value) => value.status === "deleted");
+
+      yield* harness.replaceSession;
       for (let attempt = 0; attempt < 100; attempt += 1) {
         if ((yield* Ref.get(harness.subscriptionCount)) >= 2) break;
         yield* Effect.yieldNow;
       }
 
-      const latest = yield* Ref.get(harness.latest);
       expect(yield* Ref.get(harness.subscriptionCount)).toBe(2);
-      expect(yield* Ref.get(harness.loaderCalls)).toBe(0);
-      expect(latest.status).toBe("deleted");
-      expect(Option.isNone(latest.data)).toBe(true);
+      expect(yield* Ref.get(harness.lastSubscribeAfterSequence)).toBe(3);
+      expect((yield* Ref.get(harness.latest)).status).toBe("deleted");
     }),
   );
 
