@@ -20,6 +20,10 @@ T3 Connect is optional and disabled in a fresh clone. Public configuration belon
 repository-root `.env` or `.env.local`, not an `apps/mobile/.env` file. See
 [`../../.env.example`](../../.env.example).
 
+iOS associated domains are disabled by default because the upstream Clerk domain does not authorize
+the fork's Apple team and bundle identifiers. After a fork-owned relying-party domain serves an AASA
+covering all release variants, set `T3CODE_IOS_RELYING_PARTY` to that hostname in each EAS environment.
+
 ## Development
 
 Start Metro for the dev client:
@@ -88,6 +92,11 @@ node ../../scripts/mobile-native-static-check.ts
 The native lint task runs SwiftLint for Swift plus ktlint and detekt for Kotlin. Missing native tools are reported as warnings and skipped locally. CI installs the default toolset from `apps/mobile/Brewfile` before running the native checks.
 
 ## EAS Builds
+
+The production submit profile intentionally does not hardcode an App Store Connect app ID. Set the
+`MOBILE_IOS_ASC_APP_ID` repository variable to the numeric Apple ID for the fork's
+`com.anoromi.t3code` record. The production workflow validates its numeric form, explicitly rejects
+upstream's known App Store ID, and injects it before starting an iOS build.
 
 CI uses Expo fingerprinting with the `preview:dev` profile to reuse an existing compatible build when possible, or start a new internal EAS build when native runtime inputs change. Production and default local builds continue to use the `appVersion` runtime policy.
 

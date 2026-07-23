@@ -135,6 +135,16 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas env:pull production --non-interactive
 
+      - name: Configure fork App Store submission
+        if: >-
+          steps.expo-token.outputs.present == 'true' &&
+          (github.event_name == 'push' ||
+            (inputs.mode == 'build' && inputs.platform != 'android'))
+        working-directory: apps/mobile
+        env:
+          MOBILE_IOS_ASC_APP_ID: ${{ vars.MOBILE_IOS_ASC_APP_ID }}
+        run: node scripts/configure-app-store-submission.mjs "$MOBILE_IOS_ASC_APP_ID"
+
       - name: Build and submit (manual)
         if: steps.expo-token.outputs.present == 'true' && github.event_name == 'workflow_dispatch' && inputs.mode == 'build'
         working-directory: apps/mobile
