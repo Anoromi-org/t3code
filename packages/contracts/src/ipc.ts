@@ -1048,6 +1048,11 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  /** Hyprland-only, primary local environment Corkdiff integration. */
+  openExternalCorkdiff?: (input: { readonly cwd: string; readonly threadId: string }) => Promise<{
+    readonly workspaceId: number;
+    readonly reused: boolean;
+  }>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;

@@ -35,6 +35,11 @@ const makeEnvironment = (
   DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(makeEnvironmentLayer(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it("derives Electron's native Wayland app id from its display name", () => {
+    assert.equal(DesktopEnvironment.resolveLinuxWaylandAppId("T3 Code (Alpha)"), "t3-code-alpha");
+    assert.equal(DesktopEnvironment.resolveLinuxWaylandAppId("T3 Code (Dev)"), "t3-code-dev");
+  });
+
   it.effect("derives state paths and development identity inside Effect", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(

@@ -11,6 +11,12 @@ import * as IpcChannels from "./ipc/channels.ts";
 
 exposeClerkBridge({ passkeys: true });
 
+// Sandboxed Electron preloads cannot load arbitrary external packages.
+// oxlint-disable t3code/no-global-process-runtime -- Electron preload runtime boundary.
+const canOpenExternalCorkdiff =
+  process.platform === "linux" && Boolean(process.env.HYPRLAND_INSTANCE_SIGNATURE);
+// oxlint-enable t3code/no-global-process-runtime
+
 function unwrapEnsureSshEnvironmentResult(result: unknown) {
   if (
     typeof result === "object" &&
@@ -105,6 +111,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ...(position === undefined ? {} : { position }),
     }),
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CHANNEL, url),
+  ...(canOpenExternalCorkdiff
+    ? {
+        openExternalCorkdiff: (input: { readonly cwd: string; readonly threadId: string }) =>
+          ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CORKDIFF_CHANNEL, input),
+      }
+    : {}),
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (typeof action !== "string") return;

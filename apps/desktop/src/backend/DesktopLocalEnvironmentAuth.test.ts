@@ -68,14 +68,17 @@ describe("DesktopLocalEnvironmentAuth", () => {
         Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer)),
       );
 
-      const [first, second] = yield* Effect.gen(function* () {
+      const [first, second, third] = yield* Effect.gen(function* () {
         const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
-        return yield* Effect.all([auth.getBearerToken, auth.getBearerToken]);
+        const cached = yield* Effect.all([auth.getBearerToken, auth.getBearerToken]);
+        yield* auth.invalidateBearerToken;
+        return [...cached, yield* auth.getBearerToken] as const;
       }).pipe(Effect.provide(testLayer));
 
       assert.strictEqual(first, "desktop-bearer-token");
       assert.strictEqual(second, "desktop-bearer-token");
-      assert.strictEqual(yield* Ref.get(requestCount), 1);
+      assert.strictEqual(third, "desktop-bearer-token");
+      assert.strictEqual(yield* Ref.get(requestCount), 2);
     }),
   );
 });
