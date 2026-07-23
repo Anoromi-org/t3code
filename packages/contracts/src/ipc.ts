@@ -96,9 +96,10 @@ import type {
 } from "./browserImport.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
+import { EditorId } from "./editor.ts";
+import type { ProjectHyprnavScope, ProjectHyprnavSettings } from "./hyprnav.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 import type { ClientSettings, QuitConfirmationMode } from "./settings.ts";
-import type { EditorId } from "./editor.ts";
 import type {
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
@@ -1137,6 +1138,14 @@ export interface DesktopBridge {
    * builds lack it; callers fall back to VS Code only.
    */
   probeRemoteEditors?: () => Promise<readonly EditorId[]>;
+  /** Hyprland-only, primary local environment terminal integration. */
+  openWorktreeTerminal?: (input: { readonly cwd: string }) => Promise<{
+    readonly worktreePath: string;
+  }>;
+  listOpenWorktreeTerminals?: () => Promise<ReadonlyArray<{ readonly worktreePath: string }>>;
+  /** Hyprland-only, primary local environment navigation integration. */
+  syncHyprnavEnvironment?: (input: DesktopHyprnavSyncInput) => Promise<DesktopHyprnavSyncResult>;
+  lockHyprnavEnvironment?: (input: DesktopHyprnavLockInput) => Promise<DesktopHyprnavSyncResult>;
   /** Hyprland-only, primary local environment Corkdiff integration. */
   openExternalCorkdiff?: (input: { readonly cwd: string; readonly threadId: string }) => Promise<{
     readonly workspaceId: number;
@@ -1171,6 +1180,39 @@ export interface DesktopBridge {
 
 /** Renderer callback invoked by Electron with a fresh user gesture before display-media capture. */
 export const DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER = "__t3DesktopPreviewRecordingCapture";
+export interface DesktopHyprnavScopedSlot {
+  readonly slot: number;
+  readonly scope: ProjectHyprnavScope;
+}
+
+export interface DesktopHyprnavCorkdiffConnectionInput {
+  readonly serverUrl: string;
+  readonly token: string | null;
+}
+
+export interface DesktopHyprnavSyncInput {
+  readonly projectRoot: string;
+  readonly worktreePath?: string | null;
+  readonly threadId?: string | null;
+  readonly threadTitle?: string | null;
+  readonly hyprnav: ProjectHyprnavSettings;
+  readonly preferredEditor?: EditorId | null;
+  readonly clearBindings?: readonly DesktopHyprnavScopedSlot[];
+  readonly clearNames?: readonly DesktopHyprnavScopedSlot[];
+  readonly corkdiffConnection?: DesktopHyprnavCorkdiffConnectionInput | null;
+  readonly lock: boolean;
+}
+
+export interface DesktopHyprnavLockInput {
+  readonly envId: string;
+}
+
+export interface DesktopHyprnavSyncResult {
+  readonly status: "ok" | "unavailable" | "error";
+  readonly message: string | null;
+  /** Present for sync calls; scopes omitted by stale-target recovery stay pending. */
+  readonly appliedScopes?: readonly ProjectHyprnavScope[];
+}
 
 export interface DesktopPreviewBridge {
   createTab: (tabId: string, defaults?: DesktopPreviewTabDefaults) => Promise<void>;

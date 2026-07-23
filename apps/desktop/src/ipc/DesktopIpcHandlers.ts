@@ -37,15 +37,19 @@ import {
   getLocalEnvironmentBearerToken,
   getSystemLocale,
   getWindowFullscreenState,
+  listOpenWorktreeTerminals,
+  lockHyprnavEnvironment,
   openExternal,
   openSystemSettings,
   probeRemoteEditors,
   openExternalCorkdiff,
+  openWorktreeTerminal,
   pickFolder,
   pickProjectFavicon,
   pickThemeFiles,
   setTheme,
   showContextMenu,
+  syncHyprnavEnvironment,
 } from "./methods/window.ts";
 import * as PreviewIpc from "./methods/preview.ts";
 import * as AppActivationIpc from "./methods/appActivation.ts";
@@ -99,6 +103,10 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(openSystemSettings);
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(openExternalCorkdiff);
+  yield* ipc.handle(openWorktreeTerminal);
+  yield* ipc.handle(listOpenWorktreeTerminals);
+  yield* ipc.handle(syncHyprnavEnvironment);
+  yield* ipc.handle(lockHyprnavEnvironment);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
   yield* ipc.handle(downloadUpdate);
