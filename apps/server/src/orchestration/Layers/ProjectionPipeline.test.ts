@@ -27,6 +27,7 @@ import { OrchestrationEventStore } from "../../persistence/Services/Orchestratio
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import {
+  LATEST_TURN_PRESERVATION_REPAIR,
   ORCHESTRATION_PROJECTOR_NAMES,
   OrchestrationProjectionPipelineLive,
 } from "./ProjectionPipeline.ts";
@@ -35,11 +36,19 @@ import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
 
 const makeProjectionPipelinePrefixedTestLayer = (prefix: string) =>
-  OrchestrationProjectionPipelineLive.pipe(
+  Layer.mergeAll(
+    OrchestrationProjectionPipelineLive,
+    OrchestrationProjectionSnapshotQueryLive.pipe(
+      Layer.provide(ThreadBackgroundLiveness.layer),
+      Layer.provide(ThreadPlanProgress.layer),
+    ),
+  ).pipe(
     Layer.provideMerge(OrchestrationEventStoreLive),
+    Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix })),
     Layer.provideMerge(SqlitePersistenceMemory),
     Layer.provideMerge(NodeServices.layer),
@@ -169,7 +178,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         FROM projection_state
         ORDER BY projector ASC
       `;
-      assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
+      assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length + 1);
       for (const row of stateRows) {
         assert.equal(row.lastAppliedSequence, 3);
       }
@@ -1287,6 +1296,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           projector,
           last_applied_sequence AS "lastAppliedSequence"
         FROM projection_state
+        WHERE projector != ${LATEST_TURN_PRESERVATION_REPAIR}
       `;
       const maxSequenceRows = yield* sql<{ readonly maxSequence: number }>`
         SELECT MAX(sequence) AS "maxSequence" FROM orchestration_events
@@ -1438,6 +1448,511 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         WHERE thread_id = ${threadId}
       `;
       assert.deepEqual(threadRows, [{ latestTurnId: turnId }]);
+    }),
+  );
+
+  it.effect("preserves the latest turn and actionable plan when a plan session settles", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("project-plan-settlement");
+      const threadId = ThreadId.make("thread-plan-settlement");
+      const turnId = TurnId.make("turn-plan-settlement");
+
+      yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.make("evt-plan-settlement-1"),
+        aggregateKind: "project",
+        aggregateId: projectId,
+        occurredAt: "2026-01-01T00:00:00.000Z",
+        commandId: CommandId.make("cmd-plan-settlement-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-plan-settlement-1"),
+        metadata: {},
+        payload: {
+          projectId,
+          title: "Plan settlement",
+          workspaceRoot: "/tmp/project-plan-settlement",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.make("evt-plan-settlement-2"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:01.000Z",
+        commandId: CommandId.make("cmd-plan-settlement-2"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-plan-settlement-2"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId,
+          title: "Plan settlement",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          interactionMode: "plan",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:01.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.make("evt-plan-settlement-3"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:02.000Z",
+        commandId: CommandId.make("cmd-plan-settlement-3"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-plan-settlement-3"),
+        metadata: {},
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: "2026-01-01T00:00:02.000Z",
+          },
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.proposed-plan-upserted",
+        eventId: EventId.make("evt-plan-settlement-4"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:03.000Z",
+        commandId: CommandId.make("cmd-plan-settlement-4"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-plan-settlement-4"),
+        metadata: {},
+        payload: {
+          threadId,
+          proposedPlan: {
+            id: "plan-settlement",
+            turnId,
+            planMarkdown: "# Implement the fix",
+            implementedAt: null,
+            implementationThreadId: null,
+            createdAt: "2026-01-01T00:00:03.000Z",
+            updatedAt: "2026-01-01T00:00:03.000Z",
+          },
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.make("evt-plan-settlement-5"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:04.000Z",
+        commandId: CommandId.make("cmd-plan-settlement-5"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-plan-settlement-5"),
+        metadata: {},
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-01-01T00:00:04.000Z",
+          },
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      // Simulate an upgraded database whose original thread projector already
+      // checkpointed the settlement event after clearing its latest turn.
+      yield* sql`
+        UPDATE projection_threads
+        SET latest_turn_id = NULL, has_actionable_proposed_plan = 0
+        WHERE thread_id = ${threadId}
+      `;
+      yield* sql`
+        DELETE FROM projection_state
+        WHERE projector = ${LATEST_TURN_PRESERVATION_REPAIR}
+      `;
+      const maxSequenceRows = yield* sql<{ readonly maxSequence: number }>`
+        SELECT MAX(sequence) AS "maxSequence" FROM orchestration_events
+      `;
+      const maxSequence = maxSequenceRows[0]?.maxSequence ?? 0;
+      yield* sql`
+        INSERT INTO projection_state (
+          projector,
+          last_applied_sequence,
+          updated_at
+        )
+        VALUES (
+          'projection.threads',
+          ${maxSequence},
+          '2026-01-01T00:00:04.000Z'
+        )
+        ON CONFLICT (projector) DO UPDATE SET
+          last_applied_sequence = excluded.last_applied_sequence,
+          updated_at = excluded.updated_at
+      `;
+
+      yield* projectionPipeline.bootstrap;
+
+      const projectionRows = yield* sql<{
+        readonly latestTurnId: string | null;
+        readonly hasActionableProposedPlan: number;
+      }>`
+        SELECT
+          latest_turn_id AS "latestTurnId",
+          has_actionable_proposed_plan AS "hasActionableProposedPlan"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(projectionRows, [{ latestTurnId: turnId, hasActionableProposedPlan: 1 }]);
+
+      const projectorRows = yield* sql<{
+        readonly projector: string;
+        readonly lastAppliedSequence: number;
+      }>`
+        SELECT
+          projector,
+          last_applied_sequence AS "lastAppliedSequence"
+        FROM projection_state
+        WHERE projector IN (
+          ${ORCHESTRATION_PROJECTOR_NAMES.threads},
+          ${LATEST_TURN_PRESERVATION_REPAIR}
+        )
+        ORDER BY projector
+      `;
+      assert.deepEqual(projectorRows, [
+        { projector: ORCHESTRATION_PROJECTOR_NAMES.threads, lastAppliedSequence: maxSequence },
+        { projector: LATEST_TURN_PRESERVATION_REPAIR, lastAppliedSequence: maxSequence },
+      ]);
+
+      const threadDetail = yield* snapshotQuery.getThreadDetailById(threadId);
+      assert.equal(threadDetail._tag, "Some");
+      if (threadDetail._tag === "Some") {
+        assert.equal(threadDetail.value.latestTurn?.turnId, turnId);
+        assert.equal(threadDetail.value.latestTurn?.state, "completed");
+        assert.equal(threadDetail.value.proposedPlans.at(-1)?.id, "plan-settlement");
+        assert.equal(threadDetail.value.proposedPlans.at(-1)?.implementedAt, null);
+      }
+    }),
+  );
+
+  it.effect("limits startup repair to reconstructable settlement pointers", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("project-latest-turn-repair-guards");
+      const canonicalThreadId = ThreadId.make("thread-canonical-null-latest");
+      const incompleteThreadId = ThreadId.make("thread-incomplete-latest-event");
+      const missingTurnId = TurnId.make("turn-missing-from-projection");
+
+      for (const [threadId, suffix] of [
+        [canonicalThreadId, "canonical"],
+        [incompleteThreadId, "incomplete"],
+      ] as const) {
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.make(`evt-latest-turn-repair-${suffix}-created`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-01-01T00:00:00.000Z",
+          commandId: CommandId.make(`cmd-latest-turn-repair-${suffix}-created`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-latest-turn-repair-${suffix}-created`),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId,
+            title: `Latest turn repair ${suffix}`,
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        });
+      }
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.make("evt-latest-turn-repair-incomplete-session"),
+        aggregateKind: "thread",
+        aggregateId: incompleteThreadId,
+        occurredAt: "2026-01-01T00:00:01.000Z",
+        commandId: CommandId.make("cmd-latest-turn-repair-incomplete-session"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-latest-turn-repair-incomplete-session"),
+        metadata: {},
+        payload: {
+          threadId: incompleteThreadId,
+          session: {
+            threadId: incompleteThreadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: missingTurnId,
+            lastError: null,
+            updatedAt: "2026-01-01T00:00:01.000Z",
+          },
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      yield* sql`
+        DELETE FROM projection_turns
+        WHERE thread_id IN (${canonicalThreadId}, ${incompleteThreadId})
+      `;
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, state, requested_at, started_at, completed_at,
+          checkpoint_files_json
+        ) VALUES
+          (
+            ${canonicalThreadId}, 'turn-canonical-historical', 'completed',
+            '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
+            '2026-01-01T00:00:01.000Z', '[]'
+          ),
+          (
+            ${incompleteThreadId}, 'turn-valid-projected', 'completed',
+            '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
+            '2026-01-01T00:00:01.000Z', '[]'
+          )
+      `;
+      yield* sql`
+        UPDATE projection_threads
+        SET latest_turn_id = CASE thread_id
+          WHEN ${canonicalThreadId} THEN NULL
+          WHEN ${incompleteThreadId} THEN 'turn-valid-projected'
+        END
+        WHERE thread_id IN (${canonicalThreadId}, ${incompleteThreadId})
+      `;
+      yield* sql`
+        DELETE FROM projection_state
+        WHERE projector = ${LATEST_TURN_PRESERVATION_REPAIR}
+      `;
+
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{
+        readonly threadId: string;
+        readonly latestTurnId: string | null;
+      }>`
+        SELECT thread_id AS "threadId", latest_turn_id AS "latestTurnId"
+        FROM projection_threads
+        WHERE thread_id IN (${canonicalThreadId}, ${incompleteThreadId})
+        ORDER BY thread_id
+      `;
+      assert.deepEqual(rows, [
+        { threadId: canonicalThreadId, latestTurnId: null },
+        { threadId: incompleteThreadId, latestTurnId: "turn-valid-projected" },
+      ]);
+    }),
+  );
+
+  it.effect("preserves latest turns across non-running settlement statuses", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("project-settlement-statuses");
+      const statuses = ["ready", "error", "interrupted"] as const;
+
+      yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.make("evt-settlement-statuses-project"),
+        aggregateKind: "project",
+        aggregateId: projectId,
+        occurredAt: "2026-01-01T00:00:00.000Z",
+        commandId: CommandId.make("cmd-settlement-statuses-project"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-settlement-statuses-project"),
+        metadata: {},
+        payload: {
+          projectId,
+          title: "Settlement statuses",
+          workspaceRoot: "/tmp/project-settlement-statuses",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      });
+
+      yield* Effect.forEach(statuses, (status, index) => {
+        const threadId = ThreadId.make(`thread-settlement-${status}`);
+        const turnId = TurnId.make(`turn-settlement-${status}`);
+        return Effect.forEach(
+          [
+            {
+              type: "thread.created" as const,
+              eventId: EventId.make(`evt-settlement-${status}-created`),
+              aggregateKind: "thread" as const,
+              aggregateId: threadId,
+              occurredAt: `2026-01-01T00:00:${index + 1}0.000Z`,
+              commandId: CommandId.make(`cmd-settlement-${status}-created`),
+              causationEventId: null,
+              correlationId: CorrelationId.make(`cmd-settlement-${status}-created`),
+              metadata: {},
+              payload: {
+                threadId,
+                projectId,
+                title: `Settlement ${status}`,
+                modelSelection: {
+                  instanceId: ProviderInstanceId.make("codex"),
+                  model: "gpt-5-codex",
+                },
+                runtimeMode: "full-access" as const,
+                branch: null,
+                worktreePath: null,
+                createdAt: `2026-01-01T00:00:${index + 1}0.000Z`,
+                updatedAt: `2026-01-01T00:00:${index + 1}0.000Z`,
+              },
+            },
+            {
+              type: "thread.session-set" as const,
+              eventId: EventId.make(`evt-settlement-${status}-running`),
+              aggregateKind: "thread" as const,
+              aggregateId: threadId,
+              occurredAt: `2026-01-01T00:00:${index + 1}1.000Z`,
+              commandId: CommandId.make(`cmd-settlement-${status}-running`),
+              causationEventId: null,
+              correlationId: CorrelationId.make(`cmd-settlement-${status}-running`),
+              metadata: {},
+              payload: {
+                threadId,
+                session: {
+                  threadId,
+                  status: "running" as const,
+                  providerName: "codex",
+                  runtimeMode: "full-access" as const,
+                  activeTurnId: turnId,
+                  lastError: null,
+                  updatedAt: `2026-01-01T00:00:${index + 1}1.000Z`,
+                },
+              },
+            },
+            {
+              type: "thread.session-set" as const,
+              eventId: EventId.make(`evt-settlement-${status}-settled`),
+              aggregateKind: "thread" as const,
+              aggregateId: threadId,
+              occurredAt: `2026-01-01T00:00:${index + 1}2.000Z`,
+              commandId: CommandId.make(`cmd-settlement-${status}-settled`),
+              causationEventId: null,
+              correlationId: CorrelationId.make(`cmd-settlement-${status}-settled`),
+              metadata: {},
+              payload: {
+                threadId,
+                session: {
+                  threadId,
+                  status,
+                  providerName: "codex",
+                  runtimeMode: "full-access" as const,
+                  activeTurnId: null,
+                  lastError: status === "error" ? "failed" : null,
+                  updatedAt: `2026-01-01T00:00:${index + 1}2.000Z`,
+                },
+              },
+            },
+          ],
+          eventStore.append,
+          { concurrency: 1 },
+        );
+      });
+
+      const emptyThreadId = ThreadId.make("thread-settlement-empty");
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.make("evt-settlement-empty-created"),
+        aggregateKind: "thread",
+        aggregateId: emptyThreadId,
+        occurredAt: "2026-01-01T00:01:00.000Z",
+        commandId: CommandId.make("cmd-settlement-empty-created"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-settlement-empty-created"),
+        metadata: {},
+        payload: {
+          threadId: emptyThreadId,
+          projectId,
+          title: "Settlement without turn",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-01-01T00:01:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.make("evt-settlement-empty-ready"),
+        aggregateKind: "thread",
+        aggregateId: emptyThreadId,
+        occurredAt: "2026-01-01T00:01:01.000Z",
+        commandId: CommandId.make("cmd-settlement-empty-ready"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-settlement-empty-ready"),
+        metadata: {},
+        payload: {
+          threadId: emptyThreadId,
+          session: {
+            threadId: emptyThreadId,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-01-01T00:01:01.000Z",
+          },
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{
+        readonly threadId: string;
+        readonly latestTurnId: string | null;
+      }>`
+        SELECT thread_id AS "threadId", latest_turn_id AS "latestTurnId"
+        FROM projection_threads
+        WHERE thread_id LIKE 'thread-settlement-%'
+        ORDER BY thread_id
+      `;
+      assert.deepEqual(rows, [
+        { threadId: "thread-settlement-empty", latestTurnId: null },
+        { threadId: "thread-settlement-error", latestTurnId: "turn-settlement-error" },
+        {
+          threadId: "thread-settlement-interrupted",
+          latestTurnId: "turn-settlement-interrupted",
+        },
+        { threadId: "thread-settlement-ready", latestTurnId: "turn-settlement-ready" },
+      ]);
     }),
   );
 

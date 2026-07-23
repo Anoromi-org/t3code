@@ -78,6 +78,7 @@ const makeProjectionStateRepository = Effect.gen(function* () {
         SELECT
           MIN(last_applied_sequence) AS "minLastAppliedSequence"
         FROM projection_state
+        WHERE projector LIKE 'projection.%'
       `,
   });
 
