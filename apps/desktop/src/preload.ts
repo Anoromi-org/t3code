@@ -13,7 +13,7 @@ exposeClerkBridge({ passkeys: true });
 
 // Sandboxed Electron preloads cannot load arbitrary external packages.
 // oxlint-disable t3code/no-global-process-runtime -- Electron preload runtime boundary.
-const canOpenExternalCorkdiff =
+const canUseHyprlandIntegrations =
   process.platform === "linux" && Boolean(process.env.HYPRLAND_INSTANCE_SIGNATURE);
 // oxlint-enable t3code/no-global-process-runtime
 
@@ -111,10 +111,20 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ...(position === undefined ? {} : { position }),
     }),
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CHANNEL, url),
-  ...(canOpenExternalCorkdiff
+  ...(canUseHyprlandIntegrations
     ? {
         openExternalCorkdiff: (input: { readonly cwd: string; readonly threadId: string }) =>
           ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CORKDIFF_CHANNEL, input),
+        openWorktreeTerminal: (input: { readonly cwd: string }) =>
+          ipcRenderer.invoke(IpcChannels.OPEN_WORKTREE_TERMINAL_CHANNEL, input),
+        listOpenWorktreeTerminals: () =>
+          ipcRenderer.invoke(IpcChannels.LIST_OPEN_WORKTREE_TERMINALS_CHANNEL),
+        syncHyprnavEnvironment: (
+          input: Parameters<NonNullable<DesktopBridge["syncHyprnavEnvironment"]>>[0],
+        ) => ipcRenderer.invoke(IpcChannels.SYNC_HYPRNAV_ENVIRONMENT_CHANNEL, input),
+        lockHyprnavEnvironment: (
+          input: Parameters<NonNullable<DesktopBridge["lockHyprnavEnvironment"]>>[0],
+        ) => ipcRenderer.invoke(IpcChannels.LOCK_HYPRNAV_ENVIRONMENT_CHANNEL, input),
       }
     : {}),
   onMenuAction: (listener) => {

@@ -10,6 +10,10 @@ const publicConfigDefine = {
   ),
 };
 
+export function shouldBundleGhosttyWorktreeDependency(id: string): boolean {
+  return id.startsWith("@t3tools/");
+}
+
 export default defineConfig({
   run: {
     tasks: {
@@ -79,6 +83,17 @@ export default defineConfig({
       sourcemap: true,
       outExtensions: () => ({ js: ".cjs" }),
       entry: ["src/preview-pip-preload.ts"],
+    },
+    {
+      format: "cjs",
+      outDir: "dist-electron",
+      sourcemap: true,
+      outExtensions: () => ({ js: ".cjs" }),
+      entry: ["src/hyprnav/ghostty-worktree-entry.ts"],
+      deps: {
+        // The helper is copied into packaged resources without node_modules.
+        alwaysBundle: shouldBundleGhosttyWorktreeDependency,
+      },
     },
   ],
 });

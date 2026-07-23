@@ -7,7 +7,7 @@ const CORKDIFF_GHOSTTY_CLASS_PREFIX = "dev.t3tools.t3code.corkdiff";
 
 interface CorkdiffConnectionInput {
   readonly serverUrl: string;
-  readonly token?: string;
+  readonly token?: string | null;
 }
 
 export function createCorkdiffGhosttyClassName(threadId: string): string {
