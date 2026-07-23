@@ -8,6 +8,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { EnvironmentAuthInvalidError } from "@t3tools/contracts";
 import {
   appendClientConnectionParams,
+  attachWebSocketTicket,
   bootstrapRemoteBearerSession,
   exchangeRemoteDpopAccessToken,
   fetchRemoteDpopSessionState,
@@ -90,6 +91,16 @@ const expectFetchCall = (
 };
 
 describe("remote environment authorization", () => {
+  it("replaces stale websocket credentials with an encoded plugin ticket", () => {
+    expect(
+      attachWebSocketTicket(
+        "ws://127.0.0.1:3773/?token=old&wsToken=older&wsTicket=stale",
+        "fresh ticket",
+        "token",
+      ),
+    ).toBe("ws://127.0.0.1:3773/ws?token=fresh+ticket");
+  });
+
   it.effect("bootstraps bearer auth against a remote backend", () =>
     Effect.gen(function* () {
       const fetch = recordedFetch(

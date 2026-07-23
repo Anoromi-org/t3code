@@ -507,6 +507,10 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       env: {
         ...backendChildEnvPatch(),
         ELECTRON_RUN_AS_NODE: "1",
+        T3CODE_DESKTOP_WM_CLASS: environment.linuxWmClass,
+        T3CODE_DESKTOP_WAYLAND_APP_ID: DesktopEnvironment.resolveLinuxWaylandAppId(
+          environment.displayName,
+        ),
       },
       // Primary wants process.env (PATH, dev-runner's T3CODE_HOME, etc.).
       extendEnv: true,

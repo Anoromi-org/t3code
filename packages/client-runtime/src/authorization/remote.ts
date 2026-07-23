@@ -25,6 +25,22 @@ export type RemoteEnvironmentAuthError = RemoteEnvironmentRequestError;
 
 const DEFAULT_REMOTE_REQUEST_TIMEOUT_MS = 10_000;
 
+export function attachWebSocketTicket(
+  wsBaseUrl: string,
+  ticket: string,
+  queryParam: "wsTicket" | "token" = "wsTicket",
+): string {
+  const url = new URL(wsBaseUrl);
+  if (url.pathname === "" || url.pathname === "/") {
+    url.pathname = "/ws";
+  }
+  url.searchParams.delete("token");
+  url.searchParams.delete("wsToken");
+  url.searchParams.delete("wsTicket");
+  url.searchParams.set(queryParam, ticket);
+  return url.toString();
+}
+
 const clientMetadataTokenExchangeFields = (
   clientMetadata: AuthClientPresentationMetadata | undefined,
 ) => {
@@ -236,11 +252,7 @@ export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
   });
 
-  const url = new URL(input.wsBaseUrl);
-  if (url.pathname === "" || url.pathname === "/") {
-    url.pathname = "/ws";
-  }
-  url.searchParams.set("wsTicket", issued.ticket);
+  const url = new URL(attachWebSocketTicket(input.wsBaseUrl, issued.ticket));
   appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
   return url.toString();
 });
@@ -262,11 +274,7 @@ export const resolveRemoteDpopWebSocketConnectionUrl = Effect.fn(
     dpopProof: input.dpopProof,
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
   });
-  const url = new URL(input.wsBaseUrl);
-  if (url.pathname === "" || url.pathname === "/") {
-    url.pathname = "/ws";
-  }
-  url.searchParams.set("wsTicket", issued.ticket);
+  const url = new URL(attachWebSocketTicket(input.wsBaseUrl, issued.ticket));
   appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
   return url.toString();
 });

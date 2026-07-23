@@ -240,6 +240,8 @@ describe("DesktopBackendConfiguration", () => {
         assert.equal(first.cwd, environment.backendCwd);
         assert.equal(first.captureOutput, true);
         assert.equal(first.env.ELECTRON_RUN_AS_NODE, "1");
+        assert.equal(first.env.T3CODE_DESKTOP_WM_CLASS, "t3code");
+        assert.equal(first.env.T3CODE_DESKTOP_WAYLAND_APP_ID, "t3-code-alpha");
         assert.isUndefined(first.env.T3CODE_PORT);
         assert.isUndefined(first.env.T3CODE_MODE);
         assert.isUndefined(first.env.T3CODE_DESKTOP_LAN_HOST);

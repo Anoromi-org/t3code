@@ -86,6 +86,7 @@ import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
+import { routeDiffShortcut } from "./externalCorkdiffRouting";
 import { useDiffPanelStore } from "../diffPanelStore";
 import {
   collapseExpandedComposerCursor,
@@ -3133,6 +3134,47 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen]);
 
+  const openDiffFallback = useCallback(() => {
+    if (!isServerThread) return;
+    if (!diffOpen) {
+      onDiffPanelOpen?.();
+    }
+    if (activeThreadRef) {
+      useRightPanelStore.getState().open(activeThreadRef, "diff");
+    }
+  }, [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen]);
+
+  const onToggleDiffShortcut = useCallback(() => {
+    // External Corkdiff runs in a local Ghostty process and Electron main owns
+    // only the primary backend credential. Remote paths and credentials stay
+    // in their environment, so those threads retain the in-app viewer.
+    void routeDiffShortcut({
+      activeEnvironmentId: activeThread?.environmentId,
+      activeThreadId,
+      activeWorkspaceRoot,
+      isServerThread,
+      openExternalCorkdiff: window.desktopBridge?.openExternalCorkdiff,
+      openInApp: openDiffFallback,
+      primaryEnvironmentId,
+      reportExternalError: (description) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to open Corkdiff",
+          description,
+        });
+      },
+      toggleInApp: onToggleDiff,
+    });
+  }, [
+    activeThread?.environmentId,
+    activeThreadId,
+    activeWorkspaceRoot,
+    isServerThread,
+    openDiffFallback,
+    onToggleDiff,
+    primaryEnvironmentId,
+  ]);
+
   const envLocked = Boolean(
     activeThread &&
     (activeThread.messages.length > 0 ||
@@ -5928,7 +5970,7 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "diff.toggle") {
         event.preventDefault();
         event.stopPropagation();
-        onToggleDiff();
+        onToggleDiffShortcut();
         return;
       }
 
@@ -5977,6 +6019,7 @@ export default function ChatView(props: ChatViewProps) {
     supportsSettlement,
     confirmAndUnpinThread,
     copyActiveThreadReference,
+    onToggleDiffShortcut,
     toggleRightPanel,
     toggleRightPanelMaximized,
     toggleTerminalVisibility,

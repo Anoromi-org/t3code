@@ -1137,6 +1137,11 @@ export interface DesktopBridge {
    * builds lack it; callers fall back to VS Code only.
    */
   probeRemoteEditors?: () => Promise<readonly EditorId[]>;
+  /** Hyprland-only, primary local environment Corkdiff integration. */
+  openExternalCorkdiff?: (input: { readonly cwd: string; readonly threadId: string }) => Promise<{
+    readonly workspaceId: number;
+    readonly reused: boolean;
+  }>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   /**
    * Quit-confirmation hint pushes. Optional: older desktop builds never emit

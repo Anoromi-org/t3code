@@ -10,6 +10,8 @@ import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   REMOTE_CAPABLE_EDITOR_IDS,
   SystemSettingsPaneSchema,
+  ThreadId,
+  TrimmedNonEmptyString,
   type DesktopEnvironmentBootstrap,
   type PickedThemeFile,
 } from "@t3tools/contracts";
@@ -29,6 +31,7 @@ import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
 import * as ElectronApp from "../../electron/ElectronApp.ts";
+import * as ExternalCorkdiff from "../../corkdiff/ExternalCorkdiff.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronMenu from "../../electron/ElectronMenu.ts";
 import * as ElectronShell from "../../electron/ElectronShell.ts";
@@ -377,5 +380,21 @@ export const pickThemeFiles = DesktopIpc.makeIpcMethod({
         Effect.orElseSucceed((): PickedThemeFile => ({ name, size: 0, text: "" })),
       );
     });
+  }),
+});
+
+export const openExternalCorkdiff = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.OPEN_EXTERNAL_CORKDIFF_CHANNEL,
+  payload: Schema.Struct({
+    cwd: TrimmedNonEmptyString,
+    threadId: ThreadId,
+  }),
+  result: Schema.Struct({
+    workspaceId: Schema.Int.check(Schema.isGreaterThan(0)),
+    reused: Schema.Boolean,
+  }),
+  handler: Effect.fn("desktop.ipc.window.openExternalCorkdiff")(function* (input) {
+    const corkdiff = yield* ExternalCorkdiff.ExternalCorkdiff;
+    return yield* corkdiff.openOrFocus(input);
   }),
 });
