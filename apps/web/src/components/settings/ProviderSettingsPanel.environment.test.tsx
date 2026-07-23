@@ -333,7 +333,10 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(customCard).not.toBeNull();
     (customCard?.props.onDelete as (() => void) | undefined)?.();
 
-    expect(settingsState.updateSettings).toHaveBeenLastCalledWith({
+    const deleteUpdate = settingsState.updateSettings.mock.lastCall?.[0] as (
+      settings: UnifiedSettings,
+    ) => Record<string, unknown>;
+    expect(deleteUpdate(settingsState.value)).toEqual({
       providerInstances: {
         [codexId]: settingsState.value.providerInstances?.[codexId],
       },
@@ -358,9 +361,10 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(resetButton).not.toBeNull();
     (resetButton?.props.onClick as (() => void) | undefined)?.();
 
-    const resetPatch = settingsState.updateSettings.mock.lastCall?.[0] as
-      | Record<string, unknown>
-      | undefined;
+    const resetUpdate = settingsState.updateSettings.mock.lastCall?.[0] as (
+      settings: UnifiedSettings,
+    ) => Record<string, unknown>;
+    const resetPatch = resetUpdate(settingsState.value);
     expect(Object.keys(resetPatch ?? {}).sort()).toEqual(["providerInstances", "providers"]);
     expect(resetPatch).not.toHaveProperty("favorites");
     expect(resetPatch).not.toHaveProperty("providerModelPreferences");

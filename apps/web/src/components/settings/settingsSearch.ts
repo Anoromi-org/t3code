@@ -5,6 +5,7 @@ export type SettingsPath =
   | "/settings/general"
   | "/settings/appearance"
   | "/settings/keybindings"
+  | "/settings/hyprnav"
   | "/settings/providers"
   | "/settings/integrations"
   | "/settings/source-control"
@@ -50,6 +51,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
+  "/settings/hyprnav": "Hyprnav",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
   "/settings/source-control": "Source Control",
@@ -317,6 +319,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Keybindings",
     to: "/settings/keybindings",
     searchTerms: ["keyboard shortcuts hotkeys commands bindings json"],
+  },
+  {
+    id: "hyprnav",
+    title: "Hyprnav",
+    to: "/settings/hyprnav",
   },
   {
     id: "providers",

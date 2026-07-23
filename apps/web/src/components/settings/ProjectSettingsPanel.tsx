@@ -126,6 +126,7 @@ const ProjectIconPickerDialog = lazy(() =>
     default: module.ProjectIconPickerDialog,
   })),
 );
+import { ProjectHyprnavSettingsButton } from "./projectHyprnavNavigation";
 
 export const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> = {
   repository: "Group by repository",
@@ -885,6 +886,24 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
               </div>
             }
           />
+        </SettingsSection>
+
+        <SettingsSection title="Hyprnav">
+          <SettingsRow
+            title="Workspace navigation"
+            description="Configure scoped Hyprnav bindings for this project group."
+            control={
+              <ProjectHyprnavSettingsButton
+                target={{
+                  environmentId: representative.environmentId,
+                  projectId: representative.id,
+                }}
+              />
+            }
+          />
+        </SettingsSection>
+
+        <SettingsSection title="New threads">
           <SettingsRow
             title="Model"
             description="New threads in this project start with this model. Applies to every checkout in this group."

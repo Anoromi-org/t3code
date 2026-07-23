@@ -5,6 +5,7 @@ import type {
   DesktopHyprnavSyncInput,
   DesktopHyprnavSyncResult,
   EditorId,
+  EnvironmentId,
   ProjectHyprnavOverride,
   ProjectHyprnavScope,
   ProjectHyprnavSettings,
@@ -14,6 +15,7 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/models";
+import { attachWebSocketTicket } from "@t3tools/client-runtime/authorization";
 import * as Effect from "effect/Effect";
 
 import { PrimaryEnvironmentHttpClient } from "./environments/primary/httpClient";
@@ -28,9 +30,14 @@ const CORKDIFF_PLACEHOLDERS = [
   "{corkdiffToken}",
 ] as const;
 
-export interface ActiveHyprnavSyncTarget {
+export interface HyprnavPublicationTarget {
   readonly projectRoot: string;
   readonly worktreePath: string | null;
+  readonly threadId: ScopedThreadRef["threadId"] | null;
+  readonly threadTitle: string | null;
+}
+
+export interface ActiveHyprnavSyncTarget extends HyprnavPublicationTarget {
   readonly threadId: ScopedThreadRef["threadId"];
   readonly threadTitle: string;
 }
@@ -71,7 +78,7 @@ const HYPRNAV_SCOPES = [
   "thread",
 ] as const satisfies readonly ProjectHyprnavScope[];
 
-function publicationScopeKey(target: ActiveHyprnavSyncTarget, scope: ProjectHyprnavScope): string {
+function publicationScopeKey(target: HyprnavPublicationTarget, scope: ProjectHyprnavScope): string {
   const targetPath = target.worktreePath ?? target.projectRoot;
   switch (scope) {
     case "project":
@@ -99,8 +106,9 @@ function stateForScope(
 
 export function computeActiveHyprnavCleanup(input: {
   readonly history: ReadonlyMap<string, readonly HyprnavPublicationScopeState[]>;
-  readonly target: ActiveHyprnavSyncTarget;
+  readonly target: HyprnavPublicationTarget;
   readonly settings: ProjectHyprnavSettings;
+  readonly scopes?: readonly ProjectHyprnavScope[];
 }): {
   readonly clearBindings: DesktopHyprnavScopedSlot[];
   readonly clearNames: DesktopHyprnavScopedSlot[];
@@ -109,7 +117,7 @@ export function computeActiveHyprnavCleanup(input: {
   const clearNames: DesktopHyprnavScopedSlot[] = [];
   const clearedBindingKeys = new Set<string>();
   const clearedNameKeys = new Set<string>();
-  for (const scope of HYPRNAV_SCOPES) {
+  for (const scope of input.scopes ?? HYPRNAV_SCOPES) {
     const previousCandidates = input.history.get(publicationScopeKey(input.target, scope));
     if (!previousCandidates) continue;
     const nextBySlot = new Map(
@@ -141,7 +149,7 @@ export function computeActiveHyprnavCleanup(input: {
 
 export function recordActiveHyprnavPublication(input: {
   readonly history: HyprnavPublicationHistory;
-  readonly target: ActiveHyprnavSyncTarget;
+  readonly target: HyprnavPublicationTarget;
   readonly settings: ProjectHyprnavSettings;
   readonly appliedScopes?: readonly ProjectHyprnavScope[];
 }): void {
@@ -156,10 +164,11 @@ export function recordActiveHyprnavPublication(input: {
 
 export function markActiveHyprnavPublicationAttempt(input: {
   readonly history: HyprnavPublicationHistory;
-  readonly target: ActiveHyprnavSyncTarget;
+  readonly target: HyprnavPublicationTarget;
   readonly settings: ProjectHyprnavSettings;
+  readonly scopes?: readonly ProjectHyprnavScope[];
 }): void {
-  for (const scope of HYPRNAV_SCOPES) {
+  for (const scope of input.scopes ?? HYPRNAV_SCOPES) {
     const key = publicationScopeKey(input.target, scope);
     const scoped = stateForScope(input.settings, scope);
     const signature = JSON.stringify(scoped);
@@ -253,6 +262,28 @@ export function persistHyprnavPublicationHistory(
   }
 }
 
+/** Shared renderer history used by active-thread and settings-triggered publication. */
+export const hyprnavPublicationHistory: HyprnavPublicationHistory = loadHyprnavPublicationHistory();
+
+export function hyprnavPublicationTargetFromRequest(
+  request: DesktopHyprnavSyncInput,
+): HyprnavPublicationTarget {
+  return {
+    projectRoot: request.projectRoot,
+    worktreePath: request.worktreePath ?? null,
+    threadId: request.threadId ? (request.threadId as ScopedThreadRef["threadId"]) : null,
+    threadTitle: request.threadTitle ?? null,
+  };
+}
+
+export function hyprnavPublicationScopesForRequest(
+  request: DesktopHyprnavSyncInput,
+): readonly ProjectHyprnavScope[] {
+  if (request.threadId) return ["thread"];
+  if (request.worktreePath) return ["worktree"];
+  return ["project", "worktree"];
+}
+
 export function isHyprnavDesktopRuntimeAvailable(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -268,10 +299,16 @@ export function resolveEffectiveHyprnavSettings(
 }
 
 export function resolveActiveHyprnavSyncTarget(input: {
+  readonly primaryEnvironmentId: EnvironmentId | null;
   readonly thread: EnvironmentThreadShell | null;
   readonly project: EnvironmentProject | null;
 }): ActiveHyprnavSyncTarget | null {
-  if (input.thread?.environmentId !== PRIMARY_LOCAL_ENVIRONMENT_ID) return null;
+  if (
+    input.primaryEnvironmentId === null ||
+    input.thread?.environmentId !== input.primaryEnvironmentId
+  ) {
+    return null;
+  }
   if (
     input.project?.environmentId !== input.thread.environmentId ||
     input.project.id !== input.thread.projectId
@@ -296,6 +333,22 @@ export function hyprnavNeedsCorkdiffConnection(settings: ProjectHyprnavSettings)
 
 export function hyprnavCredentialRefreshDelay(settings: ProjectHyprnavSettings): number | null {
   return hyprnavNeedsCorkdiffConnection(settings) ? HYPRNAV_CREDENTIAL_REFRESH_DELAY_MS : null;
+}
+
+export function hyprnavSyncNeedsScopeRetry(
+  request: DesktopHyprnavSyncInput,
+  result: DesktopHyprnavSyncResult,
+): boolean {
+  if (result.status !== "ok" || result.appliedScopes === undefined) return false;
+
+  const requestedScopes = new Set<ProjectHyprnavScope>([
+    ...request.hyprnav.bindings.map((binding) => binding.scope),
+    ...(request.clearBindings ?? []).map((binding) => binding.scope),
+    ...(request.clearNames ?? []).map((binding) => binding.scope),
+    ...(request.lock && request.threadId ? (["thread"] as const) : []),
+  ]);
+  const appliedScopes = new Set(result.appliedScopes);
+  return [...requestedScopes].some((scope) => !appliedScopes.has(scope));
 }
 
 export function waitForHyprnavRetry(delayMs: number): Promise<void> {
@@ -350,11 +403,18 @@ export async function syncHyprnavWithRetry(input: {
   input.onBeforeSync?.();
   let result = await input.sync(input.request);
   for (const delayMs of retryDelays) {
-    if (result.status === "ok") return result;
+    if (result.status === "ok" && !hyprnavSyncNeedsScopeRetry(input.request, result)) return result;
     await wait(delayMs);
     if (input.isCurrent && !input.isCurrent()) return superseded;
     input.onBeforeSync?.();
     result = await input.sync(input.request);
+  }
+  if (result.status === "ok" && hyprnavSyncNeedsScopeRetry(input.request, result)) {
+    return {
+      status: "error",
+      message: "Hyprnav did not apply every requested scope.",
+      ...(result.appliedScopes ? { appliedScopes: result.appliedScopes } : {}),
+    };
   }
   return result;
 }
@@ -368,13 +428,7 @@ export function getPrimaryDesktopBootstrap() {
 }
 
 export function attachHyprnavWebSocketTicket(wsBaseUrl: string, ticket: string): string {
-  const url = new URL(wsBaseUrl);
-  if (url.pathname === "" || url.pathname === "/") url.pathname = "/ws";
-  url.searchParams.delete("token");
-  url.searchParams.delete("wsToken");
-  url.searchParams.delete("wsTicket");
-  url.searchParams.set("token", ticket);
-  return url.toString();
+  return attachWebSocketTicket(wsBaseUrl, ticket, "token");
 }
 
 export async function resolveHyprnavCorkdiffConnection(): Promise<{
@@ -406,6 +460,31 @@ export function preferredEditorForHyprnav(
   return needsEditor ? resolvePreferredEditor(availableEditors) : null;
 }
 
+function isBatchWideRuntimeUnavailable(result: DesktopHyprnavSyncResult): boolean {
+  return (
+    result.status === "unavailable" &&
+    result.message === "hyprnav is not installed or not available in PATH."
+  );
+}
+
+function bindingNeedsCorkdiffConnection(
+  binding: ProjectHyprnavSettings["bindings"][number],
+): boolean {
+  return (
+    binding.action === "shell-command" &&
+    CORKDIFF_PLACEHOLDERS.some((placeholder) => binding.command.includes(placeholder))
+  );
+}
+
+function requestHasSyncWork(request: DesktopHyprnavSyncInput): boolean {
+  return (
+    request.hyprnav.bindings.length > 0 ||
+    (request.clearBindings?.length ?? 0) > 0 ||
+    (request.clearNames?.length ?? 0) > 0 ||
+    request.lock
+  );
+}
+
 export async function publishHyprnavRequests(input: {
   readonly requests: readonly DesktopHyprnavSyncInput[];
   readonly availableEditors: readonly EditorId[];
@@ -413,6 +492,10 @@ export async function publishHyprnavRequests(input: {
   readonly resolveCorkdiffConnection?: typeof resolveHyprnavCorkdiffConnection;
   readonly isCurrent?: () => boolean;
   readonly onBeforeSync?: (request: DesktopHyprnavSyncInput) => void;
+  readonly onAfterSync?: (
+    request: DesktopHyprnavSyncInput,
+    result: DesktopHyprnavSyncResult,
+  ) => void;
 }): Promise<DesktopHyprnavSyncResult> {
   const sync = window.desktopBridge?.syncHyprnavEnvironment;
   if (typeof sync !== "function") {
@@ -427,32 +510,122 @@ export async function publishHyprnavRequests(input: {
     input.availableEditors,
     input.resolvePreferredEditor,
   );
-  const needsCorkdiff = input.requests.some(
-    (request) => Boolean(request.threadId) && hyprnavNeedsCorkdiffConnection(request.hyprnav),
-  );
-  const corkdiffConnection = needsCorkdiff
-    ? await (input.resolveCorkdiffConnection ?? resolveHyprnavCorkdiffConnection)()
-    : null;
-
   const appliedScopes = new Set<ProjectHyprnavScope>();
+  let firstFailure: DesktopHyprnavSyncResult | null = null;
+  let cachedCorkdiffConnection: Awaited<
+    ReturnType<typeof resolveHyprnavCorkdiffConnection>
+  > | null = null;
+  let corkdiffConnectionFailure: DesktopHyprnavSyncResult | null = null;
+  let runtimeUnavailableFailure: DesktopHyprnavSyncResult | null = null;
+  const recordSkippedFailure = (
+    request: DesktopHyprnavSyncInput,
+    result: DesktopHyprnavSyncResult,
+  ) => {
+    input.onBeforeSync?.(request);
+    input.onAfterSync?.(request, result);
+    firstFailure ??= result;
+  };
   for (const request of input.requests) {
     if (input.isCurrent && !input.isCurrent()) {
       return { status: "error", message: "Hyprnav publication superseded." };
     }
-    const result = await syncHyprnavWithRetry({
-      sync,
-      request: { ...request, preferredEditor, corkdiffConnection },
-      ...(input.isCurrent ? { isCurrent: input.isCurrent } : {}),
-      ...(input.onBeforeSync ? { onBeforeSync: () => input.onBeforeSync?.(request) } : {}),
-    });
-    if (result.status !== "ok") return result;
+    let syncRequest = request;
+    const omitBindings = (
+      predicate: (binding: ProjectHyprnavSettings["bindings"][number]) => boolean,
+      failure: DesktopHyprnavSyncResult,
+    ) => {
+      const omitted = syncRequest.hyprnav.bindings.filter(predicate);
+      const bindings = syncRequest.hyprnav.bindings.filter((binding) => !predicate(binding));
+      if (bindings.length === syncRequest.hyprnav.bindings.length) return;
+      firstFailure ??= failure;
+      const clearBindings = [
+        ...new Map(
+          [
+            ...(syncRequest.clearBindings ?? []),
+            ...omitted.map((binding) => ({ scope: binding.scope, slot: binding.slot })),
+          ].map((binding) => [`${binding.scope}:${String(binding.slot)}`, binding]),
+        ).values(),
+      ];
+      syncRequest = { ...syncRequest, hyprnav: { bindings }, clearBindings };
+    };
+
+    if (!syncRequest.threadId) {
+      omitBindings(
+        (binding) =>
+          binding.action === "shell-command" && binding.command.includes("{corkdiffLaunchCommand}"),
+        {
+          status: "error",
+          message: "Hyprnav command requires {corkdiffLaunchCommand} for this scope.",
+        },
+      );
+    }
+
+    const needsCorkdiff = syncRequest.hyprnav.bindings.some(bindingNeedsCorkdiffConnection);
+    let corkdiffConnection: Awaited<ReturnType<typeof resolveHyprnavCorkdiffConnection>> | null =
+      cachedCorkdiffConnection;
+    if (needsCorkdiff && corkdiffConnectionFailure) {
+      omitBindings(bindingNeedsCorkdiffConnection, corkdiffConnectionFailure);
+    } else if (needsCorkdiff && !corkdiffConnection) {
+      try {
+        corkdiffConnection = await (
+          input.resolveCorkdiffConnection ?? resolveHyprnavCorkdiffConnection
+        )();
+        cachedCorkdiffConnection = corkdiffConnection;
+      } catch (error) {
+        corkdiffConnectionFailure = {
+          status: "error",
+          message:
+            error instanceof Error ? error.message : "Could not resolve Corkdiff credentials.",
+        };
+        omitBindings(bindingNeedsCorkdiffConnection, corkdiffConnectionFailure);
+      }
+    }
+    const needsEditor = syncRequest.hyprnav.bindings.some(
+      (binding) => binding.action === "open-favorite-editor",
+    );
+    if (needsEditor && preferredEditor === null) {
+      omitBindings((binding) => binding.action === "open-favorite-editor", {
+        status: "unavailable",
+        message: "No available favorite editor is configured.",
+      });
+    }
+    if (!requestHasSyncWork(syncRequest)) continue;
+    if (runtimeUnavailableFailure) {
+      recordSkippedFailure(syncRequest, runtimeUnavailableFailure);
+      continue;
+    }
+    let result: DesktopHyprnavSyncResult;
+    try {
+      result = await syncHyprnavWithRetry({
+        sync,
+        request: { ...syncRequest, preferredEditor, corkdiffConnection },
+        ...(input.isCurrent ? { isCurrent: input.isCurrent } : {}),
+        ...(input.onBeforeSync ? { onBeforeSync: () => input.onBeforeSync?.(syncRequest) } : {}),
+      });
+    } catch (error) {
+      result = {
+        status: "error",
+        message: error instanceof Error ? error.message : "Hyprnav synchronization failed.",
+      };
+    }
+    input.onAfterSync?.(syncRequest, result);
+    if (result.status !== "ok") {
+      firstFailure ??= result;
+      if (isBatchWideRuntimeUnavailable(result)) runtimeUnavailableFailure = result;
+      continue;
+    }
     const fallbackScopes = [
-      ...request.hyprnav.bindings.map((binding) => binding.scope),
-      ...(request.clearBindings ?? []).map((binding) => binding.scope),
-      ...(request.clearNames ?? []).map((binding) => binding.scope),
-      ...(request.lock ? (["thread"] as const) : []),
+      ...syncRequest.hyprnav.bindings.map((binding) => binding.scope),
+      ...(syncRequest.clearBindings ?? []).map((binding) => binding.scope),
+      ...(syncRequest.clearNames ?? []).map((binding) => binding.scope),
+      ...(syncRequest.lock ? (["thread"] as const) : []),
     ];
     for (const scope of result.appliedScopes ?? fallbackScopes) appliedScopes.add(scope);
+  }
+  if (firstFailure) {
+    return appliedScopes.size > 0
+      ? { ...firstFailure, appliedScopes: [...appliedScopes] }
+      : firstFailure;
   }
   return {
     status: "ok",

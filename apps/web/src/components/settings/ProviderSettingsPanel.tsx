@@ -786,9 +786,9 @@ export function EnvironmentProviderSettings({
       >[0]["textGenerationModelSelection"];
     },
   ) => {
-    updateSettings(
+    updateSettings((currentSettings) =>
       buildProviderInstanceUpdatePatch({
-        settings,
+        settings: currentSettings,
         instanceId: row.instanceId,
         instance: next,
         driver: row.driver,
@@ -799,9 +799,9 @@ export function EnvironmentProviderSettings({
   };
 
   const deleteProviderInstance = (id: ProviderInstanceId) => {
-    updateSettings({
-      providerInstances: withoutProviderInstanceKey(settings.providerInstances, id),
-    });
+    updateSettings((currentSettings) => ({
+      providerInstances: withoutProviderInstanceKey(currentSettings.providerInstances, id),
+    }));
   };
 
   const updateProviderModelPreferences = (
@@ -813,18 +813,20 @@ export function EnvironmentProviderSettings({
   ) => {
     const hiddenModels = [...new Set(next.hiddenModels.filter((slug) => slug.trim().length > 0))];
     const modelOrder = [...new Set(next.modelOrder.filter((slug) => slug.trim().length > 0))];
-    const rest = withoutProviderInstanceKey(settings.providerModelPreferences, instanceId);
-    updateSettings({
-      providerModelPreferences:
-        hiddenModels.length === 0 && modelOrder.length === 0
-          ? rest
-          : {
-              ...rest,
-              [instanceId]: {
-                hiddenModels,
-                modelOrder,
+    updateSettings((currentSettings) => {
+      const rest = withoutProviderInstanceKey(currentSettings.providerModelPreferences, instanceId);
+      return {
+        providerModelPreferences:
+          hiddenModels.length === 0 && modelOrder.length === 0
+            ? rest
+            : {
+                ...rest,
+                [instanceId]: {
+                  hiddenModels,
+                  modelOrder,
+                },
               },
-            },
+      };
     });
   };
 
@@ -840,12 +842,12 @@ export function EnvironmentProviderSettings({
         }),
       ),
     ];
-    updateSettings({
+    updateSettings((currentSettings) => ({
       favorites: [
-        ...withoutProviderInstanceFavorites(settings.favorites ?? [], instanceId),
+        ...withoutProviderInstanceFavorites(currentSettings.favorites ?? [], instanceId),
         ...favoriteModels.map((model) => ({ provider: instanceId, model })),
       ],
-    });
+    }));
   };
 
   const resetDefaultInstance = (driverKind: ProviderDriverKind) => {
@@ -857,13 +859,16 @@ export function EnvironmentProviderSettings({
     const defaultInstanceId = defaultInstanceIdForDriver(driverKind);
     const defaultLegacyProvider = defaultLegacyProviders[driverKind];
     if (defaultLegacyProvider === undefined) return;
-    updateSettings({
+    updateSettings((currentSettings) => ({
       providers: {
-        ...settings.providers,
+        ...currentSettings.providers,
         [driverKind]: defaultLegacyProvider,
       } as typeof settings.providers,
-      providerInstances: withoutProviderInstanceKey(settings.providerInstances, defaultInstanceId),
-    });
+      providerInstances: withoutProviderInstanceKey(
+        currentSettings.providerInstances,
+        defaultInstanceId,
+      ),
+    }));
   };
 
   const renderProviderInstance = (row: InstanceRow, mode: "list" | "editor") => {

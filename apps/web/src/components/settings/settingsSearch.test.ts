@@ -235,4 +235,11 @@ describe("searchSettings", () => {
       targetId: "browser-profiles",
     });
   });
+
+  it("exposes Hyprnav through the current settings navigation", () => {
+    expect(searchSettings("hyprnav")[0]).toMatchObject({
+      id: "hyprnav",
+      to: "/settings/hyprnav",
+    });
+  });
 });
