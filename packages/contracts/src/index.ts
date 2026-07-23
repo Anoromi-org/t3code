@@ -18,6 +18,7 @@ export * from "./providerUsageLimits.ts";
 export * from "./usageLimitSourceId.ts";
 export * from "./model.ts";
 export * from "./keybindings.ts";
+export * from "./hyprnav.ts";
 export * from "./server.ts";
 export * from "./settings.ts";
 export * from "./git.ts";

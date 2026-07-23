@@ -9,7 +9,14 @@
  */
 
 import * as Migrator from "effect/unstable/sql/Migrator";
+import * as Cause from "effect/Cause";
+import type * as Duration from "effect/Duration";
+import * as Layer from "effect/Layer";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Semaphore from "effect/Semaphore";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlError from "effect/unstable/sql/SqlError";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -59,6 +66,9 @@ import Migration0044 from "./Migrations/044_ClearAutomaticProjectModelDefaults.t
 import Migration0045 from "./Migrations/045_ProjectionProjectsAutoPull.ts";
 import Migration0046 from "./Migrations/046_RepairAutomaticSettlementTimestamps.ts";
 import Migration0047 from "./Migrations/047_ProjectionProjectIcon.ts";
+import Migration0049 from "./Migrations/049_RepairForkMigrationCompatibilityV2.ts";
+import { prepareForkMigrationPrerequisites } from "./Migrations/048_RepairForkMigrationCompatibility.ts";
+import { hasForkMigrationLedger } from "./Migrations/046_RepairProjectionThreadLatestTurnIds.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -118,6 +128,7 @@ export const migrationEntries = [
   [45, "ProjectionProjectsAutoPull", Migration0045],
   [46, "RepairAutomaticSettlementTimestamps", Migration0046],
   [47, "ProjectionProjectIcon", Migration0047],
+  [49, "RepairForkMigrationCompatibilityV2", Migration0049],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -136,10 +147,106 @@ export const makeMigrationLoader = (throughId?: number) =>
  * Uses the base Migrator.make without platform dependencies
  */
 const run = Migrator.make({});
+const migrationSemaphore = Semaphore.makeUnsafe(1);
+
+const hasDivergentMigrationLedger = Effect.fn("hasDivergentMigrationLedger")(function* (
+  sql: SqlClient.SqlClient,
+) {
+  if (yield* hasForkMigrationLedger(sql)) return true;
+  const rows = yield* sql<{ readonly migrationId: number; readonly name: string }>`
+    SELECT migration_id AS "migrationId", name FROM effect_sql_migrations
+    WHERE migration_id BETWEEN 41 AND 47
+  `;
+  return rows.some(
+    (row) => migrationManifest.find(([id]) => id === row.migrationId)?.[1] !== row.name,
+  );
+});
+
+const prepareForkCompatibility = Effect.fn("prepareForkCompatibility")(function* (
+  sql: SqlClient.SqlClient,
+  throughId: number,
+) {
+  yield* sql`
+    UPDATE effect_sql_migrations
+    SET created_at = created_at
+    WHERE migration_id = (SELECT MIN(migration_id) FROM effect_sql_migrations)
+  `;
+  const compatibilityMigration = yield* sql<{ readonly exists: number }>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM effect_sql_migrations
+      WHERE migration_id = 49
+    ) AS "exists"
+  `;
+  if (compatibilityMigration[0]?.exists !== 1 && (yield* hasDivergentMigrationLedger(sql))) {
+    yield* prepareForkMigrationPrerequisites(sql, throughId);
+  }
+});
+
+const prepareForkCompatibilityLocked = (sql: SqlClient.SqlClient, throughId: number) =>
+  Effect.acquireUseRelease(
+    sql`BEGIN IMMEDIATE`.unprepared,
+    () => prepareForkCompatibility(sql, throughId),
+    (_, exit) =>
+      (Exit.isSuccess(exit) ? sql`COMMIT`.unprepared : sql`ROLLBACK`.unprepared).pipe(Effect.orDie),
+  );
 
 export interface RunMigrationsOptions {
   readonly toMigrationInclusive?: number | undefined;
 }
+
+const SQLITE_BUSY_SNAPSHOT = 517;
+const SQLITE_BUSY = 5;
+const MAX_SNAPSHOT_BUSY_RETRIES = 4;
+
+const isSqliteBusySnapshot = (error: unknown): boolean => {
+  if (SqlError.isSqlError(error)) {
+    return isSqliteBusySnapshot(error.reason.cause);
+  }
+  if (error instanceof Migrator.MigrationError) {
+    return isSqliteBusySnapshot(error.cause);
+  }
+  if (typeof error !== "object" || error === null) return false;
+
+  const sqliteError = error as {
+    readonly code?: unknown;
+    readonly errcode?: unknown;
+    readonly errno?: unknown;
+  };
+  return (
+    sqliteError.code === "SQLITE_BUSY_SNAPSHOT" ||
+    sqliteError.code === "SQLITE_BUSY" ||
+    sqliteError.errcode === SQLITE_BUSY_SNAPSHOT ||
+    sqliteError.errcode === SQLITE_BUSY ||
+    sqliteError.errno === SQLITE_BUSY_SNAPSHOT ||
+    sqliteError.errno === SQLITE_BUSY
+  );
+};
+
+const causeContainsSqliteBusySnapshot = (cause: Cause.Cause<unknown>): boolean =>
+  cause.reasons.some((reason) => {
+    if (Cause.isFailReason(reason)) return isSqliteBusySnapshot(reason.error);
+    if (Cause.isDieReason(reason)) return isSqliteBusySnapshot(reason.defect);
+    return false;
+  });
+
+export const retryOnSqliteBusySnapshot = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  retriesRemaining = MAX_SNAPSHOT_BUSY_RETRIES,
+  retryDelay: Duration.Input = "25 millis",
+): Effect.Effect<A, E, R> =>
+  effect.pipe(
+    Effect.catchCause((cause) => {
+      if (retriesRemaining === 0 || !causeContainsSqliteBusySnapshot(cause)) {
+        return Effect.failCause(cause);
+      }
+      return Effect.logWarning("Retrying migrations after concurrent SQLite contention").pipe(
+        Effect.annotateLogs({ retriesRemaining }),
+        Effect.andThen(Effect.sleep(retryDelay)),
+        Effect.andThen(retryOnSqliteBusySnapshot(effect, retriesRemaining - 1, retryDelay)),
+      );
+    }),
+  );
 
 /**
  * Run all pending migrations.
@@ -151,9 +258,43 @@ export interface RunMigrationsOptions {
  *
  * @returns Effect containing array of executed migrations
  */
-export const runMigrations = Effect.fn("runMigrations")(function* ({
+const runMigrationsAttempt = Effect.fn("runMigrationsAttempt")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  yield* Effect.log(
+    toMigrationInclusive === undefined
+      ? "Running all migrations..."
+      : `Running migrations 1 through ${toMigrationInclusive}...`,
+  );
+  const sql = yield* SqlClient.SqlClient;
+  const migrationLedger = yield* sql<{ readonly exists: number }>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'effect_sql_migrations'
+    ) AS "exists"
+  `;
+  if (migrationLedger[0]?.exists === 1) {
+    const latestMigration = yield* sql<{ readonly migrationId: number }>`
+      SELECT COALESCE(MAX(migration_id), 0) AS "migrationId"
+      FROM effect_sql_migrations
+    `;
+    const latestMigrationId = latestMigration[0]?.migrationId ?? 0;
+    const compatibilityThroughId =
+      toMigrationInclusive === undefined
+        ? latestMigrationId
+        : Math.min(latestMigrationId, toMigrationInclusive);
+    const compatibilityMigration = yield* sql<{ readonly exists: number }>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM effect_sql_migrations
+        WHERE migration_id = 49
+      ) AS "exists"
+    `;
+    if (compatibilityMigration[0]?.exists !== 1 && (yield* hasDivergentMigrationLedger(sql))) {
+      yield* prepareForkCompatibilityLocked(sql, compatibilityThroughId);
+    }
+  }
   const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
@@ -161,3 +302,30 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
   return executedMigrations;
 });
+
+export const runMigrationsUnserialized = Effect.fn("runMigrationsUnserialized")(
+  (options: RunMigrationsOptions = {}) => retryOnSqliteBusySnapshot(runMigrationsAttempt(options)),
+);
+
+export const runMigrations = Effect.fn("runMigrations")((options: RunMigrationsOptions = {}) =>
+  migrationSemaphore.withPermit(runMigrationsUnserialized(options)),
+);
+
+/**
+ * Layer that runs migrations when the layer is built.
+ *
+ * Use this to ensure migrations run before your application starts.
+ * Migrations are run automatically - no separate script is needed.
+ *
+ * @example
+ * ```typescript
+ * import { MigrationsLive } from "@acme/db/Migrations"
+ * import * as SqliteClient from "@acme/db/SqliteClient"
+ *
+ * // Migrations run automatically when SqliteClient is provided
+ * const AppLayer = MigrationsLive.pipe(
+ *   Layer.provideMerge(SqliteClient.layer({ filename: "database.sqlite" }))
+ * )
+ * ```
+ */
+export const MigrationsLive = Layer.effectDiscard(runMigrations());

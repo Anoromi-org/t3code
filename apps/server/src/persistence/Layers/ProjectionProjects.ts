@@ -43,6 +43,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           favicon_path,
           project_icon_json,
           scripts_json,
+          hyprnav_json,
           created_at,
           updated_at,
           deleted_at
@@ -57,6 +58,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.faviconPath ?? null},
           ${row.projectIcon ? JSON.stringify(row.projectIcon) : null},
           ${JSON.stringify(row.scripts)},
+          'null',
           ${row.createdAt},
           ${row.updatedAt},
           ${row.deletedAt}
