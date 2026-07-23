@@ -17,6 +17,7 @@ import {
 
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { buildNavigationCommandResults } from "./NavigationCommandMenu.logic";
+import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
 import {
   CommandDialog,
   CommandDialogPopup,
@@ -172,15 +173,23 @@ export function NavigationCommandMenu(props: {
                         <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{item.title}</span>
+                        <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                          {item.type === "thread" ? (
+                            <ThreadRowLeadingStatus thread={item.thread} />
+                          ) : null}
+                          <span className="truncate">{item.title}</span>
+                        </span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {item.type === "thread" ? item.projectTitle : item.workspaceRoot}
                         </span>
                       </span>
                       {item.type === "thread" ? (
-                        <CommandShortcut className="shrink-0 tracking-normal">
-                          {formatRelativeTimeLabel(item.recencyAt)}
-                        </CommandShortcut>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <ThreadRowTrailingStatus thread={item.thread} />
+                          <CommandShortcut className="tracking-normal">
+                            {formatRelativeTimeLabel(item.recencyAt)}
+                          </CommandShortcut>
+                        </span>
                       ) : (
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {item.hasDraft ? "Open draft" : "New thread"}

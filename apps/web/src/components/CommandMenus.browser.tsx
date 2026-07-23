@@ -71,12 +71,33 @@ const THREAD = {
   createdAt: "2026-07-10T10:00:00.000Z",
   updatedAt: "2026-07-11T10:00:00.000Z",
   archivedAt: null,
-  session: null,
+  session: { status: "running", activeTurnId: "turn-menu-test" },
   latestUserMessageAt: "2026-07-11T10:00:00.000Z",
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
 };
+const STATUS_THREADS = [
+  THREAD,
+  {
+    ...THREAD,
+    id: "thread-menu-approval",
+    title: "Approval status thread",
+    hasPendingApprovals: true,
+  },
+  {
+    ...THREAD,
+    id: "thread-menu-input",
+    title: "Input status thread",
+    hasPendingUserInput: true,
+  },
+  {
+    ...THREAD,
+    id: "thread-menu-connecting",
+    title: "Connecting status thread",
+    session: { status: "starting", activeTurnId: null },
+  },
+];
 
 vi.mock("../state/entities", async () => {
   const actual = await vi.importActual<typeof import("../state/entities")>("../state/entities");
@@ -87,7 +108,7 @@ vi.mock("../state/entities", async () => {
     useProjects: () => [PROJECT],
     useThread: () => null,
     useThreadShell: () => null,
-    useThreadShells: () => [THREAD],
+    useThreadShells: () => STATUS_THREADS,
   };
 });
 
@@ -157,12 +178,15 @@ vi.mock("../connection/useDesktopLocalBootstraps", () => ({
   useDesktopLocalBootstraps: () => [],
 }));
 vi.mock("../state/environments", () => ({
-  useEnvironment: () => null,
+  useEnvironment: () => ({ label: "Remote Test" }),
   useEnvironmentHttpBaseUrl: () => null,
   useEnvironments: () => ({ environments: [] }),
   usePrimaryEnvironment: () => null,
-  usePrimaryEnvironmentId: () => null,
+  usePrimaryEnvironmentId: () => "primary-environment",
   useRelayEnvironmentDiscovery: () => ({ data: [] }),
+}));
+vi.mock("../state/terminalSessions", () => ({
+  useThreadRunningTerminalIds: () => ["terminal-status-test"],
 }));
 vi.mock("../state/query", () => ({
   useEnvironmentQuery: () => ({ data: null, error: null, isPending: false }),
@@ -231,6 +255,14 @@ describe("keyboard command menus", () => {
       await expect
         .element(page.getByRole("dialog", { name: "Navigation command menu" }))
         .toBeInTheDocument();
+      await expect.element(page.getByLabelText("Working")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Pending Approval")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Awaiting Input")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Connecting")).toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Terminal process running").first())
+        .toBeInTheDocument();
+      await expect.element(page.getByLabelText("Remote Test").first()).toBeInTheDocument();
 
       const input = page.getByRole("combobox");
       await input.fill("navigation hotkeys");

@@ -96,6 +96,18 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedLocal.command, "chat.newLocal");
 
+    const parsedComposerFocus = yield* decode(KeybindingRule, {
+      key: "mod+shift+s",
+      command: "chat.composer.focus",
+    });
+    assert.strictEqual(parsedComposerFocus.command, "chat.composer.focus");
+
+    const parsedThreadInterrupt = yield* decode(KeybindingRule, {
+      key: "mod+shift+c",
+      command: "thread.interrupt",
+    });
+    assert.strictEqual(parsedThreadInterrupt.command, "thread.interrupt");
+
     const parsedModelPickerToggle = yield* decode(KeybindingRule, {
       key: "mod+shift+m",
       command: "modelPicker.toggle",

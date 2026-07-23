@@ -6,6 +6,7 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   formatShortcutLabel,
   isChatNewShortcut,
@@ -432,6 +433,29 @@ describe("shortcutLabelForCommand", () => {
         context: { terminalFocus: true },
       }),
       "Ctrl+D",
+    );
+  });
+});
+
+describe("default composer shortcuts", () => {
+  it("keeps stash and focus independently reachable", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "s", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "composer.stash",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "s", metaKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        {
+          platform: "MacIntel",
+          context: { terminalFocus: false },
+        },
+      ),
+      "chat.composer.focus",
     );
   });
 });

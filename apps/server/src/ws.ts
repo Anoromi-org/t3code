@@ -65,6 +65,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
+import { projectKeybindingsForClient } from "./keybindingsCompatibility.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
   projectActivityEvent,
@@ -356,6 +357,12 @@ const makeWsRpcLayer = (
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
+      const projectKeybindings = (config: Parameters<typeof projectKeybindingsForClient>[0]) =>
+        projectKeybindingsForClient(
+          config,
+          currentSession.client.deviceType,
+          currentSession.method,
+        );
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
@@ -1006,7 +1013,7 @@ const makeWsRpcLayer = (
           auth,
           cwd: config.cwd,
           keybindingsConfigPath: config.keybindingsConfigPath,
-          keybindings: keybindingsConfig.keybindings,
+          keybindings: projectKeybindings(keybindingsConfig.keybindings),
           issues: keybindingsConfig.issues,
           providers,
           availableEditors: yield* resolveAvailableEditorsForConfig(
@@ -1499,7 +1506,7 @@ const makeWsRpcLayer = (
             WS_METHODS.serverUpsertKeybinding,
             Effect.gen(function* () {
               const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
-              return { keybindings: keybindingsConfig, issues: [] };
+              return { keybindings: projectKeybindings(keybindingsConfig), issues: [] };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -1508,7 +1515,7 @@ const makeWsRpcLayer = (
             WS_METHODS.serverRemoveKeybinding,
             Effect.gen(function* () {
               const keybindingsConfig = yield* keybindings.removeKeybindingRule(rule);
-              return { keybindings: keybindingsConfig, issues: [] };
+              return { keybindings: projectKeybindings(keybindingsConfig), issues: [] };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -2154,7 +2161,7 @@ const makeWsRpcLayer = (
                   version: 1 as const,
                   type: "keybindingsUpdated" as const,
                   payload: {
-                    keybindings: event.keybindings,
+                    keybindings: projectKeybindings(event.keybindings),
                     issues: event.issues,
                   },
                 })),

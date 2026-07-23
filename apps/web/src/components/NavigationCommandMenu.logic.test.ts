@@ -37,7 +37,7 @@ describe("buildNavigationCommandResults", () => {
   it("shows recent threads when the query is empty", () => {
     expect(
       buildNavigationCommandResults({ query: "", projects: [project], threads: [thread] }),
-    ).toMatchObject([{ type: "thread", title: "Fix command hotkeys" }]);
+    ).toMatchObject([{ type: "thread", title: "Fix command hotkeys", thread }]);
   });
 
   it("labels every grouped sibling when their logical project has a draft", () => {

@@ -10,6 +10,10 @@ export type ComposerSlashCommand =
   | "reasoning"
   | "branch"
   | "worktree";
+export type ComposerStandaloneSlashCommand = Extract<
+  ComposerSlashCommand,
+  "plan" | "default" | "fast"
+>;
 export type ComposerMenuSlashCommand = Extract<
   ComposerSlashCommand,
   "reasoning" | "branch" | "worktree"
@@ -303,14 +307,31 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
 
 export function parseStandaloneComposerSlashCommand(
   text: string,
-): Extract<ComposerSlashCommand, "plan" | "default"> | null {
-  const match = /^\/(plan|default)\s*$/i.exec(text.trim());
+): ComposerStandaloneSlashCommand | null {
+  const match = /^\/(plan|default|fast)\s*$/i.exec(text.trim());
   if (!match) {
     return null;
   }
   const command = match[1]?.toLowerCase();
   if (command === "plan") return "plan";
+  if (command === "fast") return "fast";
   return "default";
+}
+
+export function canRunStandaloneComposerSlashCommand(input: {
+  imageCount: number;
+  terminalContextCount: number;
+  elementContextCount: number;
+  previewAnnotationCount: number;
+  reviewCommentCount: number;
+}): boolean {
+  return (
+    input.imageCount === 0 &&
+    input.terminalContextCount === 0 &&
+    input.elementContextCount === 0 &&
+    input.previewAnnotationCount === 0 &&
+    input.reviewCommentCount === 0
+  );
 }
 
 export function replaceTextRange(

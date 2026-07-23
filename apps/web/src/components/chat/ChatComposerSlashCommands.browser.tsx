@@ -106,7 +106,16 @@ const provider: ServerProvider = {
             ],
             promptInjectedValues: ["ultrathink"],
           },
-          { id: "fastMode", label: "Fast mode", type: "boolean", currentValue: false },
+          {
+            id: "serviceTier",
+            label: "Service Tier",
+            type: "select",
+            options: [
+              { id: "default", label: "Standard", isDefault: true },
+              { id: "priority", label: "Fast" },
+            ],
+            currentValue: "default",
+          },
         ],
       },
     },
@@ -180,11 +189,12 @@ async function mountComposer(
     activeRunContextBranch?: string | null;
     isRunContextBranchPending?: boolean;
     planModeEnabled?: boolean;
+    providerStatuses?: ReadonlyArray<ServerProvider>;
   } = {},
 ) {
   const composerRef = createRef<ChatComposerHandle>();
   const promptRef = { current: "" };
-  const onSend = vi.fn();
+  const onSend = vi.fn((event?: { preventDefault: () => void }) => event?.preventDefault());
   const onSelectRunContext =
     options.onSelectRunContext ?? vi.fn<ChatComposerProps["onSelectRunContext"]>(async () => true);
   const handleInteractionModeChange = vi.fn();
@@ -223,7 +233,7 @@ async function mountComposer(
       runtimeMode="full-access"
       interactionMode="default"
       lockedProvider={null}
-      providerStatuses={[provider]}
+      providerStatuses={[...(options.providerStatuses ?? [provider])]}
       activeProjectDefaultModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
       activeThreadModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
       activeThreadActivities={[]}
@@ -502,8 +512,76 @@ describe("composer slash commands", () => {
           useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.modelSelectionByProvider[
             INSTANCE_ID
           ]?.options,
-        ).toContainEqual({ id: "fastMode", value: true });
+        ).toContainEqual({ id: "serviceTier", value: "priority" });
+        expect(
+          useComposerDraftStore.getState().stickyModelSelectionByProvider[INSTANCE_ID]?.options,
+        ).toContainEqual({ id: "serviceTier", value: "priority" });
       });
+
+      await editor.fill("/fast");
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(() => {
+        expect(
+          useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.modelSelectionByProvider[
+            INSTANCE_ID
+          ]?.options,
+        ).toContainEqual({ id: "serviceTier", value: "default" });
+      });
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("leaves unsupported /fast available for normal submission", async () => {
+    const providerWithoutFast: ServerProvider = {
+      ...provider,
+      models: provider.models.map((model) => ({
+        ...model,
+        capabilities: { optionDescriptors: [] },
+      })),
+    };
+    const mounted = await mountComposer({ providerStatuses: [providerWithoutFast] });
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/fast");
+      await page.getByRole("button", { name: "Send message" }).click();
+      expect(mounted.onSend).toHaveBeenCalledTimes(1);
+      expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe("/fast");
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("submits /fast normally when composer context is attached", async () => {
+    const mounted = await mountComposer();
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/fast");
+      useComposerDraftStore.getState().setTerminalContexts(DRAFT_ID, [
+        {
+          id: "context-fast-test",
+          threadId: THREAD_ID,
+          terminalId: "default",
+          terminalLabel: "Terminal 1",
+          lineStart: 1,
+          lineEnd: 1,
+          text: "context",
+          createdAt: NOW,
+        },
+      ]);
+      await expect.element(page.getByRole("option", { name: /^\/fast/ })).not.toBeInTheDocument();
+      await editor.click();
+      await userEvent.keyboard("{Enter}");
+
+      expect(mounted.onSend).toHaveBeenCalledTimes(1);
+      expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toContain(
+        "/fast",
+      );
+      expect(
+        useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.modelSelectionByProvider[
+          INSTANCE_ID
+        ]?.options ?? [],
+      ).not.toContainEqual({ id: "serviceTier", value: "priority" });
     } finally {
       await mounted.screen.unmount();
     }
