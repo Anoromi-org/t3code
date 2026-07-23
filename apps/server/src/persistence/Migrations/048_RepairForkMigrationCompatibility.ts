@@ -29,11 +29,9 @@ import { ensureProjectionProjectHyprnavColumns } from "./042_ProjectionProjectsH
 import { normalizeProjectionProjectHyprnavRows } from "./043_NormalizeProjectHyprnavScopes.ts";
 import { restoreInheritedProjectHyprnavNulls } from "./044_RestoreInheritedProjectHyprnavNulls.ts";
 import { ensureProviderInstanceIdProjectionColumns } from "./045_RepairProviderInstanceIdProjectionColumns.ts";
-import {
-  hasForkMigrationLedger,
-  repairProjectionThreadLatestTurnIds,
-} from "./046_RepairProjectionThreadLatestTurnIds.ts";
+import { hasForkMigrationLedger } from "./046_RepairProjectionThreadLatestTurnIds.ts";
 import { ensureProviderSessionRuntimeIndexes } from "./047_ProviderSessionRuntimeIndexes.ts";
+import { repairProjectionThreadLatestTurnIds } from "../Repairs/ProjectionThreadLatestTurnIds.ts";
 
 const requiredPairingColumns = [
   "id",

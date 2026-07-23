@@ -7,19 +7,41 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { ProjectionProjectRepositoryLive } from "./ProjectionProjects.ts";
+import { ProjectionStateRepositoryLive } from "./ProjectionState.ts";
 import { ProjectionThreadRepositoryLive } from "./ProjectionThreads.ts";
 import { ProjectionProjectRepository } from "../Services/ProjectionProjects.ts";
+import { ProjectionStateRepository } from "../Services/ProjectionState.ts";
 import { ProjectionThreadRepository } from "../Services/ProjectionThreads.ts";
 
 const projectionRepositoriesLayer = it.layer(
   Layer.mergeAll(
     ProjectionProjectRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
+    ProjectionStateRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     ProjectionThreadRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     SqlitePersistenceMemory,
   ),
 );
 
 projectionRepositoriesLayer("Projection repositories", (it) => {
+  it.effect("excludes one-shot repair markers from the projector watermark", () =>
+    Effect.gen(function* () {
+      const projectionState = yield* ProjectionStateRepository;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`
+        INSERT INTO projection_state (projector, last_applied_sequence, updated_at)
+        VALUES
+          ('projection.projects', 12, '2026-03-24T00:00:12.000Z'),
+          ('projection.threads', 9, '2026-03-24T00:00:09.000Z'),
+          ('repair.projection-threads.latest-turn-preservation.v1', 0, '1970-01-01T00:00:00.000Z')
+      `;
+
+      assert.strictEqual(yield* projectionState.minLastAppliedSequence(), 9);
+      yield* sql`DELETE FROM projection_state WHERE projector LIKE 'projection.%'`;
+      assert.strictEqual(yield* projectionState.minLastAppliedSequence(), null);
+    }),
+  );
+
   it.effect("round-trips project Hyprnav overrides", () =>
     Effect.gen(function* () {
       const projects = yield* ProjectionProjectRepository;

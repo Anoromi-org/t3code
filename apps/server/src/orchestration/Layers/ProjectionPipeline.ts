@@ -1,6 +1,8 @@
 import {
   ApprovalRequestId,
   type ChatAttachment,
+  IsoDateTime,
+  NonNegativeInt,
   type OrchestrationEvent,
   type OrchestrationSessionStatus,
   ThreadId,
@@ -43,6 +45,7 @@ import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/La
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
+import { repairProjectionThreadLatestTurnIds } from "../../persistence/Repairs/ProjectionThreadLatestTurnIds.ts";
 import { ServerConfig } from "../../config.ts";
 import {
   OrchestrationProjectionPipeline,
@@ -66,6 +69,9 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
 } as const;
+
+export const LATEST_TURN_PRESERVATION_REPAIR =
+  "repair.projection-threads.latest-turn-preservation.v1";
 
 type ProjectorName =
   (typeof ORCHESTRATION_PROJECTOR_NAMES)[keyof typeof ORCHESTRATION_PROJECTOR_NAMES];
@@ -1944,6 +1950,40 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           ),
         );
 
+    const repairSettledLatestTurnSummaries = projectionStateRepository
+      .getByProjector({ projector: LATEST_TURN_PRESERVATION_REPAIR })
+      .pipe(
+        Effect.flatMap(
+          Option.match({
+            onSome: () => Effect.void,
+            onNone: () =>
+              sql.withTransaction(
+                Effect.gen(function* () {
+                  yield* repairProjectionThreadLatestTurnIds(sql, { backfillMissing: false });
+                  const cursorRows = yield* sql<{
+                    readonly maxSequence: number;
+                    readonly updatedAt: string;
+                  }>`
+                    SELECT
+                      COALESCE(MAX(sequence), 0) AS "maxSequence",
+                      COALESCE(MAX(occurred_at), '1970-01-01T00:00:00.000Z') AS "updatedAt"
+                    FROM orchestration_events
+                  `;
+                  const cursor = cursorRows[0] ?? {
+                    maxSequence: 0,
+                    updatedAt: "1970-01-01T00:00:00.000Z",
+                  };
+                  yield* projectionStateRepository.upsert({
+                    projector: LATEST_TURN_PRESERVATION_REPAIR,
+                    lastAppliedSequence: NonNegativeInt.make(cursor.maxSequence),
+                    updatedAt: IsoDateTime.make(cursor.updatedAt),
+                  });
+                }),
+              ),
+          }),
+        ),
+      );
+
     const projectEventDeferred: OrchestrationProjectionPipelineShape["projectEventDeferred"] =
       Effect.fn("projectEventDeferred")(
         function* (event) {
@@ -1992,6 +2032,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       bootstrapProjector,
       { concurrency: 1 },
     ).pipe(
+      Effect.andThen(repairSettledLatestTurnSummaries),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.provideService(ServerConfig, serverConfig),
