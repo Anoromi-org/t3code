@@ -210,6 +210,16 @@ jobs:
             echo "> Apple closes an iOS release train after App Store approval. Before building iOS, confirm \`$version\` is newer than the approved App Store version."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Configure fork App Store submission
+        if: >-
+          steps.expo-token.outputs.present == 'true' &&
+          (github.event_name == 'push' ||
+            (inputs.mode == 'build' && inputs.platform != 'android'))
+        working-directory: apps/mobile
+        env:
+          MOBILE_IOS_ASC_APP_ID: ${{ vars.MOBILE_IOS_ASC_APP_ID }}
+        run: node scripts/configure-app-store-submission.mjs "$MOBILE_IOS_ASC_APP_ID"
+
       - name: Build and submit (manual)
         if: steps.expo-token.outputs.present == 'true' && github.event_name == 'workflow_dispatch' && inputs.mode == 'build'
         working-directory: apps/mobile

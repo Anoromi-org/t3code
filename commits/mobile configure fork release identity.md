@@ -1,0 +1,3 @@
+# Mobile configure fork release identity
+
+Reimplements source commit `6f6717ec64` on the pinned upstream mobile configuration. Use the fork's Anoromi iOS bundle identifiers, Apple team, Expo owner/project, and update endpoint while preserving upstream assets, widgets, Android identities, release variants, and the reduced-capability personal-team override. Do not submit fork builds to upstream's App Store record or claim upstream's unauthorized Clerk associated domain; CI injects a numeric fork App Store ID while explicitly rejecting upstream's known ID, and associated domains require an explicit AASA-authorized hostname. Configuration tests cover all variants, store submission identity, associated-domain gating, the personal-team path, and invalid identifiers.
