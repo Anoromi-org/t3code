@@ -106,7 +106,9 @@ export const make = Effect.gen(function* () {
   const writeDesktopEntry = Effect.gen(function* () {
     // Inside the mounted AppImage, process.execPath points at a transient
     // /tmp/.mount_* path — the handler must launch the AppImage itself.
-    const execTarget = Option.getOrElse(environment.appImagePath, () => process.execPath);
+    const execTarget = Option.getOrElse(environment.linuxUrlHandlerExecTarget, () =>
+      Option.getOrElse(environment.appImagePath, () => process.execPath),
+    );
     yield* fileSystem.makeDirectory(environment.linuxApplicationsDir, { recursive: true });
     yield* fileSystem.writeFileString(
       desktopEntryPath,

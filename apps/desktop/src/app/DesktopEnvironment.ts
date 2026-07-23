@@ -76,6 +76,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly linuxWmClass: string;
     readonly linuxApplicationsDir: string;
     readonly appImagePath: Option.Option<string>;
+    readonly linuxUrlHandlerExecTarget: Option.Option<string>;
     readonly userDataDirName: string;
     readonly legacyUserDataDirName: string;
     readonly defaultDesktopSettings: DesktopAppSettings.DesktopSettings;
@@ -226,10 +227,13 @@ const make = Effect.fn("desktop.environment.make")(function* (
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
       isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code",
     ),
-    linuxDesktopEntryName: isDevelopment ? "t3code-dev.desktop" : "t3code.desktop",
+    linuxDesktopEntryName: Option.getOrElse(config.linuxDesktopEntryNameOverride, () =>
+      isDevelopment ? "t3code-dev.desktop" : "t3code.desktop",
+    ),
     linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
     linuxApplicationsDir,
     appImagePath: config.appImagePath,
+    linuxUrlHandlerExecTarget: config.linuxUrlHandlerExecTarget,
     userDataDirName,
     legacyUserDataDirName,
     defaultDesktopSettings: DesktopAppSettings.resolveDefaultDesktopSettings(input.appVersion),

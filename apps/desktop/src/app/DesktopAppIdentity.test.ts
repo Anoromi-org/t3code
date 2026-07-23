@@ -33,6 +33,8 @@ type TestEnvironmentInput = Partial<DesktopEnvironment.MakeDesktopEnvironmentInp
 
 interface ElectronAppCalls {
   readonly setAboutPanelOptions: Array<Electron.AboutPanelOptionsOptions>;
+  readonly setAsDefaultProtocolClient: string[];
+  readonly setDesktopName: string[];
   readonly setDockIcon: string[];
   readonly setName: string[];
 }
@@ -58,8 +60,15 @@ const makeElectronAppLayer = (calls: ElectronAppCalls) =>
     setAppUserModelId: () => Effect.void,
     getAppMetrics: Effect.succeed([]),
     isDefaultProtocolClient: () => Effect.succeed(false),
-    setAsDefaultProtocolClient: () => Effect.succeed(true),
-    setDesktopName: () => Effect.void,
+    setAsDefaultProtocolClient: (protocol) =>
+      Effect.sync(() => {
+        calls.setAsDefaultProtocolClient.push(protocol);
+        return true;
+      }),
+    setDesktopName: (name) =>
+      Effect.sync(() => {
+        calls.setDesktopName.push(name);
+      }),
     setDockIcon: (iconPath) =>
       Effect.sync(() => {
         calls.setDockIcon.push(iconPath);
@@ -118,6 +127,8 @@ const withIdentity = <A, E, R>(
 ) => {
   const calls: ElectronAppCalls = input.calls ?? {
     setAboutPanelOptions: [],
+    setAsDefaultProtocolClient: [],
+    setDesktopName: [],
     setDockIcon: [],
     setName: [],
   };
@@ -188,6 +199,8 @@ describe("DesktopAppIdentity", () => {
   it.effect("configures app identity from the environment commit override", () => {
     const calls: ElectronAppCalls = {
       setAboutPanelOptions: [],
+      setAsDefaultProtocolClient: [],
+      setDesktopName: [],
       setDockIcon: [],
       setName: [],
     };
@@ -220,6 +233,8 @@ describe("DesktopAppIdentity", () => {
   it.effect("sets the dock icon only when running unpackaged", () => {
     const calls: ElectronAppCalls = {
       setAboutPanelOptions: [],
+      setAsDefaultProtocolClient: [],
+      setDesktopName: [],
       setDockIcon: [],
       setName: [],
     };
@@ -237,6 +252,34 @@ describe("DesktopAppIdentity", () => {
         calls,
         environment: { isPackaged: false },
         pngIconPath: Option.some("/icon.png"),
+      },
+    );
+  });
+  it.effect("re-registers the Linux protocol handler after applying a desktop override", () => {
+    const calls: ElectronAppCalls = {
+      setAboutPanelOptions: [],
+      setAsDefaultProtocolClient: [],
+      setDesktopName: [],
+      setDockIcon: [],
+      setName: [],
+    };
+
+    return withIdentity(
+      Effect.gen(function* () {
+        const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
+        yield* identity.configure;
+
+        assert.deepEqual(calls.setDesktopName, ["custom-t3code.desktop"]);
+        assert.deepEqual(calls.setAsDefaultProtocolClient, ["t3code"]);
+      }),
+      {
+        calls,
+        environment: {
+          platform: "linux",
+          env: {
+            T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME: "custom-t3code.desktop",
+          },
+        },
       },
     );
   });

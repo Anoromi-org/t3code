@@ -98,6 +98,14 @@ const addScopedAppListener = <Args extends ReadonlyArray<unknown>>(
       }),
   ).pipe(Effect.asVoid);
 
+export const resolveIsPackaged = (
+  electronIsPackaged: boolean,
+  forcePackaged: string | undefined,
+): boolean => electronIsPackaged || forcePackaged === "1";
+
+const isPackaged = (): boolean =>
+  resolveIsPackaged(Electron.app.isPackaged, process.env.T3CODE_DESKTOP_FORCE_PACKAGED);
+
 export const make = ElectronApp.of({
   metadata: Effect.gen(function* () {
     const appVersion = yield* Effect.try({
@@ -120,7 +128,7 @@ export const make = ElectronApp.of({
     return {
       appVersion,
       appPath,
-      isPackaged: Electron.app.isPackaged,
+      isPackaged: isPackaged(),
       resourcesPath: process.resourcesPath,
       runningUnderArm64Translation: Electron.app.runningUnderARM64Translation === true,
     };
@@ -131,10 +139,10 @@ export const make = ElectronApp.of({
   // the tag is normalized here rather than in the renderer that consumes it.
   systemLocale: Effect.sync(() => Electron.app.getSystemLocale().replace(/_/g, "-")),
   whenReady: Effect.gen(function* () {
-    const isPackaged = Electron.app.isPackaged;
+    const packaged = isPackaged();
     yield* Effect.tryPromise({
       try: () => Electron.app.whenReady(),
-      catch: (cause) => new ElectronAppWhenReadyError({ isPackaged, cause }),
+      catch: (cause) => new ElectronAppWhenReadyError({ isPackaged: packaged, cause }),
     });
   }),
   quit: Effect.sync(() => {

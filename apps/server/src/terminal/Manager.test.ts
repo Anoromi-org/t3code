@@ -1736,6 +1736,34 @@ it.layer(
     }),
   );
 
+  it.effect("passes the restored user shell environment to the PTY without Nix prompt poison", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        env: {
+          HOME: "/home/user",
+          PATH: "/home/user/bin:/usr/bin",
+          SHELL: "/bin/bash",
+          USER_LAUNCH_MARKER: "captured-before-nix",
+        },
+      });
+      yield* manager.open(openInput());
+      const spawnInput = ptyAdapter.spawnInputs[0];
+      expect(spawnInput).toBeDefined();
+      if (!spawnInput) return;
+
+      expect(spawnInput.shell).toBe("/bin/bash");
+      expect(spawnInput.env).toMatchObject({
+        HOME: "/home/user",
+        PATH: "/home/user/bin:/usr/bin",
+        SHELL: "/bin/bash",
+        USER_LAUNCH_MARKER: "captured-before-nix",
+      });
+      expect(spawnInput.env.NIX_BUILD_TOP).toBeUndefined();
+      expect(spawnInput.env.IN_NIX_SHELL).toBeUndefined();
+      expect(spawnInput.env.PS1).toBeUndefined();
+    }),
+  );
+
   it.effect("strips AppImage runtime env from terminal sessions", () =>
     Effect.gen(function* () {
       const appDir = "/tmp/.mount_T3Codeabc123";

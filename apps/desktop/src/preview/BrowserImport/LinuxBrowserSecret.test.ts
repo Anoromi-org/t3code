@@ -60,6 +60,20 @@ it.layer(NodeServices.layer)("Linux browser secret path", (it) => {
       assert.equal(yield* resolve(false), staged);
       yield* fileSystem.remove(packaged);
       assert.isUndefined(yield* resolve(true));
+      const nixHelper = path.join(
+        resourcesPath,
+        "app.asar",
+        "apps",
+        "desktop",
+        "resources",
+        "browser-secret",
+        "t3-browser-secret",
+      );
+      yield* fileSystem.makeDirectory(path.dirname(nixHelper), { recursive: true });
+      yield* fileSystem.writeFileString(nixHelper, "helper");
+      assert.equal(yield* resolve(true), nixHelper);
+      yield* fileSystem.remove(nixHelper);
+      assert.isUndefined(yield* resolve(true));
       assert.isUndefined(yield* resolve(false, "darwin"));
       assert.isUndefined(yield* resolve(false, "win32"));
       yield* fileSystem.remove(staged);

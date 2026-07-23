@@ -8,6 +8,7 @@ import {
   resolveDevProtocolClient,
   resolveElectronLaunchCommand,
 } from "./electron-launcher.mjs";
+import { resolveDesktopOzoneArgs, resolveDesktopOzoneEnv } from "./runtime-args.mjs";
 import { waitForResources } from "./wait-for-resources.mjs";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL?.trim();
@@ -50,7 +51,7 @@ await waitForResources({
   tcpPort: port,
 });
 
-const childEnv = { ...process.env };
+const childEnv = { ...process.env, ...resolveDesktopOzoneEnv(process.env) };
 delete childEnv.ELECTRON_RUN_AS_NODE;
 const devProtocolClient = resolveDevProtocolClient();
 if (devProtocolClient) {
@@ -88,9 +89,10 @@ function startApp() {
     return;
   }
 
-  const electronArgs = remoteDebuggingPort
-    ? [`--remote-debugging-port=${remoteDebuggingPort}`]
-    : [];
+  const electronArgs = [
+    ...resolveDesktopOzoneArgs(childEnv),
+    ...(remoteDebuggingPort ? [`--remote-debugging-port=${remoteDebuggingPort}`] : []),
+  ];
   const launchArgs = devProtocolClient
     ? electronArgs
     : [...electronArgs, `--t3code-dev-root=${desktopDir}`, "dist-electron/main.cjs"];

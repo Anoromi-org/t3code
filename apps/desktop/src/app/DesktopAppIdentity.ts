@@ -7,6 +7,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as ElectronApp from "../electron/ElectronApp.ts";
+import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as DesktopAssets from "./DesktopAssets.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
@@ -132,6 +133,12 @@ export const make = Effect.gen(function* () {
 
     if (environment.platform === "linux") {
       yield* electronApp.setDesktopName(environment.linuxDesktopEntryName);
+      // Clerk registers the OAuth scheme while its bridge is created. Re-register
+      // after applying the desktop filename so Linux launchers with an override
+      // receive the callback instead of Electron's package-derived default.
+      yield* electronApp.setAsDefaultProtocolClient(
+        ElectronProtocol.getDesktopScheme(environment.isDevelopment),
+      );
     }
 
     // Unpackaged runs only. A packaged bundle already carries its icon in

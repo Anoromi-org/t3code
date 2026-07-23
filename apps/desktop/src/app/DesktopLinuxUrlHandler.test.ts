@@ -26,6 +26,7 @@ const makeEnvironment = (overrides: Record<string, unknown> = {}) =>
     linuxWmClass: "t3code",
     linuxApplicationsDir: "/home/alice/.local/share/applications",
     appImagePath: Option.some("/home/alice/Applications/T3-Code.AppImage"),
+    linuxUrlHandlerExecTarget: Option.none(),
     path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
     ...overrides,
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
@@ -187,6 +188,21 @@ describe("DesktopLinuxUrlHandler", () => {
         recorded.files[0]?.content,
         `Exec=${DesktopLinuxUrlHandler.escapeDesktopEntryExecArgument(process.execPath)} %U`,
       );
+    });
+  });
+
+  it.effect("prefers the packaged launcher override to the Electron executable", () => {
+    const recorded = emptyRecording();
+
+    return Effect.gen(function* () {
+      yield* runRegister(recorded, {
+        environment: {
+          appImagePath: Option.none(),
+          linuxUrlHandlerExecTarget: Option.some("/nix/store/t3-code/bin/t3-code"),
+        },
+      });
+
+      assert.include(recorded.files[0]?.content, 'Exec="/nix/store/t3-code/bin/t3-code" %U');
     });
   });
 
