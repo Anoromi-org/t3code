@@ -8,6 +8,13 @@ import * as SqliteClient from "./NodeSqliteClient.ts";
 const layer = it.layer(SqliteClient.layerMemory());
 
 layer("NodeSqliteClient", (it) => {
+  it.effect("waits briefly for competing SQLite writers", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      assert.deepEqual(yield* sql`PRAGMA busy_timeout`.values, [[10_000]]);
+    }),
+  );
+
   it.effect("runs prepared queries and returns positional values", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

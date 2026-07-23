@@ -38,6 +38,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           default_thread_env_mode,
           favicon_path,
           scripts_json,
+          hyprnav_json,
           created_at,
           updated_at,
           deleted_at
@@ -50,6 +51,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.defaultThreadEnvMode},
           ${row.faviconPath ?? null},
           ${JSON.stringify(row.scripts)},
+          'null',
           ${row.createdAt},
           ${row.updatedAt},
           ${row.deletedAt}

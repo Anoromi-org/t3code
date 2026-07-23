@@ -105,7 +105,11 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
   const makeConnection = Effect.gen(function* () {
     const scope = yield* Effect.scope;
     const db = yield* Effect.try({
-      try: openDatabase,
+      try: () => {
+        const database = openDatabase();
+        database.exec("PRAGMA busy_timeout = 10000");
+        return database;
+      },
       catch: (cause) =>
         new SqlError({
           reason: classifySqliteError(cause, {
