@@ -96,6 +96,12 @@ describe("ElectronApp", () => {
     setPathMock.mockClear();
   });
 
+  it("allows a system package wrapper to force packaged behavior", () => {
+    assert.isTrue(ElectronApp.resolveIsPackaged(false, "1"));
+    assert.isFalse(ElectronApp.resolveIsPackaged(false, undefined));
+    assert.isTrue(ElectronApp.resolveIsPackaged(true, undefined));
+  });
+
   it.effect("reads app metadata through the service", () =>
     Effect.gen(function* () {
       const electronApp = yield* ElectronApp.ElectronApp;

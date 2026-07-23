@@ -3,6 +3,7 @@ import { assert, describe, it } from "vite-plus/test";
 import {
   makeDevelopmentLauncherScript,
   resolveElectronBinaryPath,
+  resolveLinuxSandboxArgs,
   resolveMacLauncherPaths,
 } from "./electron-launcher.mjs";
 
@@ -40,6 +41,7 @@ describe("electron development launcher", () => {
         calls.push(`require:${specifier}`);
         return "/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron";
       },
+      environment: {},
       moduleUrl: import.meta.url,
     });
 
@@ -48,6 +50,37 @@ describe("electron development launcher", () => {
       "/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
     );
     assert.deepEqual(calls, ["ensure", "require:electron"]);
+  });
+
+  it("uses a packaged Electron override without downloading another runtime", () => {
+    const calls = [];
+    const electronPath = resolveElectronBinaryPath({
+      ensureRuntime: () => calls.push("ensure"),
+      createRequire: () => () => calls.push("require"),
+      environment: { T3CODE_DESKTOP_ELECTRON_PATH: " /nix/store/electron/bin/electron " },
+      moduleUrl: import.meta.url,
+    });
+
+    assert.equal(electronPath, "/nix/store/electron/bin/electron");
+    assert.deepEqual(calls, []);
+  });
+
+  it("does not disable sandboxing for an explicit Electron wrapper", () => {
+    const electronPath = "/nix/store/t3code-electron/bin/t3code-electron";
+
+    assert.deepEqual(resolveLinuxSandboxArgs(electronPath, {}, "linux"), ["--no-sandbox"]);
+    assert.deepEqual(
+      resolveLinuxSandboxArgs(electronPath, { T3CODE_DESKTOP_ELECTRON_PATH: electronPath }),
+      [],
+    );
+    assert.deepEqual(
+      resolveLinuxSandboxArgs(electronPath, {
+        T3CODE_DESKTOP_ELECTRON_PATH: electronPath,
+        T3CODE_DESKTOP_DISABLE_SANDBOX: "1",
+      }),
+      ["--no-sandbox"],
+    );
+    assert.deepEqual(resolveLinuxSandboxArgs(electronPath, {}, "darwin"), []);
   });
 
   it("keeps the native Electron executable name inside the branded macOS bundle", () => {

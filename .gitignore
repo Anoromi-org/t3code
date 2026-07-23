@@ -29,6 +29,7 @@ squashfs-root/
 .gstack/
 dist-electron/
 .electron-runtime/
+result
 .btca/
 /.btca/resources
 .showcase/
