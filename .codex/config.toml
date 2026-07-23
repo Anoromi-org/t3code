@@ -7,3 +7,7 @@ startup_timeout_sec = 20.0
 
 [mcp_servers.xcodebuildmcp.env]
 XCODEBUILDMCP_ENABLED_WORKFLOWS = "simulator,ui-automation,debugging,logging"
+
+[mcp_servers.btca_local]
+command = "bunx"
+args = ["btca", "mcp"]

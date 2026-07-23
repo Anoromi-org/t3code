@@ -165,3 +165,53 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## Fork-specific completion requirements
+
+- Keep verification focused while resolving each feature. Use `vp test run <test-files>` for
+  focused Vite+ tests and run targeted format, lint, and package type checks.
+- NEVER run `bun test`. Always use `bun run test` when a package test script is specifically
+  required.
+- For fork-owned full verification, `bun fmt`, `bun lint`, and `bun typecheck` must pass.
+- User-visible web changes require one integrated pass with the `test-t3-app` skill. Mobile
+  changes use `test-t3-mobile` when the requested scope includes device validation.
+- Read and apply `.agents/uncodixify/AGENTS.md` before frontend design decisions.
+- Run `codex review` after changes and resolve valid findings. Never invoke `codex review` from
+  inside an active review.
+
+## Fork rebase work
+
+- Use `.codex/skills/t3code-rebase-conflict-resolution` when rebasing onto a long-lived branch.
+- Preserve current upstream architecture and behavior, then reimplement fork-only intent from
+  commit notes and tests.
+- Audit migrations, persisted events, projections, settings, sidebar/routing behavior, and
+  desktop startup against real fork state before declaring a rebase complete.
+
+## Corkdiff
+
+- Browser/web keeps the in-app diff viewer.
+- Electron launches Corkdiff externally through
+  `hyprnav spawn --print-workspace-id rand -- ghostty ...`; do not restore the old embedded
+  terminal path.
+- External Corkdiff ownership is per thread in Electron main. `Ctrl+D` opens or focuses it, and
+  `Ctrl+D` inside Corkdiff returns focus to T3 Code.
+- Inspect both this repository and the local `corkdiff.nvim` checkout when changing the flow.
+
+# btca MCP Usage Instructions
+
+Use btca when a task depends on an external repository or configured documentation resource. Do
+not use it to understand this repository; inspect this repository locally.
+
+## Critical Workflow
+
+1. Call `listResources`.
+2. Use the exact returned resource names.
+3. Call `ask` with the question and those exact names.
+
+## Vendored repositories
+
+- Treat `.repos/` as read-only reference material; never import from or edit it.
+- Sync configured references with `vpr sync:repos`.
+- Before writing Effect code, read `.repos/effect-smol/LLMS.md` and inspect nearby vendored
+  examples.
+- Inspect `.repos/alchemy-effect/` before writing Alchemy relay infrastructure.
