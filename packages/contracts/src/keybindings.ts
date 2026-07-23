@@ -72,6 +72,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "projectSearch.toggle",
   "themeEditor.toggle",
   "composer.stash",
+  "projectActions.toggle",
   "navigation.commandMenu",
   "chat.new",
   "chat.newLocal",

@@ -109,6 +109,7 @@ export function NavigationCommandMenu(props: {
         aria-label="Navigation command menu"
         className="h-[min(32rem,72vh)] max-h-[min(32rem,72vh)] transition-[scale,opacity] duration-75 ease-out"
         data-navigation-command-menu="true"
+        data-command-surface="navigation"
       >
         <div
           className="flex h-full min-h-0 flex-col"

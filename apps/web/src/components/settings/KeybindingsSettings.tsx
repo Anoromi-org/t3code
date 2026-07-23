@@ -23,7 +23,7 @@ import {
 import {
   type KeybindingCommand,
   type KeybindingWhenNode,
-  type ServerRemoveKeybindingInput,
+  type ServerKeybindingRuleTarget,
   type ServerUpsertKeybindingInput,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
@@ -755,7 +755,7 @@ function keybindingRowDraftReducer(
   return { ...state, ...patch };
 }
 
-function rowKeybindingTarget(row: KeybindingRow): ServerRemoveKeybindingInput {
+function rowKeybindingTarget(row: KeybindingRow): ServerKeybindingRuleTarget {
   return {
     command: row.command,
     key: row.key,

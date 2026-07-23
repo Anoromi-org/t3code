@@ -119,13 +119,43 @@ function hasSameShortcutContext(left: KeybindingRule, right: KeybindingRule): bo
   return leftContext === rightContext;
 }
 
-const LEGACY_GENERATED_KEYBINDINGS = DEFAULT_KEYBINDINGS.filter(
-  (rule) => rule.command !== "navigation.commandMenu",
-).map((rule) =>
-  rule.command === "commandPalette.toggle"
-    ? ({ ...rule, key: "mod+e" } satisfies KeybindingRule)
-    : rule,
-);
+// Exact generated snapshot shipped before navigation.commandMenu. Keep this
+// independent from current defaults so newly-added commands cannot invalidate
+// the one-time Mod+E command-palette repair.
+const LEGACY_GENERATED_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
+  { key: "mod+b", command: "sidebar.toggle" },
+  { key: "mod+j", command: "terminal.toggle" },
+  { key: "mod+alt+b", command: "rightPanel.toggle" },
+  { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+  { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
+  { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
+  { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
+  { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+  { key: "mod+shift+j", command: "preview.toggle" },
+  { key: "mod+r", command: "preview.refresh", when: "previewFocus" },
+  { key: "mod+l", command: "preview.focusUrl", when: "previewFocus" },
+  { key: "mod+=", command: "preview.zoomIn", when: "previewFocus" },
+  { key: "mod++", command: "preview.zoomIn", when: "previewFocus" },
+  { key: "mod+-", command: "preview.zoomOut", when: "previewFocus" },
+  { key: "mod+0", command: "preview.resetZoom", when: "previewFocus" },
+  { key: "mod+e", command: "commandPalette.toggle", when: "!terminalFocus" },
+  { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
+  { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
+  { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+  { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },
+  { key: "mod+o", command: "editor.openFavorite" },
+  { key: "mod+shift+[", command: "thread.previous" },
+  { key: "mod+shift+]", command: "thread.next" },
+  ...globalThis.Array.from({ length: 9 }, (_, index) => ({
+    key: `mod+${index + 1}`,
+    command: `thread.jump.${index + 1}` as KeybindingRule["command"],
+  })),
+  ...globalThis.Array.from({ length: 9 }, (_, index) => ({
+    key: `mod+${index + 1}`,
+    command: `modelPicker.jump.${index + 1}` as KeybindingRule["command"],
+    when: "modelPickerOpen",
+  })),
+];
 
 function migrateLegacyGeneratedCommandPaletteRule(
   keybindings: ReadonlyArray<KeybindingRule>,
@@ -155,7 +185,9 @@ function replaceTargetFromUpsertInput(input: ServerUpsertKeybindingInput): Keybi
     : { key: input.replace.key, command: input.replace.command, when: input.replace.when };
 }
 
-function keybindingRuleFromRemoveInput(input: ServerRemoveKeybindingInput): KeybindingRule {
+function keybindingRuleFromRemoveInput(
+  input: Pick<KeybindingRule, "key" | "command" | "when">,
+): KeybindingRule {
   return input.when === undefined
     ? { key: input.key, command: input.command }
     : { key: input.key, command: input.command, when: input.when };
@@ -193,6 +225,38 @@ const decodeKeybindingRuleExit = Schema.decodeUnknownExit(KeybindingRule);
 const decodeResolvedKeybindingFromConfigExit = Schema.decodeExit(ResolvedKeybindingFromConfig);
 const decodeRawKeybindingsEntriesExit = Schema.decodeUnknownExit(RawKeybindingsEntries);
 const encodeKeybindingsConfigPrettyJson = Schema.encodeEffect(KeybindingsConfigPrettyJson);
+
+function migrateLegacyProjectActionsEntry(entry: unknown): {
+  readonly entry: unknown;
+  readonly migrated: boolean;
+} {
+  if (
+    typeof entry === "object" &&
+    entry !== null &&
+    !Array.isArray(entry) &&
+    "command" in entry &&
+    "key" in entry &&
+    "when" in entry &&
+    entry.command === "filePicker.toggle" &&
+    entry.key === "mod+p" &&
+    entry.when === "!terminalFocus"
+  ) {
+    return { entry: { ...entry, key: "mod+shift+p" }, migrated: true };
+  }
+  if (
+    typeof entry !== "object" ||
+    entry === null ||
+    Array.isArray(entry) ||
+    !("command" in entry) ||
+    entry.command !== "commandBar.toggle"
+  ) {
+    return { entry, migrated: false };
+  }
+  return {
+    entry: { ...entry, command: "projectActions.toggle" },
+    migrated: true,
+  };
+}
 
 export interface KeybindingsConfigState {
   readonly keybindings: ResolvedKeybindingsConfig;
@@ -361,8 +425,9 @@ const make = Effect.gen(function* () {
       ),
     );
 
-    return yield* Effect.forEach(rawConfig, (entry) =>
+    return yield* Effect.forEach(rawConfig, (rawEntry) =>
       Effect.gen(function* () {
+        const { entry } = migrateLegacyProjectActionsEntry(rawEntry);
         const decodedRule = decodeKeybindingRuleExit(entry);
         if (decodedRule._tag === "Failure") {
           yield* Effect.logWarning("ignoring invalid keybinding entry", {
@@ -390,11 +455,12 @@ const make = Effect.gen(function* () {
     {
       readonly keybindings: readonly KeybindingRule[];
       readonly issues: readonly ServerConfigIssue[];
+      readonly migratedLegacyProjectActions: boolean;
     },
     KeybindingsConfigError
   > {
     if (!(yield* readConfigExists)) {
-      return { keybindings: [], issues: [] };
+      return { keybindings: [], issues: [], migratedLegacyProjectActions: false };
     }
 
     const rawConfig = yield* readRawConfig;
@@ -404,12 +470,17 @@ const make = Effect.gen(function* () {
       return {
         keybindings: [],
         issues: [malformedConfigIssue(detail)],
+        migratedLegacyProjectActions: false,
       };
     }
 
     const keybindings: KeybindingRule[] = [];
     const issues: ServerConfigIssue[] = [];
-    for (const [index, entry] of decodedEntries.value.entries()) {
+    let migratedLegacyProjectActions = false;
+    for (const [index, rawEntry] of decodedEntries.value.entries()) {
+      const migrated = migrateLegacyProjectActionsEntry(rawEntry);
+      const entry = migrated.entry;
+      migratedLegacyProjectActions ||= migrated.migrated;
       const decodedRule = decodeKeybindingRuleExit(entry);
       if (decodedRule._tag === "Failure") {
         const detail = Cause.pretty(decodedRule.cause);
@@ -438,7 +509,7 @@ const make = Effect.gen(function* () {
       keybindings.push(decodedRule.value);
     }
 
-    return { keybindings, issues };
+    return { keybindings, issues, migratedLegacyProjectActions };
   });
 
   const writeConfigAtomically = (rules: readonly KeybindingRule[]) => {
@@ -512,7 +583,8 @@ const make = Effect.gen(function* () {
         return;
       }
       const customConfig = migrateLegacyGeneratedCommandPaletteRule(runtimeConfig.keybindings);
-      const didMigrateLegacyGeneratedConfig = customConfig !== runtimeConfig.keybindings;
+      const didMigrateLegacyGeneratedConfig =
+        customConfig !== runtimeConfig.keybindings || runtimeConfig.migratedLegacyProjectActions;
       const existingCommands = new Set(customConfig.map((entry) => entry.command));
       const missingDefaults: KeybindingRule[] = [];
       const shortcutConflictWarnings: Array<{
@@ -670,6 +742,9 @@ const make = Effect.gen(function* () {
           const replaceTarget = replaceTargetFromUpsertInput(input);
           const nextConfig = [
             ...customConfig.filter((entry) => {
+              if (input.replaceAllForCommand === true) {
+                return entry.command !== rule.command;
+              }
               if (replaceTarget) {
                 return (
                   !isSameKeybindingRule(entry, replaceTarget) && !isSameKeybindingRule(entry, rule)
@@ -708,8 +783,12 @@ const make = Effect.gen(function* () {
       upsertSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const customConfig = yield* loadWritableCustomKeybindingsConfig();
-          const target = keybindingRuleFromRemoveInput(input);
-          const nextConfig = customConfig.filter((entry) => !isSameKeybindingRule(entry, target));
+          const nextConfig =
+            "all" in input
+              ? customConfig.filter((entry) => entry.command !== input.command)
+              : customConfig.filter(
+                  (entry) => !isSameKeybindingRule(entry, keybindingRuleFromRemoveInput(input)),
+                );
           yield* writeConfigAtomically(nextConfig);
           const nextResolved = mergeWithDefaultKeybindings(
             compileResolvedKeybindingsConfig(nextConfig),

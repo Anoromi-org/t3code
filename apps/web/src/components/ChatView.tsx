@@ -48,6 +48,7 @@ import {
   resolvePromptInjectedEffort,
 } from "@t3tools/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { truncate } from "@t3tools/shared/String";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/shared/threadReference";
 import {
@@ -148,8 +149,7 @@ import {
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import { isCommandPaletteOpen } from "../commandPaletteBus";
-import { isNavigationCommandMenuOpen } from "../navigationCommandMenu";
+import { isAnyCommandSurfaceOpen, isCommandSurfaceOpen } from "../commandSurface";
 import {
   buildTemporaryWorktreeBranchName,
   deriveLocalBranchNameFromRemoteRef,
@@ -190,6 +190,12 @@ import {
   foldSubagentActivities,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar } from "./BranchToolbar";
+import { ProjectActionsPanel } from "./ProjectActionsPanel";
+import {
+  resolveOpenProjectActionsShortcutDisposition,
+  type GitActionRequest,
+  type GitActionRequestKind,
+} from "./ProjectActionsPanel.logic";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
@@ -203,7 +209,10 @@ import {
 } from "lucide-react";
 import { cn, randomHex } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
+import {
+  persistProjectScriptsWithKeybindingRollback,
+  projectScriptKeybindingMutation,
+} from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
   buildProjectScript,
@@ -279,7 +288,6 @@ import { useEnvironmentQuery } from "../state/query";
 import {
   environmentServerConfigsAtom,
   primaryServerAvailableEditorsAtom,
-  primaryServerKeybindingsAtom,
   primaryServerSettingsAtom,
   serverEnvironment,
 } from "../state/server";
@@ -1388,6 +1396,9 @@ export default function ChatView(props: ChatViewProps) {
   const routeThreadKey = useMemo(() => scopedThreadKey(routeThreadRef), [routeThreadRef]);
   const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
+    reportFailure: false,
+  });
+  const removeKeybinding = useAtomCommand(serverEnvironment.removeKeybinding, {
     reportFailure: false,
   });
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
@@ -3022,13 +3033,22 @@ export default function ChatView(props: ChatViewProps) {
           input: { cwd: gitStatusCwd },
         }),
   );
+  const [projectActionsOpen, setProjectActionsOpen] = useState(false);
+  const [requestedGitAction, setRequestedGitAction] = useState<GitActionRequest | null>(null);
+  const requestGitAction = useCallback((action: GitActionRequestKind) => {
+    setRequestedGitAction({ requestId: randomHex(12), action });
+  }, []);
+  const handleRequestedGitAction = useCallback((requestId: string) => {
+    setRequestedGitAction((current) => (current?.requestId === requestId ? null : current));
+  }, []);
   useWorkspaceMutationRefresh({
     enabled: gitStatusCwd !== null,
     mutationId: workspaceMutationId,
     refresh: gitStatusQuery.refresh,
     resourceKey: `git-status:${activeThreadKey ?? ""}:${gitStatusCwd ?? ""}`,
   });
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const environmentServerConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const keybindings = environmentServerConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
   const manualCompactionProviderAvailable = useMemo(
     () =>
@@ -3584,37 +3604,40 @@ export default function ChatView(props: ChatViewProps) {
       keybinding?: string | null;
       keybindingCommand: KeybindingCommand;
     }): Promise<AtomCommandResult<void, unknown>> => {
-      const updateResult = mapAtomCommandResult(
-        await updateProject({
-          environmentId,
-          input: {
-            projectId: input.projectId,
-            scripts: input.nextScripts,
-          },
-        }),
-        () => undefined,
-      );
-      if (updateResult._tag === "Failure") {
-        return updateResult;
-      }
-
-      const keybindingRule = decodeProjectScriptKeybindingRule({
+      const keybindingMutation = projectScriptKeybindingMutation({
+        keybindings,
         keybinding: input.keybinding,
         command: input.keybindingCommand,
       });
 
-      if (isElectron && keybindingRule) {
-        return mapAtomCommandResult(
-          await upsertKeybinding({
+      const updateScripts = (scripts: ReadonlyArray<ProjectScript>) =>
+        updateProject({
+          environmentId,
+          input: { projectId: input.projectId, scripts },
+        }).then((result) => mapAtomCommandResult(result, () => undefined));
+      const mutateKeybinding = () => {
+        if (!isElectron || keybindingMutation.type === "none") {
+          return Promise.resolve(AsyncResult.success(undefined));
+        }
+        if (keybindingMutation.type === "upsert") {
+          return upsertKeybinding({
             environmentId,
-            input: keybindingRule,
-          }),
-          () => undefined,
-        );
-      }
-      return updateResult;
+            input: keybindingMutation.input,
+          }).then((result) => mapAtomCommandResult(result, () => undefined));
+        }
+        return removeKeybinding({
+          environmentId,
+          input: keybindingMutation.input,
+        }).then((result) => mapAtomCommandResult(result, () => undefined));
+      };
+
+      return persistProjectScriptsWithKeybindingRollback({
+        updateScripts: () => updateScripts(input.nextScripts),
+        mutateKeybinding,
+        rollbackScripts: () => updateScripts(input.previousScripts),
+      });
     },
-    [environmentId, updateProject, upsertKeybinding],
+    [environmentId, keybindings, removeKeybinding, updateProject, upsertKeybinding],
   );
   const saveProjectScript = useCallback(
     async (input: NewProjectScriptInput): Promise<AtomCommandResult<void, unknown>> => {
@@ -5823,10 +5846,29 @@ export default function ChatView(props: ChatViewProps) {
         event.stopPropagation();
         return;
       }
-      if (!activeThreadId || isCommandPaletteOpen() || isNavigationCommandMenuOpen()) {
+      if (!activeThreadId) {
         return;
       }
       const terminalFocusOwner = getTerminalFocusOwner();
+      if (isCommandSurfaceOpen("project-actions")) {
+        const command = resolveShortcutCommand(event, keybindings, {
+          context: {
+            terminalFocus: false,
+            terminalOpen: Boolean(terminalUiState.terminalOpen),
+            modelPickerOpen: false,
+          },
+        });
+        const disposition = resolveOpenProjectActionsShortcutDisposition(command);
+        if (disposition !== "ignore") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (disposition === "close") {
+            setProjectActionsOpen(false);
+          }
+        }
+        return;
+      }
+      if (isAnyCommandSurfaceOpen()) return;
       if (event.defaultPrevented && terminalFocusOwner === null) {
         return;
       }
@@ -5901,6 +5943,14 @@ export default function ChatView(props: ChatViewProps) {
             );
           },
         );
+        return;
+      }
+
+      if (command === "projectActions.toggle") {
+        if (!activeProject) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setProjectActionsOpen(true);
         return;
       }
 
@@ -6053,7 +6103,7 @@ export default function ChatView(props: ChatViewProps) {
   // Route it to the composer like a typed key, which also expands it.
   useEffect(() => {
     const handler = (event: ClipboardEvent) => {
-      if (!activeThreadId || isCommandPaletteOpen()) return;
+      if (!activeThreadId || isAnyCommandSurfaceOpen()) return;
       if (getTerminalFocusOwner() !== null) return;
       if (composerRef.current?.isModelPickerOpen()) return;
       const text = pasteTextToFocusComposer(event);
@@ -7992,6 +8042,8 @@ export default function ChatView(props: ChatViewProps) {
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
+            requestedGitAction={requestedGitAction}
+            onRequestedGitActionHandled={handleRequestedGitAction}
           />
         </WorkspacePageHeader>
 
@@ -8501,6 +8553,21 @@ export default function ChatView(props: ChatViewProps) {
           onClose={closeExpandedImage}
         />
       )}
+      {activeProject ? (
+        <ProjectActionsPanel
+          availableEditors={
+            activeThread.environmentId === primaryEnvironmentId ? availableEditors : []
+          }
+          environmentId={activeThread.environmentId}
+          gitCwd={gitCwd}
+          keybindings={keybindings}
+          onOpenChange={setProjectActionsOpen}
+          onRequestGitAction={requestGitAction}
+          onRunProjectScript={runProjectScript}
+          open={projectActionsOpen}
+          scripts={activeProject.scripts}
+        />
+      ) : null}
     </div>
   );
 }

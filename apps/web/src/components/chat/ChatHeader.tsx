@@ -23,6 +23,7 @@ import {
 } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
+import type { GitActionRequest } from "../ProjectActionsPanel.logic";
 import { type DraftId } from "~/composerDraftStore";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
@@ -75,6 +76,8 @@ interface ChatHeaderProps {
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  requestedGitAction?: GitActionRequest | null;
+  onRequestedGitActionHandled?: (requestId: string) => void;
 }
 
 /**
@@ -144,6 +147,8 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  requestedGitAction,
+  onRequestedGitActionHandled,
 }: ChatHeaderProps) {
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
@@ -445,6 +450,10 @@ export const ChatHeader = memo(function ChatHeader({
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
             onOpenPullRequest={onOpenPullRequest}
             {...(draftId ? { draftId } : {})}
+            {...(requestedGitAction !== undefined ? { requestedAction: requestedGitAction } : {})}
+            {...(onRequestedGitActionHandled
+              ? { onRequestedActionHandled: onRequestedGitActionHandled }
+              : {})}
           />
         )}
       </div>
