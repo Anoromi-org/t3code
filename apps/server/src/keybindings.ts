@@ -123,6 +123,29 @@ function hasSameShortcutContext(left: KeybindingRule, right: KeybindingRule): bo
   return leftContext === rightContext;
 }
 
+const LEGACY_GENERATED_KEYBINDINGS = DEFAULT_KEYBINDINGS.filter(
+  (rule) => rule.command !== "navigation.commandMenu",
+).map((rule) =>
+  rule.command === "commandPalette.toggle"
+    ? ({ ...rule, key: "mod+e" } satisfies KeybindingRule)
+    : rule,
+);
+
+function migrateLegacyGeneratedCommandPaletteRule(
+  keybindings: ReadonlyArray<KeybindingRule>,
+): ReadonlyArray<KeybindingRule> {
+  if (
+    keybindings.length !== LEGACY_GENERATED_KEYBINDINGS.length ||
+    !keybindings.every((rule, index) => {
+      const legacyRule = LEGACY_GENERATED_KEYBINDINGS[index];
+      return legacyRule !== undefined && isSameKeybindingRule(rule, legacyRule);
+    })
+  ) {
+    return keybindings;
+  }
+  return DEFAULT_KEYBINDINGS;
+}
+
 function keybindingRuleFromUpsertInput(input: ServerUpsertKeybindingInput): KeybindingRule {
   return input.when === undefined
     ? { key: input.key, command: input.command }
@@ -492,7 +515,8 @@ const make = Effect.gen(function* () {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }
-      const customConfig = runtimeConfig.keybindings;
+      const customConfig = migrateLegacyGeneratedCommandPaletteRule(runtimeConfig.keybindings);
+      const didMigrateLegacyGeneratedConfig = customConfig !== runtimeConfig.keybindings;
       const existingCommands = new Set(customConfig.map((entry) => entry.command));
       const missingDefaults: KeybindingRule[] = [];
       const shortcutConflictWarnings: Array<{
@@ -530,6 +554,9 @@ const make = Effect.gen(function* () {
         });
       }
       if (missingDefaults.length === 0) {
+        if (didMigrateLegacyGeneratedConfig) {
+          yield* writeConfigAtomically(customConfig);
+        }
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }

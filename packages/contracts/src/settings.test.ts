@@ -103,6 +103,16 @@ describe("ClientSettings sidebar", () => {
   });
 });
 
+describe("ClientSettings Hyprnav defaults", () => {
+  it("hydrates project defaults and grouped state for legacy settings", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.defaultProjectHyprnavSettings.bindings.map((binding) => binding.slot)).toEqual([
+      1, 2, 8,
+    ]);
+    expect(decoded.groupedProjectHyprnavStateByLogicalProjectKey).toEqual({});
+  });
+});
+
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("defaults text generation to Luna at low reasoning effort", () => {
     expect(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection).toEqual({

@@ -22,6 +22,7 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { ProjectHyprnavOverride } from "./hyprnav.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
@@ -229,6 +230,7 @@ export const OrchestrationProject = Schema.Struct({
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   scripts: Schema.Array(ProjectScript),
+  hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -426,6 +428,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   scripts: Schema.Array(ProjectScript),
+  hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -641,6 +644,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  hyprnav: Schema.optional(ProjectHyprnavOverride),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -1087,6 +1091,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   // Optional so persisted events from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   scripts: Schema.Array(ProjectScript),
+  hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1100,6 +1105,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  hyprnav: Schema.optional(ProjectHyprnavOverride),
   updatedAt: IsoDateTime,
 });
 

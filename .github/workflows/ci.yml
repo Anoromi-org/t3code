@@ -122,6 +122,12 @@ jobs:
       - name: Test resource monitor
         run: cargo test --locked --manifest-path native/resource-monitor/Cargo.toml
 
+      - name: Install Chromium for browser tests
+        run: vp run --filter @t3tools/web test:browser:install
+
+      - name: Browser tests
+        run: vp run --filter @t3tools/web test:browser
+
   mobile_native_static_analysis:
     name: Mobile Native Static Analysis
     runs-on: blacksmith-6vcpu-macos-26

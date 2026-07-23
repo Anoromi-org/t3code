@@ -9,6 +9,7 @@
 import {
   IsoDateTime,
   ModelSelection,
+  ProjectHyprnavOverride,
   ProjectId,
   ProjectScript,
   ThreadEnvMode,
@@ -28,6 +29,7 @@ export const ProjectionProject = Schema.Struct({
   defaultThreadEnvMode: Schema.NullOr(ThreadEnvMode),
   faviconPath: Schema.optional(Schema.NullOr(Schema.String)),
   scripts: Schema.Array(ProjectScript),
+  hyprnav: ProjectHyprnavOverride,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
