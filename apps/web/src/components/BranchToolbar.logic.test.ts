@@ -8,6 +8,8 @@ import {
   resolveCurrentWorkspaceLabel,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
+  resolveToolbarBranchOverride,
+  shouldSelectRefAsWorktreeBase,
   resolveEnvModeLabel,
   resolveBranchTriggerLabel,
   resolveBranchToolbarPrBranch,
@@ -138,6 +140,50 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
         effectiveEnvMode: "local",
       }),
     ).toBe("worktree");
+  });
+});
+
+describe("shouldSelectRefAsWorktreeBase", () => {
+  it("uses an unattached ref as the base for a pending new worktree", () => {
+    expect(
+      shouldSelectRefAsWorktreeBase({
+        requestedEnvMode: "worktree",
+        activeProjectCwd: "/repo",
+        activeWorktreePath: null,
+        selectedRefWorktreePath: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps an active worktree attached while switching its ref", () => {
+    expect(
+      shouldSelectRefAsWorktreeBase({
+        requestedEnvMode: "worktree",
+        activeProjectCwd: "/repo",
+        activeWorktreePath: "/repo/worktrees/current",
+        selectedRefWorktreePath: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("uses the project-root ref as a base for a requested worktree", () => {
+    expect(
+      shouldSelectRefAsWorktreeBase({
+        requestedEnvMode: "worktree",
+        activeProjectCwd: "/repo",
+        activeWorktreePath: null,
+        selectedRefWorktreePath: "/repo",
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("resolveToolbarBranchOverride", () => {
+  it("clears a named worktree target when the toolbar selects a base branch", () => {
+    expect(resolveToolbarBranchOverride("release")).toEqual({
+      branch: "release",
+      worktreeBranchName: null,
+    });
   });
 });
 

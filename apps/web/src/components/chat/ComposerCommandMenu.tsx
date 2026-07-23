@@ -3,6 +3,7 @@ import {
   type ProviderDriverKind,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
+  type VcsRef,
 } from "@t3tools/contracts";
 import { BotIcon } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
@@ -41,6 +42,35 @@ export type ComposerCommandItem =
       type: "provider-slash-command";
       provider: ProviderDriverKind;
       command: ServerProviderSlashCommand;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "reasoning";
+      descriptorId: string;
+      value: string;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "branch";
+      branch: VcsRef;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "worktree-mode";
+      mode: "local" | "worktree";
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "named-worktree-target";
+      branchName: string;
       label: string;
       description: string;
     }
@@ -90,7 +120,9 @@ function groupCommandItems(
     return [{ id: "default", label: null, items }];
   }
 
-  const builtInItems = items.filter((item) => item.type === "slash-command");
+  const builtInItems = items.filter(
+    (item) => item.type !== "provider-slash-command" && item.type !== "skill",
+  );
   const providerItems = items.filter((item) => item.type === "provider-slash-command");
 
   const groups: ComposerCommandGroup[] = [];
@@ -185,7 +217,9 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
             ) : (
               <p className="text-secondary-label text-xs">
                 {props.isLoading
-                  ? "Searching workspace files..."
+                  ? props.triggerKind === "slash-command"
+                    ? "Loading branches..."
+                    : "Searching workspace files..."
                   : (props.emptyStateText ??
                     (props.triggerKind === "path"
                       ? "No matching files or folders."
@@ -234,7 +268,11 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           theme={props.resolvedTheme}
         />
       ) : null}
-      {props.item.type === "slash-command" ? (
+      {props.item.type === "slash-command" ||
+      props.item.type === "reasoning" ||
+      props.item.type === "branch" ||
+      props.item.type === "worktree-mode" ||
+      props.item.type === "named-worktree-target" ? (
         <BotIcon className="size-4 shrink-0 text-icon-muted" />
       ) : null}
       {props.item.type === "provider-slash-command" ? (

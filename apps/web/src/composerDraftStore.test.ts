@@ -1082,6 +1082,27 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThread(draftId)?.startFromOrigin).toBe(false);
   });
 
+  it("stores a requested worktree branch separately from its base ref", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectRef, draftId, {
+      threadId,
+      branch: "main",
+      envMode: "worktree",
+    });
+    store.setDraftThreadContext(draftId, {
+      worktreeBranchName: "feature/keyboard-worktree",
+    });
+
+    expect(useComposerDraftStore.getState().getDraftThread(draftId)).toMatchObject({
+      branch: "main",
+      envMode: "worktree",
+      worktreeBranchName: "feature/keyboard-worktree",
+    });
+
+    store.setDraftThreadContext(draftId, { branch: "release" });
+    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.worktreeBranchName).toBeNull();
+  });
+
   it("preserves existing branch and worktree when setProjectDraftThreadId receives undefined", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, {

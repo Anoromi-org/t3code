@@ -6,6 +6,7 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
+  parseComposerMenuSlashCommandQuery,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
   shouldSubmitComposerOnEnter,
@@ -27,6 +28,25 @@ describe("shouldSubmitComposerOnEnter", () => {
 });
 
 describe("detectComposerTrigger", () => {
+  it("keeps reasoning selection active while typing a value", () => {
+    const text = "/reasoning high";
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "slash-command",
+      query: "reasoning high",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("keeps branch and worktree selection active after a space", () => {
+    expect(detectComposerTrigger("/branch ", 8)?.query).toBe("branch ");
+    expect(detectComposerTrigger("/worktree feature", 17)?.query).toBe("worktree feature");
+  });
+
+  it("does not recognize the removed /r alias as a reasoning command", () => {
+    expect(detectComposerTrigger("/r high", 7)).toBeNull();
+  });
+
   it("detects @path trigger at cursor", () => {
     const text = "Please check @src/com";
     const trigger = detectComposerTrigger(text, text.length);
@@ -144,6 +164,27 @@ describe("detectComposerTrigger", () => {
     expect(trigger).not.toBeNull();
     expect(trigger?.kind).toBe("path");
     expect(trigger?.query).toBe("");
+  });
+});
+
+describe("parseComposerMenuSlashCommandQuery", () => {
+  it("parses supported multiword command queries", () => {
+    expect(parseComposerMenuSlashCommandQuery("reasoning high")).toEqual({
+      command: "reasoning",
+      valueQuery: "high",
+    });
+    expect(parseComposerMenuSlashCommandQuery("branch feature/search")).toEqual({
+      command: "branch",
+      valueQuery: "feature/search",
+    });
+    expect(parseComposerMenuSlashCommandQuery("worktree")).toEqual({
+      command: "worktree",
+      valueQuery: "",
+    });
+  });
+
+  it("rejects the removed reasoning alias", () => {
+    expect(parseComposerMenuSlashCommandQuery("r high")).toBeNull();
   });
 });
 

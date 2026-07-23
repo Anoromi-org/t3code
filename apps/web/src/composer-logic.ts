@@ -2,13 +2,40 @@ import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+export type ComposerSlashCommand =
+  | "model"
+  | "plan"
+  | "default"
+  | "fast"
+  | "reasoning"
+  | "branch"
+  | "worktree";
+export type ComposerMenuSlashCommand = Extract<
+  ComposerSlashCommand,
+  "reasoning" | "branch" | "worktree"
+>;
+
+export interface ParsedComposerMenuSlashCommandQuery {
+  command: ComposerMenuSlashCommand;
+  valueQuery: string;
+}
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
   query: string;
   rangeStart: number;
   rangeEnd: number;
+}
+
+export function parseComposerMenuSlashCommandQuery(
+  query: string,
+): ParsedComposerMenuSlashCommandQuery | null {
+  const match = /^(reasoning|branch|worktree)(?:\s+(.*))?$/i.exec(query.trim());
+  const command = match?.[1]?.toLowerCase();
+  if (command !== "reasoning" && command !== "branch" && command !== "worktree") {
+    return null;
+  }
+  return { command, valueQuery: (match?.[2] ?? "").trim() };
 }
 
 export function shouldSubmitComposerOnEnter(input: {
@@ -238,6 +265,18 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
         rangeEnd: cursor,
       };
     }
+
+    const menuSlashMatch = /^\/(reasoning|branch|worktree)(?:\s+(.*))?$/i.exec(linePrefix);
+    if (menuSlashMatch) {
+      const command = menuSlashMatch[1]?.toLowerCase() ?? "reasoning";
+      const valueQuery = menuSlashMatch[2] ?? "";
+      return {
+        kind: "slash-command",
+        query: `${command}${linePrefix.endsWith(" ") ? ` ${valueQuery}` : valueQuery ? ` ${valueQuery}` : ""}`,
+        rangeStart: lineStart,
+        rangeEnd: cursor,
+      };
+    }
   }
 
   const tokenStart = tokenStartForCursor(text, cursor);
@@ -264,7 +303,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
 
 export function parseStandaloneComposerSlashCommand(
   text: string,
-): Exclude<ComposerSlashCommand, "model"> | null {
+): Extract<ComposerSlashCommand, "plan" | "default"> | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;
