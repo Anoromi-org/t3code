@@ -4081,6 +4081,94 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("projects unsupported keybindings out of mobile websocket responses", () =>
+    Effect.gen(function* () {
+      const shortcut = {
+        key: "k",
+        metaKey: false,
+        ctrlKey: true,
+        shiftKey: false,
+        altKey: false,
+        modKey: true,
+      } as const;
+      const resolvedKeybindings = [
+        { command: "navigation.commandMenu", shortcut },
+        { command: "projectActions.toggle", shortcut },
+        { command: "chat.composer.focus", shortcut },
+        { command: "thread.interrupt", shortcut },
+        { command: "terminal.toggle", shortcut },
+        { command: "script.mobile-safe.run", shortcut },
+      ] satisfies ReadonlyArray<ResolvedKeybindingRule>;
+      const mobileKeybindings = resolvedKeybindings.slice(4);
+
+      yield* buildAppUnderTest({
+        layers: {
+          keybindings: {
+            loadConfigState: Effect.succeed({ keybindings: resolvedKeybindings, issues: [] }),
+            upsertKeybindingRule: () => Effect.succeed(resolvedKeybindings),
+            removeKeybindingRule: () => Effect.succeed(resolvedKeybindings),
+            streamChanges: Stream.succeed({ keybindings: resolvedKeybindings, issues: [] }),
+          },
+        },
+      });
+
+      const { response: exchangeResponse, body: tokenBody } = yield* exchangeAccessToken(
+        defaultDesktopBootstrapToken,
+        {
+          clientMetadata: { label: "iPhone", deviceType: "mobile", os: "iOS" },
+        },
+      );
+      assert.equal(exchangeResponse.status, 200);
+      assert.isDefined(tokenBody.access_token);
+
+      const wsTicketUrl = yield* getHttpServerUrl("/api/auth/websocket-ticket");
+      const wsTicketResponse = yield* fetchEffect(wsTicketUrl, {
+        method: "POST",
+        headers: { authorization: `Bearer ${tokenBody.access_token ?? ""}` },
+      });
+      const wsTicketBody = yield* responseJsonEffect<{ readonly ticket: string }>(wsTicketResponse);
+      assert.equal(wsTicketResponse.status, 200);
+
+      const wsUrl = `${yield* getWsServerUrl("/ws", { authenticated: false })}?wsTicket=${encodeURIComponent(wsTicketBody.ticket)}`;
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.gen(function* () {
+            const config = yield* client[WS_METHODS.serverGetConfig]({});
+            const upserted = yield* client[WS_METHODS.serverUpsertKeybinding]({
+              command: "terminal.toggle",
+              key: "ctrl+k",
+            });
+            const removed = yield* client[WS_METHODS.serverRemoveKeybinding]({
+              command: "terminal.toggle",
+              key: "ctrl+k",
+            });
+            const events = yield* client[WS_METHODS.subscribeServerConfig]({}).pipe(
+              Stream.filter(
+                (event) => event.type === "snapshot" || event.type === "keybindingsUpdated",
+              ),
+              Stream.take(2),
+              Stream.runCollect,
+            );
+
+            assert.deepEqual(config.keybindings, mobileKeybindings);
+            assert.deepEqual(upserted.keybindings, mobileKeybindings);
+            assert.deepEqual(removed.keybindings, mobileKeybindings);
+            const [snapshot, update] = Array.from(events);
+            assert.equal(snapshot?.type, "snapshot");
+            if (snapshot?.type === "snapshot") {
+              assert.deepEqual(snapshot.config.keybindings, mobileKeybindings);
+            }
+            assert.deepEqual(update, {
+              version: 1,
+              type: "keybindingsUpdated",
+              payload: { keybindings: mobileKeybindings, issues: [] },
+            });
+          }),
+        ),
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("does not allow management-only access tokens to operate the environment", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest();

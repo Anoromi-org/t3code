@@ -16,6 +16,7 @@ import {
   isCollapsedCursorAdjacentToInlineToken,
   parseComposerMenuSlashCommandQuery,
   parseStandaloneComposerSlashCommand,
+  canRunStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
@@ -548,7 +549,36 @@ describe("parseStandaloneComposerSlashCommand", () => {
     expect(parseStandaloneComposerSlashCommand("/default")).toBe("default");
   });
 
+  it("parses standalone /fast commands case-insensitively", () => {
+    expect(parseStandaloneComposerSlashCommand("  /FAST  ")).toBe("fast");
+  });
+
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("/fast please")).toBeNull();
+  });
+});
+
+describe("canRunStandaloneComposerSlashCommand", () => {
+  const emptyComposer = {
+    imageCount: 0,
+    fileCount: 0,
+    terminalContextCount: 0,
+    elementContextCount: 0,
+    previewAnnotationCount: 0,
+    reviewCommentCount: 0,
+  };
+
+  it("requires every composer context collection to be empty", () => {
+    expect(canRunStandaloneComposerSlashCommand(emptyComposer)).toBe(true);
+    for (const key of Object.keys(emptyComposer) as Array<keyof typeof emptyComposer>) {
+      expect(canRunStandaloneComposerSlashCommand({ ...emptyComposer, [key]: 1 })).toBe(false);
+    }
+  });
+
+  it("does not execute slash actions while an expired terminal pill remains attached", () => {
+    expect(
+      canRunStandaloneComposerSlashCommand({ ...emptyComposer, terminalContextCount: 1 }),
+    ).toBe(false);
   });
 });

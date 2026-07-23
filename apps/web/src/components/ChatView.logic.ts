@@ -3,6 +3,7 @@ import {
   type AssetCreateUrlInput,
   type AssetCreateUrlResult,
   type ChatFileAttachment,
+  type KeybindingCommand,
   type EnvironmentId,
   isProviderDriverKind,
   ProjectId,
@@ -465,6 +466,22 @@ export function getAntigravitySendBlockReason(
   return null;
 }
 
+export type ChatScopedShortcutAction = "focus-composer" | "interrupt-turn";
+
+export function resolveChatScopedShortcutAction(input: {
+  command: KeybindingCommand | null;
+  hasComposer: boolean;
+  session: Pick<NonNullable<Thread["session"]>, "status"> | null;
+}): ChatScopedShortcutAction | null {
+  if (input.command === "chat.composer.focus") {
+    return input.hasComposer ? "focus-composer" : null;
+  }
+  if (input.command === "thread.interrupt") {
+    return input.session?.status === "running" ? "interrupt-turn" : null;
+  }
+  return null;
+}
+
 /**
  * Maps each user message to the checkpoint turn count a revert should target.
  * Returns `previous` when the result is unchanged: streaming text deltas
@@ -510,6 +527,20 @@ export function buildRevertTurnCountByUserMessageId(
     }
   }
   return previous !== null && shallow(previous, byUserMessageId) ? previous : byUserMessageId;
+}
+
+export function acquireScopedActionLock(
+  inFlightScopes: Set<string>,
+  scope: string,
+): (() => void) | null {
+  if (inFlightScopes.has(scope)) return null;
+  inFlightScopes.add(scope);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    inFlightScopes.delete(scope);
+  };
 }
 
 export function reconcileMountedTerminalThreadIds(input: {

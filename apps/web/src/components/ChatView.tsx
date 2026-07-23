@@ -92,6 +92,7 @@ import { routeDiffShortcut } from "./externalCorkdiffRouting";
 import { requireSuccessfulRunContextMutation } from "./runContextSelection";
 import { useDiffPanelStore } from "../diffPanelStore";
 import {
+  canRunStandaloneComposerSlashCommand,
   collapseExpandedComposerCursor,
   type ComposerSubmissionIntent,
   parseStandaloneComposerSlashCommand,
@@ -240,6 +241,7 @@ import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations"
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { useThreadActions } from "../hooks/useThreadActions";
+import { useChatScopedShortcuts } from "../hooks/useChatScopedShortcuts";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { confirmTerminalClose, isTerminalCloseConfirmPending } from "../lib/terminalCloseConfirm";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
@@ -247,6 +249,7 @@ import {
   preventRepeatedTerminalCloseShortcut,
   preventTerminalCloseShortcut,
 } from "../lib/terminalCloseShortcut";
+import { isPreviewFocused } from "../lib/previewFocus";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import {
   derivePhysicalProjectKey,
@@ -310,6 +313,7 @@ import {
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
+import { toggleFastModeOptionSelection } from "./chat/composerSlashActions";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -368,6 +372,7 @@ import {
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   agentControlledBrowserCloseConfirmation,
+  acquireScopedActionLock,
   branchMismatchKey,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
@@ -1541,6 +1546,9 @@ export default function ChatView(props: ChatViewProps) {
   );
   const setComposerDraftReviewComments = useComposerDraftStore((store) => store.setReviewComments);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const setComposerDraftProviderModelOptions = useComposerDraftStore(
+    (store) => store.setProviderModelOptions,
+  );
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
@@ -1678,6 +1686,7 @@ export default function ChatView(props: ChatViewProps) {
   const sendInFlightRef = useRef(false);
   const environmentUnavailableSendToastSlotRef = useRef(0);
   const feedbackUploadsInFlightRef = useRef(new Set<string>());
+  const interruptInFlightThreadKeysRef = useRef<Set<string>>(new Set());
   const terminalUiOpenByThreadRef = useRef<Record<string, boolean>>({});
 
   const terminalUiState = useTerminalUiStateStore((state) =>
@@ -3283,6 +3292,50 @@ export default function ChatView(props: ChatViewProps) {
   const focusComposer = useCallback(() => {
     composerRef.current?.focusAtEnd();
   }, [composerRef]);
+  const onInterrupt = useCallback(async () => {
+    if (!activeThread || !activeThreadKey) return;
+    const release = acquireScopedActionLock(
+      interruptInFlightThreadKeysRef.current,
+      activeThreadKey,
+    );
+    if (!release) return;
+    try {
+      const result = await interruptThreadTurn({
+        environmentId,
+        input: buildThreadTurnInterruptInput(activeThread),
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to interrupt the current turn.",
+        );
+      }
+    } finally {
+      release();
+    }
+  }, [activeThread, activeThreadKey, environmentId, interruptThreadTurn, setThreadError]);
+  const getChatShortcutContext = useCallback(
+    () => ({
+      terminalFocus: getTerminalFocusOwner() !== null,
+      terminalOpen: Boolean(terminalUiState.terminalOpen),
+      modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
+      previewFocus: isPreviewFocused(),
+      previewOpen: previewPanelOpen,
+    }),
+    [composerRef, previewPanelOpen, terminalUiState.terminalOpen],
+  );
+  const getHasChatComposer = useCallback(() => composerRef.current !== null, [composerRef]);
+  const interruptFromShortcut = useCallback(() => void onInterrupt(), [onInterrupt]);
+  useChatScopedShortcuts({
+    enabled: activeThreadId !== null,
+    keybindings,
+    sessionStatus: activeThread?.session?.status ?? null,
+    getHasComposer: getHasChatComposer,
+    getShortcutContext: getChatShortcutContext,
+    onFocusComposer: focusComposer,
+    onInterruptTurn: interruptFromShortcut,
+  });
   const scheduleComposerFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
       focusComposer();
@@ -6431,23 +6484,54 @@ export default function ChatView(props: ChatViewProps) {
       });
       return;
     }
-    // Providers without the legacy toggle receive their native commands unchanged.
+    const parsedStandaloneSlashCommand = canRunStandaloneComposerSlashCommand({
+      imageCount: composerImages.length,
+      fileCount: composerFiles.length,
+      terminalContextCount: composerTerminalContexts.length,
+      elementContextCount: composerElementContexts.length,
+      previewAnnotationCount: composerPreviewAnnotations.length,
+      reviewCommentCount: composerReviewComments.length,
+    })
+      ? parseStandaloneComposerSlashCommand(trimmed)
+      : null;
+    // Legacy plan mode remains behind its beta setting; /fast is provider-backed.
     const standaloneSlashCommand =
-      sendInteractionModeEnabled &&
-      composerImages.length === 0 &&
-      composerFiles.length === 0 &&
-      sendableComposerTerminalContexts.length === 0 &&
-      composerElementContexts.length === 0 &&
-      composerPreviewAnnotations.length === 0 &&
-      composerReviewComments.length === 0
-        ? parseStandaloneComposerSlashCommand(trimmed)
+      parsedStandaloneSlashCommand === "fast" || sendInteractionModeEnabled
+        ? parsedStandaloneSlashCommand
         : null;
     if (standaloneSlashCommand) {
-      handleInteractionModeChange(standaloneSlashCommand);
-      promptRef.current = "";
-      clearComposerDraftContent(composerDraftTarget);
-      composerRef.current?.resetCursorState();
-      return;
+      if (standaloneSlashCommand === "fast") {
+        const nextOptions = toggleFastModeOptionSelection({
+          capabilities: getProviderModelCapabilities(
+            ctxSelectedProviderModels,
+            ctxSelectedModel,
+            ctxSelectedProvider,
+          ),
+          selections: ctxSelectedModelSelection.options,
+        });
+        if (nextOptions) {
+          setComposerDraftProviderModelOptions(
+            composerDraftTarget,
+            ctxSelectedProvider,
+            nextOptions,
+            {
+              instanceId: ctxSelectedModelSelection.instanceId,
+              model: ctxSelectedModel,
+              persistSticky: true,
+            },
+          );
+          promptRef.current = "";
+          clearComposerDraftContent(composerDraftTarget);
+          composerRef.current?.resetCursorState();
+          return;
+        }
+      } else {
+        handleInteractionModeChange(standaloneSlashCommand);
+        promptRef.current = "";
+        clearComposerDraftContent(composerDraftTarget);
+        composerRef.current?.resetCursorState();
+        return;
+      }
     }
     if (!hasSendableContent) {
       if (expiredTerminalContextCount > 0) {
@@ -6957,21 +7041,6 @@ export default function ChatView(props: ChatViewProps) {
         currentThreadKey === activeThreadKey ? null : currentThreadKey,
       );
       resetLocalDispatch();
-    }
-  };
-
-  const onInterrupt = async () => {
-    if (!activeThread) return;
-    const result = await interruptThreadTurn({
-      environmentId,
-      input: buildThreadTurnInterruptInput(activeThread),
-    });
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      const error = squashAtomCommandFailure(result);
-      setThreadError(
-        activeThread.id,
-        error instanceof Error ? error.message : "Failed to interrupt the current turn.",
-      );
     }
   };
 

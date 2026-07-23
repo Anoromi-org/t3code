@@ -6,6 +6,7 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   formatShortcutLabel,
   isChatNewShortcut,
@@ -494,6 +495,29 @@ describe("shortcutLabelForCommand", () => {
         context: { terminalFocus: true },
       }),
       "Ctrl+D",
+    );
+  });
+});
+
+describe("default composer shortcuts", () => {
+  it("keeps stash and focus independently reachable", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "s", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "composer.stash",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "s", metaKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        {
+          platform: "MacIntel",
+          context: { terminalFocus: false },
+        },
+      ),
+      "chat.composer.focus",
     );
   });
 });
@@ -1042,6 +1066,26 @@ describe("plus key parsing", () => {
       isTerminalToggleShortcut(event({ key: "+", ctrlKey: true }), plusBindings, {
         platform: "Linux",
       }),
+    );
+  });
+});
+
+describe("fork and upstream default shortcuts", () => {
+  it.each([
+    ["s", false, "chat.composer.focus"],
+    ["c", false, "thread.interrupt"],
+    ["p", false, "filePicker.toggle"],
+    ["s", true, "thread.settle"],
+    ["c", true, "thread.copyReference"],
+    ["p", true, "thread.pin"],
+  ] as const)("resolves %s with alt=%s to %s", (key, altKey, command) => {
+    assert.equal(
+      resolveShortcutCommand(
+        event({ key, ctrlKey: true, shiftKey: true, altKey }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux", context: { terminalFocus: false, modelPickerOpen: false } },
+      ),
+      command,
     );
   });
 });
