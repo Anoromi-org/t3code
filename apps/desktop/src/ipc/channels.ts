@@ -13,6 +13,7 @@ export const SYNC_HYPRNAV_ENVIRONMENT_CHANNEL = "desktop:sync-hyprnav-environmen
 export const LOCK_HYPRNAV_ENVIRONMENT_CHANNEL = "desktop:lock-hyprnav-environment";
 export const MENU_ACTION_CHANNEL = "desktop:menu-action";
 export const QUIT_SHORTCUT_CHANNEL = "desktop:quit-shortcut";
+export const THREAD_SWITCHER_ACTION_CHANNEL = "desktop:thread-switcher-action";
 export const GET_WINDOW_FULLSCREEN_STATE_CHANNEL = "desktop:get-window-fullscreen-state";
 export const WINDOW_FULLSCREEN_STATE_CHANNEL = "desktop:window-fullscreen-state";
 export const DESKTOP_APP_ACTIVATION_READY_CHANNEL = "desktop:app-activation-ready";

@@ -3,6 +3,7 @@ import type {
   DesktopPreviewPointerEvent,
   DesktopPreviewRecordingFrame,
   DesktopPreviewTabState,
+  DesktopThreadSwitcherAction,
 } from "@t3tools/contracts";
 import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer } from "electron";
@@ -170,6 +171,24 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(IpcChannels.QUIT_SHORTCUT_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(IpcChannels.QUIT_SHORTCUT_CHANNEL, wrappedListener);
+    };
+  },
+  onThreadSwitcherAction: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
+      if (
+        action !== "advance-forward" &&
+        action !== "advance-backward" &&
+        action !== "commit" &&
+        action !== "cancel"
+      ) {
+        return;
+      }
+      listener(action satisfies DesktopThreadSwitcherAction);
+    };
+
+    ipcRenderer.on(IpcChannels.THREAD_SWITCHER_ACTION_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.THREAD_SWITCHER_ACTION_CHANNEL, wrappedListener);
     };
   },
   getWindowFullscreenState: () =>

@@ -55,6 +55,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import { isDesktopThreadSwitcherForwardInput } from "../window/DesktopThreadSwitcher.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
   ANNOTATION_THEME_CHANNEL,
@@ -1844,7 +1845,34 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       window.webContents.setIgnoreMenuShortcuts(true);
       window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     };
+    let forwardingThreadSwitcherGesture = false;
+    const resetForwardingThreadSwitcherGesture = (): void => {
+      forwardingThreadSwitcherGesture = false;
+    };
+    const shortcutHostWindow = yield* Ref.get(mainWindowRef);
+    const forwardThreadSwitcher = (event: Electron.Event, input: Electron.Input): void => {
+      if (
+        !isDesktopThreadSwitcherForwardInput(input, forwardingThreadSwitcherGesture) ||
+        Option.isNone(shortcutHostWindow) ||
+        shortcutHostWindow.value.isDestroyed()
+      )
+        return;
+      forwardingThreadSwitcherGesture =
+        input.type === "keyDown" && input.key.toLowerCase() === "tab";
+      event.preventDefault();
+      shortcutHostWindow.value.webContents.sendInputEvent({
+        type: input.type === "keyUp" ? "keyUp" : "keyDown",
+        keyCode: input.key,
+        modifiers: [
+          ...(input.meta ? (["meta"] as const) : []),
+          ...(input.shift ? (["shift"] as const) : []),
+          ...(input.control ? (["control"] as const) : []),
+          ...(input.alt ? (["alt"] as const) : []),
+        ],
+      });
+    };
     const beforeInput = (event: Electron.Event, input: Electron.Input): void => {
+      forwardThreadSwitcher(event, input);
       if (isPreviewRefreshShortcut(input)) {
         event.preventDefault();
         runFork(
@@ -1870,6 +1898,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.off("audio-state-changed", audioStateChanged);
         wc.off("did-create-window", windowCreated);
         wc.off("before-input-event", beforeInput);
+        wc.off("blur", resetForwardingThreadSwitcherGesture);
         wc.ipc.off(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.off(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
       }).pipe(Effect.ignore),
@@ -1888,6 +1917,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.on("did-stop-loading", sync);
         wc.on("did-fail-load", failed as never);
         wc.on("audio-state-changed", audioStateChanged);
+        wc.on("blur", resetForwardingThreadSwitcherGesture);
         wc.ipc.on(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.on(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
         wc.setWindowOpenHandler((details) => {

@@ -43,7 +43,11 @@ import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import { MENU_ACTION_CHANNEL, WINDOW_FULLSCREEN_STATE_CHANNEL } from "../ipc/channels.ts";
+import {
+  MENU_ACTION_CHANNEL,
+  THREAD_SWITCHER_ACTION_CHANNEL,
+  WINDOW_FULLSCREEN_STATE_CHANNEL,
+} from "../ipc/channels.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -1048,6 +1052,52 @@ describe("DesktopWindow", () => {
           [WINDOW_FULLSCREEN_STATE_CHANNEL, true],
           [WINDOW_FULLSCREEN_STATE_CHANNEL, false],
         ]);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("routes the native Ctrl+Tab gesture lifecycle to the renderer", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        const beforeInput = fakeWindow.webContentsListeners.get("before-input-event");
+        const blur = fakeWindow.windowListeners.get("blur");
+        if (!beforeInput || !blur) {
+          return yield* Effect.die("thread switcher listeners were not registered");
+        }
+        const preventDefault = vi.fn();
+        const event = { preventDefault };
+        const baseInput = {
+          type: "keyDown",
+          key: "Tab",
+          control: true,
+          shift: false,
+          alt: false,
+          meta: false,
+        };
+
+        beforeInput(event, baseInput);
+        beforeInput(event, { ...baseInput, shift: true });
+        blur();
+        blur();
+
+        assert.deepEqual(fakeWindow.send.mock.calls, [
+          [THREAD_SWITCHER_ACTION_CHANNEL, "advance-forward"],
+          [THREAD_SWITCHER_ACTION_CHANNEL, "advance-backward"],
+          [THREAD_SWITCHER_ACTION_CHANNEL, "commit"],
+        ]);
+        assert.equal(preventDefault.mock.calls.length, 2);
       }).pipe(Effect.provide(layer));
     }),
   );
