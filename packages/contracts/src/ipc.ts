@@ -1064,6 +1064,7 @@ export interface DesktopBridge {
     readonly reused: boolean;
   }>;
   onMenuAction: (listener: (action: string) => void) => () => void;
+  onThreadSwitcherAction: (listener: (action: DesktopThreadSwitcherAction) => void) => () => void;
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
@@ -1078,6 +1079,14 @@ export interface DesktopBridge {
    */
   preview?: DesktopPreviewBridge;
 }
+
+export const DesktopThreadSwitcherAction = Schema.Literals([
+  "advance-forward",
+  "advance-backward",
+  "commit",
+  "cancel",
+]);
+export type DesktopThreadSwitcherAction = typeof DesktopThreadSwitcherAction.Type;
 
 export interface DesktopHyprnavScopedSlot {
   readonly slot: number;

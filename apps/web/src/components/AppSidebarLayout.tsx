@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import {
@@ -10,7 +11,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 
 import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
@@ -28,10 +29,21 @@ import { selectProjectGroupingSettings } from "../logicalProject";
 import { cn, isMacPlatform } from "../lib/utils";
 import { useProjects, useThreadShells } from "../state/entities";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { buildThreadRouteParams } from "../threadRoutes";
+import {
+  recentThreadTargetKey,
+  type RecentThreadTarget,
+  useRecentThreadStore,
+} from "../recentThreadStore";
+import {
+  buildDraftThreadRouteParams,
+  buildThreadRouteParams,
+  resolveThreadRouteTarget,
+} from "../threadRoutes";
 import LegacyThreadSidebar from "./LegacySidebar";
 import { NavigationCommandMenu } from "./NavigationCommandMenu";
 import { resolveDraftProjectKeys, resolveProjectDraftId } from "./NavigationCommandMenu.logic";
+import { RecentThreadSwitcher } from "./RecentThreadSwitcher";
+import { resolveRecentThreadSwitcherItems } from "./RecentThreadSwitcher.logic";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
@@ -243,6 +255,169 @@ export function NavigationCommandMenuControl() {
   );
 }
 
+export function RecentThreadSwitcherControl() {
+  const navigate = useNavigate();
+  const projects = useProjects();
+  const threads = useThreadShells();
+  const routeTarget = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteTarget(params),
+  });
+  const draftThreadsByThreadKey = useComposerDraftStore((state) => state.draftThreadsByThreadKey);
+  const cycle = useRecentThreadStore((state) => state.cycle);
+
+  const eligibleThreadsByKey = useMemo(
+    () =>
+      new Map(
+        threads.flatMap((thread) =>
+          thread.archivedAt === null
+            ? [
+                [
+                  scopedThreadKey({
+                    environmentId: thread.environmentId,
+                    threadId: thread.id,
+                  }),
+                  thread,
+                ] as const,
+              ]
+            : [],
+        ),
+      ),
+    [threads],
+  );
+
+  const resolveTargets = useCallback(
+    (targets: ReadonlyArray<RecentThreadTarget>) =>
+      resolveRecentThreadSwitcherItems({
+        targets,
+        projects,
+        threads,
+        draftsById: draftThreadsByThreadKey,
+      }),
+    [draftThreadsByThreadKey, projects, threads],
+  );
+  const resolvedCycleItems = useMemo(
+    () => resolveTargets(cycle?.targets ?? []),
+    [cycle?.targets, resolveTargets],
+  );
+
+  useEffect(() => {
+    if (!routeTarget) return;
+    if (routeTarget.kind === "server") {
+      if (!eligibleThreadsByKey.has(scopedThreadKey(routeTarget.threadRef))) {
+        return;
+      }
+      useRecentThreadStore.getState().recordVisit(routeTarget);
+      return;
+    }
+
+    const draft = draftThreadsByThreadKey[routeTarget.draftId];
+    if (!draft || draft.promotedTo) return;
+    useRecentThreadStore.getState().recordVisit({
+      kind: "draft",
+      draftId: DraftId.make(routeTarget.draftId),
+    });
+  }, [draftThreadsByThreadKey, eligibleThreadsByKey, routeTarget]);
+
+  const navigateToTarget = useCallback(
+    (target: RecentThreadTarget) => {
+      if (target.kind === "server") {
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(target.threadRef),
+        });
+        return;
+      }
+      void navigate({
+        to: "/draft/$draftId",
+        params: buildDraftThreadRouteParams(target.draftId),
+      });
+    },
+    [navigate],
+  );
+
+  const commit = useCallback(
+    (target?: RecentThreadTarget) => {
+      const state = useRecentThreadStore.getState();
+      const selectedTarget =
+        target ??
+        (state.cycle
+          ? (state.cycle.targets[state.cycle.highlightedIndex] ?? undefined)
+          : undefined);
+      const canonicalTarget = selectedTarget
+        ? (resolveTargets([selectedTarget])[0]?.target ?? null)
+        : null;
+      const latestHistoryItems = resolveTargets(state.history);
+      const latestCycleItems = resolveTargets(state.cycle?.targets ?? []);
+      state.reconcile(
+        latestHistoryItems.map((item) => item.target),
+        state.cycle ? latestCycleItems.map((item) => item.target) : undefined,
+      );
+      if (!canonicalTarget) {
+        useRecentThreadStore.getState().cancel();
+        return;
+      }
+      const selected = useRecentThreadStore.getState().commit(canonicalTarget);
+      if (selected) navigateToTarget(selected);
+    },
+    [navigateToTarget, resolveTargets],
+  );
+
+  useEffect(() => {
+    const onThreadSwitcherAction = window.desktopBridge?.onThreadSwitcherAction;
+    if (!isElectron || typeof onThreadSwitcherAction !== "function") return;
+
+    return onThreadSwitcherAction((action) => {
+      const state = useRecentThreadStore.getState();
+      if (
+        (action === "advance-forward" || action === "advance-backward") &&
+        isAnyCommandSurfaceOpen("thread-switcher")
+      ) {
+        return;
+      }
+
+      if (action === "advance-forward" || action === "advance-backward") {
+        // Reconcile lazily at gesture start. Eagerly writing resolved route
+        // targets back during render can oscillate while a draft is promoted.
+        const latestHistoryItems = resolveTargets(state.history);
+        const latestCycleItems = resolveTargets(state.cycle?.targets ?? []);
+        state.reconcile(
+          latestHistoryItems.map((item) => item.target),
+          state.cycle ? latestCycleItems.map((item) => item.target) : undefined,
+        );
+        useRecentThreadStore
+          .getState()
+          .advance(action === "advance-forward" ? "forward" : "backward");
+        return;
+      }
+
+      if (action === "commit") {
+        commit();
+        return;
+      }
+
+      useRecentThreadStore.getState().cancel();
+    });
+  }, [commit, resolveTargets]);
+
+  const highlightedTarget = cycle?.targets[cycle.highlightedIndex] ?? null;
+  const highlightedIndex = highlightedTarget
+    ? resolvedCycleItems.findIndex(
+        (item) => recentThreadTargetKey(item.target) === recentThreadTargetKey(highlightedTarget),
+      )
+    : 0;
+
+  return (
+    <RecentThreadSwitcher
+      open={cycle !== null && resolvedCycleItems.length >= 2}
+      items={resolvedCycleItems}
+      highlightedIndex={Math.max(0, highlightedIndex)}
+      onCancel={() => useRecentThreadStore.getState().cancel()}
+      onSelect={commit}
+    />
+  );
+}
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
@@ -340,6 +515,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       {children}
       <SidebarControl />
       <NavigationCommandMenuControl />
+      <RecentThreadSwitcherControl />
     </SidebarProvider>
   );
 }

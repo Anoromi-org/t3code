@@ -1,14 +1,22 @@
 import "../index.css";
 
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 
-const { draftMapping, draftSessions, handleNewThreadSpy, navigateSpy } = vi.hoisted(() => ({
-  draftMapping: { current: {} as Record<string, string> },
-  draftSessions: { current: {} as Record<string, { readonly draftId: string }> },
-  handleNewThreadSpy: vi.fn(async () => undefined),
-  navigateSpy: vi.fn(async () => undefined),
+const { draftMapping, draftSessions, draftThreads, handleNewThreadSpy, navigateSpy, threadShells } =
+  vi.hoisted(() => ({
+    draftMapping: { current: {} as Record<string, string> },
+    draftSessions: { current: {} as Record<string, { readonly draftId: string }> },
+    draftThreads: { current: {} as Record<string, Record<string, unknown>> },
+    handleNewThreadSpy: vi.fn(async () => undefined),
+    navigateSpy: vi.fn(async () => undefined),
+    threadShells: { current: [] as Array<(typeof STATUS_THREADS)[number]> },
+  }));
+const threadSwitcherBridge = vi.hoisted(() => ({
+  listener: null as ((action: string) => void) | null,
+  activeListeners: new Set<(action: string) => void>(),
+  unsubscribe: vi.fn(),
 }));
 
 vi.mock("@effect/atom-react", async () => {
@@ -25,6 +33,8 @@ vi.mock("@tanstack/react-router", async () => {
     useParams: () => ({}),
   };
 });
+
+vi.mock("../env", () => ({ isElectron: true }));
 
 vi.mock("../keybindings", async () => {
   const actual = await vi.importActual<typeof import("../keybindings")>("../keybindings");
@@ -108,7 +118,7 @@ vi.mock("../state/entities", async () => {
     useProjects: () => [PROJECT],
     useThread: () => null,
     useThreadShell: () => null,
-    useThreadShells: () => STATUS_THREADS,
+    useThreadShells: () => threadShells.current,
   };
 });
 
@@ -117,7 +127,7 @@ vi.mock("../composerDraftStore", () => ({
   clearComposerDraftsEnvironment: () => undefined,
   useComposerDraftStore: (selector: (state: unknown) => unknown) =>
     selector({
-      draftThreadsByThreadKey: {},
+      draftThreadsByThreadKey: draftThreads.current,
       getDraftSessionByLogicalProjectKey: (logicalProjectKey: string) => {
         const draftId = draftMapping.current[logicalProjectKey];
         return draftId ? (draftSessions.current[draftId] ?? null) : null;
@@ -230,16 +240,229 @@ vi.mock("../localApi", () => ({
   readLocalApi: () => null,
 }));
 
-import { NavigationCommandMenuControl } from "./AppSidebarLayout";
+import { NavigationCommandMenuControl, RecentThreadSwitcherControl } from "./AppSidebarLayout";
 import { CommandPalette } from "./CommandPalette";
+import type { RecentThreadTarget } from "../recentThreadStore";
+import { useRecentThreadStore } from "../recentThreadStore";
+
+function threadTarget(thread: {
+  readonly environmentId: string;
+  readonly id: string;
+}): RecentThreadTarget {
+  return {
+    kind: "server",
+    threadRef: {
+      environmentId: thread.environmentId,
+      threadId: thread.id,
+    },
+  } as RecentThreadTarget;
+}
 
 describe("keyboard command menus", () => {
+  beforeEach(() => {
+    threadShells.current = [...STATUS_THREADS];
+    threadSwitcherBridge.listener = null;
+    threadSwitcherBridge.activeListeners.clear();
+    threadSwitcherBridge.unsubscribe.mockClear();
+    useRecentThreadStore.getState().reset();
+    Object.defineProperty(window, "desktopBridge", {
+      configurable: true,
+      value: {
+        onThreadSwitcherAction: (listener: (action: string) => void) => {
+          threadSwitcherBridge.listener = listener;
+          threadSwitcherBridge.activeListeners.add(listener);
+          return () => {
+            threadSwitcherBridge.activeListeners.delete(listener);
+            threadSwitcherBridge.unsubscribe();
+          };
+        },
+      },
+    });
+  });
+
   afterEach(() => {
     draftMapping.current = {};
     draftSessions.current = {};
+    draftThreads.current = {};
     handleNewThreadSpy.mockClear();
     navigateSpy.mockClear();
+    useRecentThreadStore.getState().reset();
+    Reflect.deleteProperty(window, "desktopBridge");
     document.body.innerHTML = "";
+  });
+
+  it("cycles frozen MRU entries and navigates exactly once when committed", async () => {
+    const [a, b, c] = STATUS_THREADS;
+    if (!a || !b || !c) throw new Error("Expected thread fixtures");
+    const store = useRecentThreadStore.getState();
+    store.recordVisit(threadTarget(a));
+    store.recordVisit(threadTarget(b));
+    store.recordVisit(threadTarget(c));
+
+    const screen = await render(<RecentThreadSwitcherControl />);
+    try {
+      await vi.waitFor(() => expect(threadSwitcherBridge.listener).not.toBeNull());
+
+      threadSwitcherBridge.listener?.("advance-forward");
+      await expect
+        .element(page.getByRole("dialog", { name: "Recent thread switcher" }))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByRole("option", { name: /Approval status thread/ }))
+        .toHaveAttribute("aria-selected", "true");
+      expect(navigateSpy).not.toHaveBeenCalled();
+
+      threadSwitcherBridge.listener?.("advance-forward");
+      await expect
+        .element(page.getByRole("option", { name: /Fix navigation hotkeys/ }))
+        .toHaveAttribute("aria-selected", "true");
+      threadSwitcherBridge.listener?.("advance-backward");
+      await expect
+        .element(page.getByRole("option", { name: /Approval status thread/ }))
+        .toHaveAttribute("aria-selected", "true");
+      expect(navigateSpy).not.toHaveBeenCalled();
+
+      threadSwitcherBridge.listener?.("commit");
+      await vi.waitFor(() => {
+        expect(navigateSpy).toHaveBeenCalledTimes(1);
+        expect(navigateSpy).toHaveBeenCalledWith({
+          to: "/$environmentId/$threadId",
+          params: {
+            environmentId: b.environmentId,
+            threadId: b.id,
+          },
+        });
+      });
+      await expect
+        .element(page.getByRole("dialog", { name: "Recent thread switcher" }))
+        .not.toBeInTheDocument();
+
+      threadSwitcherBridge.listener?.("commit");
+      expect(navigateSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+    }
+    expect(threadSwitcherBridge.unsubscribe).toHaveBeenCalled();
+    expect(threadSwitcherBridge.activeListeners).toHaveLength(0);
+  });
+
+  it("does not commit a thread removed during an active gesture", async () => {
+    const [a, b] = STATUS_THREADS;
+    if (!a || !b) throw new Error("Expected thread fixtures");
+    const store = useRecentThreadStore.getState();
+    store.recordVisit(threadTarget(a));
+    store.recordVisit(threadTarget(b));
+
+    const screen = await render(<RecentThreadSwitcherControl />);
+    try {
+      await vi.waitFor(() => expect(threadSwitcherBridge.listener).not.toBeNull());
+      threadSwitcherBridge.listener?.("advance-forward");
+      await expect
+        .element(page.getByRole("option", { name: /Fix navigation hotkeys/ }))
+        .toHaveAttribute("aria-selected", "true");
+
+      threadShells.current = threadShells.current.filter((thread) => thread.id !== a.id);
+      await screen.rerender(<RecentThreadSwitcherControl />);
+      threadSwitcherBridge.listener?.("commit");
+
+      expect(navigateSpy).not.toHaveBeenCalled();
+      expect(useRecentThreadStore.getState().cycle).toBeNull();
+      expect(useRecentThreadStore.getState().history).toEqual([threadTarget(b)]);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("canonicalizes a draft promoted during an active gesture", async () => {
+    const [promotedThread, otherThread] = STATUS_THREADS;
+    if (!promotedThread || !otherThread) throw new Error("Expected thread fixtures");
+    const draftId = "draft-promoted-mid-cycle";
+    draftThreads.current = {
+      [draftId]: {
+        draftId,
+        environmentId: PROJECT.environmentId,
+        projectId: PROJECT.id,
+        promotedTo: null,
+      },
+    };
+    const draftTarget = { kind: "draft", draftId } as RecentThreadTarget;
+    const store = useRecentThreadStore.getState();
+    store.recordVisit(draftTarget);
+    store.recordVisit(threadTarget(otherThread));
+
+    const screen = await render(<RecentThreadSwitcherControl />);
+    try {
+      await vi.waitFor(() => expect(threadSwitcherBridge.listener).not.toBeNull());
+      threadSwitcherBridge.listener?.("advance-forward");
+      await expect
+        .element(page.getByRole("option", { name: "New thread Navigation project" }))
+        .toHaveAttribute("aria-selected", "true");
+
+      draftThreads.current = {
+        [draftId]: {
+          ...draftThreads.current[draftId],
+          promotedTo: {
+            environmentId: promotedThread.environmentId,
+            threadId: promotedThread.id,
+          },
+        },
+      };
+      await screen.rerender(<RecentThreadSwitcherControl />);
+      threadSwitcherBridge.listener?.("commit");
+
+      await vi.waitFor(() =>
+        expect(navigateSpy).toHaveBeenCalledWith({
+          to: "/$environmentId/$threadId",
+          params: {
+            environmentId: promotedThread.environmentId,
+            threadId: promotedThread.id,
+          },
+        }),
+      );
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("cancels without navigation and does not stack over another command surface", async () => {
+    const [a, b] = STATUS_THREADS;
+    if (!a || !b) throw new Error("Expected thread fixtures");
+    const store = useRecentThreadStore.getState();
+    store.recordVisit(threadTarget(a));
+    store.recordVisit(threadTarget(b));
+
+    const screen = await render(
+      <>
+        <button type="button">Workspace</button>
+        <NavigationCommandMenuControl />
+        <RecentThreadSwitcherControl />
+      </>,
+    );
+    try {
+      await vi.waitFor(() => expect(threadSwitcherBridge.listener).not.toBeNull());
+      threadSwitcherBridge.listener?.("advance-forward");
+      await expect
+        .element(page.getByRole("dialog", { name: "Recent thread switcher" }))
+        .toBeInTheDocument();
+      threadSwitcherBridge.listener?.("cancel");
+      await expect
+        .element(page.getByRole("dialog", { name: "Recent thread switcher" }))
+        .not.toBeInTheDocument();
+      expect(navigateSpy).not.toHaveBeenCalled();
+
+      await page.getByRole("button", { name: "Workspace" }).click();
+      await userEvent.keyboard("{Control>}e{/Control}");
+      await expect
+        .element(page.getByRole("dialog", { name: "Navigation command menu" }))
+        .toBeInTheDocument();
+      threadSwitcherBridge.listener?.("advance-forward");
+      await expect
+        .element(page.getByRole("dialog", { name: "Recent thread switcher" }))
+        .not.toBeInTheDocument();
+      expect(navigateSpy).not.toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+    }
   });
 
   it("opens navigation with Ctrl+E and routes to the chosen thread", async () => {

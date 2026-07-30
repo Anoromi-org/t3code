@@ -375,6 +375,154 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect(
+    "forwards a complete Ctrl+Tab gesture from the preview and cleans up its listener",
+    () =>
+      Effect.gen(function* () {
+        const listeners = new Map<string, (...args: unknown[]) => void>();
+        const off = vi.fn();
+        const sendInputEvent = vi.fn();
+        const mainWebContents = { sendInputEvent };
+        fromId.mockReturnValue({
+          id: 42,
+          hostWebContents: mainWebContents,
+          isDestroyed: () => false,
+          getType: () => "webview",
+          getURL: () => "https://example.com",
+          getTitle: () => "Example",
+          isLoading: () => false,
+          getZoomFactor: () => 1,
+          setZoomFactor: vi.fn(),
+          on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+            listeners.set(event, listener);
+          }),
+          off,
+          ipc: { on: vi.fn(), off: vi.fn() },
+          send: webviewSend,
+          navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+          setWindowOpenHandler: vi.fn(),
+          debugger: {
+            isAttached: () => false,
+            attach: vi.fn(),
+            sendCommand: vi.fn(async () => undefined),
+            on: vi.fn(),
+            off: vi.fn(),
+          },
+        } as never);
+
+        yield* withManager((manager) =>
+          Effect.gen(function* () {
+            yield* manager.setMainWindow({
+              isDestroyed: () => false,
+              once: vi.fn(),
+              webContents: mainWebContents,
+            } as never);
+            yield* manager.createTab("tab_thread_switcher");
+            yield* manager.registerWebview("tab_thread_switcher", 42);
+
+            const beforeInput = listeners.get("before-input-event");
+            if (!beforeInput) {
+              return yield* Effect.die("preview input listener was not registered");
+            }
+            const preventDefault = vi.fn();
+            const event = { preventDefault };
+            const tabInput = {
+              type: "keyDown",
+              key: "Tab",
+              control: true,
+              shift: false,
+              alt: false,
+              meta: false,
+            };
+
+            beforeInput(event, tabInput);
+            const blur = listeners.get("blur");
+            if (!blur) {
+              return yield* Effect.die("preview blur listener was not registered");
+            }
+            blur();
+            beforeInput(event, { ...tabInput, key: "Escape" });
+            beforeInput(event, {
+              ...tabInput,
+              type: "keyUp",
+              key: "Control",
+              control: false,
+            });
+            yield* Effect.yieldNow;
+
+            expect(sendInputEvent.mock.calls).toEqual([
+              [
+                {
+                  type: "keyDown",
+                  keyCode: "Tab",
+                  modifiers: ["control"],
+                },
+              ],
+            ]);
+            expect(preventDefault).toHaveBeenCalledOnce();
+
+            beforeInput(event, tabInput);
+            beforeInput(event, { ...tabInput, key: "Escape" });
+            beforeInput(event, {
+              ...tabInput,
+              type: "keyUp",
+              key: "Control",
+              control: false,
+            });
+            yield* Effect.yieldNow;
+
+            expect(sendInputEvent.mock.calls.slice(1)).toEqual([
+              [
+                {
+                  type: "keyDown",
+                  keyCode: "Tab",
+                  modifiers: ["control"],
+                },
+              ],
+              [
+                {
+                  type: "keyDown",
+                  keyCode: "Escape",
+                  modifiers: ["control"],
+                },
+              ],
+            ]);
+            expect(preventDefault).toHaveBeenCalledTimes(3);
+
+            beforeInput(event, tabInput);
+            beforeInput(event, {
+              ...tabInput,
+              type: "keyUp",
+              key: "Control",
+              control: false,
+            });
+            yield* Effect.yieldNow;
+
+            expect(sendInputEvent.mock.calls.slice(3)).toEqual([
+              [
+                {
+                  type: "keyDown",
+                  keyCode: "Tab",
+                  modifiers: ["control"],
+                },
+              ],
+              [
+                {
+                  type: "keyUp",
+                  keyCode: "Control",
+                  modifiers: [],
+                },
+              ],
+            ]);
+            expect(preventDefault).toHaveBeenCalledTimes(5);
+          }),
+        );
+
+        expect(off).toHaveBeenCalledWith("before-input-event", expect.any(Function));
+        expect(off).toHaveBeenCalledWith("blur", expect.any(Function));
+      }),
+  );
+
   effectIt.effect("mirrors Electron's effective zoom across registration and navigation", () =>
     withManager((manager) =>
       Effect.gen(function* () {
