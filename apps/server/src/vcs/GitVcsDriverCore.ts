@@ -1279,6 +1279,15 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     );
   });
 
+  const resolveStatusRemoteKey = Effect.fn("resolveStatusRemoteKey")(function* (cwd: string) {
+    const upstream = yield* resolveCurrentUpstream(cwd);
+    if (!upstream) return null;
+    const gitCommonDir = yield* resolveGitCommonDir(cwd);
+    return statusRemoteRefreshFailureKey(
+      new StatusRemoteRefreshCacheKey({ gitCommonDir, remoteName: upstream.remoteName }),
+    );
+  });
+
   const resolveDefaultBranchName = (
     cwd: string,
     remoteName: string,
@@ -3308,6 +3317,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     statusDetails,
     statusDetailsLocal,
     statusDetailsRemote,
+    resolveStatusRemoteKey,
     prepareCommitContext,
     commit: (cwd, subject, body, options) =>
       withListRefsInvalidation(cwd, commit(cwd, subject, body, options)),
