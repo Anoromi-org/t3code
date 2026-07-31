@@ -236,6 +236,7 @@ export class GitVcsDriver extends Context.Service<
       cwd: string,
       options?: GitRemoteStatusOptions,
     ) => Effect.Effect<GitRemoteStatusDetails, GitCommandError>;
+    readonly resolveStatusRemoteKey: (cwd: string) => Effect.Effect<string | null, GitCommandError>;
     readonly prepareCommitContext: (
       cwd: string,
       filePaths?: readonly string[],
@@ -498,11 +499,18 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       cwd,
       ["rev-parse", "--git-common-dir"],
     ).pipe(Effect.orElseSucceed(() => null));
+    const gitCommonDirOutput = gitCommonDir?.stdout.trim();
 
     return {
       kind: "git" as const,
       rootPath: root.stdout.trim(),
-      metadataPath: gitCommonDir?.stdout.trim() || null,
+      metadataPath: gitCommonDirOutput
+        ? path.normalize(
+            path.isAbsolute(gitCommonDirOutput)
+              ? gitCommonDirOutput
+              : path.resolve(cwd, gitCommonDirOutput),
+          )
+        : null,
       freshness: yield* nowFreshness(),
     };
   });

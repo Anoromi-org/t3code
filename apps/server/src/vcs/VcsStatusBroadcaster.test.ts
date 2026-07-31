@@ -81,6 +81,8 @@ function makeTestLayer(state: {
     Layer.provide(makeBackgroundPolicyLayer(() => true)),
     Layer.provide(
       Layer.mock(GitWorkflowService.GitWorkflowService)({
+        resolveRepositoryKey: (cwd) => Effect.succeed(`git\0${cwd}`),
+        resolveStatusRemoteKey: () => Effect.succeed("default"),
         localStatus: () =>
           Effect.sync(() => {
             state.localStatusCalls += 1;
@@ -223,6 +225,8 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: (cwd) => Effect.succeed(`git\0${cwd}`),
+          resolveStatusRemoteKey: () => Effect.succeed("default"),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -331,6 +335,8 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: (cwd) => Effect.succeed(`git\0${cwd}`),
+          resolveStatusRemoteKey: () => Effect.succeed("default"),
           localStatus: (input) =>
             Effect.sync(() => {
               seenCwds.push(input.cwd);
@@ -495,6 +501,8 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: (cwd) => Effect.succeed(`git\0${cwd}`),
+          resolveStatusRemoteKey: () => Effect.succeed("default"),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -613,7 +621,9 @@ describe("VcsStatusBroadcaster", () => {
       yield* Stream.runForEach(
         broadcaster.streamStatus(
           { cwd: "/repo" },
-          { automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(1)) },
+          {
+            automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(1)),
+          },
         ),
         (event) =>
           event._tag === "snapshot"
@@ -695,6 +705,8 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => false)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: (cwd) => Effect.succeed(`git\0${cwd}`),
+          resolveStatusRemoteKey: () => Effect.succeed("default"),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -722,7 +734,9 @@ describe("VcsStatusBroadcaster", () => {
       const snapshot = yield* Stream.runHead(
         broadcaster.streamStatus(
           { cwd: "/repo" },
-          { automaticRemoteRefreshInterval: Effect.succeed(Duration.seconds(1)) },
+          {
+            automaticRemoteRefreshInterval: Effect.succeed(Duration.seconds(1)),
+          },
         ),
       );
 
@@ -730,6 +744,408 @@ describe("VcsStatusBroadcaster", () => {
       assert.equal(state.remoteStatusCalls, 0);
       assert.equal(state.remoteInvalidationCalls, 0);
     }).pipe(Effect.provide(testLayer));
+  });
+
+  it.effect("continues with healthy worktrees when one repository member fails", () => {
+    let activeRefreshes = 0;
+    let maxActiveRefreshes = 0;
+    let remoteStatusCalls = 0;
+    let firstRefreshStarted: Deferred.Deferred<void> | null = null;
+    let secondRefreshStarted: Deferred.Deferred<void> | null = null;
+    let rejoinedFailedRefreshStarted: Deferred.Deferred<void> | null = null;
+    let releaseFirstRefresh: Deferred.Deferred<void> | null = null;
+    const testLayer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provide(makeBackgroundPolicyLayer(() => true)),
+      Layer.provide(
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: () => Effect.succeed("git\0/repo/.git"),
+          resolveStatusRemoteKey: () => Effect.succeed("default"),
+          localStatus: ({ cwd }) =>
+            Effect.succeed({
+              ...baseLocalStatus,
+              refName: cwd.endsWith("/one") ? "feature/one" : "feature/two",
+            }),
+          remoteStatus: ({ cwd }) =>
+            Effect.sync(() => {
+              remoteStatusCalls += 1;
+              activeRefreshes += 1;
+              maxActiveRefreshes = Math.max(maxActiveRefreshes, activeRefreshes);
+              return remoteStatusCalls;
+            }).pipe(
+              Effect.flatMap((call) => {
+                if (cwd.endsWith("/one")) {
+                  const waitForRelease =
+                    call === 1
+                      ? Effect.andThen(
+                          firstRefreshStarted
+                            ? Deferred.succeed(firstRefreshStarted, undefined).pipe(Effect.ignore)
+                            : Effect.void,
+                          releaseFirstRefresh ? Deferred.await(releaseFirstRefresh) : Effect.void,
+                        )
+                      : rejoinedFailedRefreshStarted
+                        ? Deferred.succeed(rejoinedFailedRefreshStarted, undefined).pipe(
+                            Effect.ignore,
+                          )
+                        : Effect.void;
+                  return waitForRelease.pipe(
+                    Effect.andThen(
+                      Effect.fail(
+                        new GitManagerError({
+                          operation: "VcsStatusBroadcaster.test.deletedWorktree",
+                          cwd,
+                          detail: "worktree disappeared",
+                        }),
+                      ),
+                    ),
+                  );
+                }
+                return (
+                  secondRefreshStarted
+                    ? Deferred.succeed(secondRefreshStarted, undefined).pipe(Effect.ignore)
+                    : Effect.void
+                ).pipe(Effect.as(baseRemoteStatus));
+              }),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  activeRefreshes -= 1;
+                }),
+              ),
+            ),
+          invalidateRemoteStatus: () => Effect.void,
+        } satisfies Partial<GitWorkflowService.GitWorkflowService["Service"]>),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      firstRefreshStarted = yield* Deferred.make<void>();
+      secondRefreshStarted = yield* Deferred.make<void>();
+      rejoinedFailedRefreshStarted = yield* Deferred.make<void>();
+      releaseFirstRefresh = yield* Deferred.make<void>();
+      const firstSnapshot = yield* Deferred.make<VcsStatusStreamEvent>();
+      const secondSnapshot = yield* Deferred.make<VcsStatusStreamEvent>();
+      const secondRemoteUpdated = yield* Deferred.make<void>();
+      const firstScope = yield* Scope.make();
+      const secondScope = yield* Scope.make();
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+
+      yield* Stream.runForEach(
+        broadcaster.streamStatus(
+          { cwd: "/repo/worktrees/one" },
+          { automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(1)) },
+        ),
+        (event) =>
+          event._tag === "snapshot"
+            ? Deferred.succeed(firstSnapshot, event).pipe(Effect.ignore)
+            : Effect.void,
+      ).pipe(Effect.forkIn(firstScope));
+      const firstSnapshotEvent = yield* Deferred.await(firstSnapshot).pipe(
+        Effect.timeout("1 second"),
+      );
+      yield* Deferred.await(firstRefreshStarted).pipe(Effect.timeout("1 second"));
+
+      yield* Stream.runForEach(
+        broadcaster.streamStatus(
+          { cwd: "/repo/worktrees/two" },
+          { automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(1)) },
+        ),
+        (event) => {
+          if (event._tag === "snapshot") {
+            return Deferred.succeed(secondSnapshot, event).pipe(Effect.ignore);
+          }
+          if (event._tag === "remoteUpdated") {
+            return Deferred.succeed(secondRemoteUpdated, undefined).pipe(Effect.ignore);
+          }
+          return Effect.void;
+        },
+      ).pipe(Effect.forkIn(secondScope));
+      const secondSnapshotEvent = yield* Deferred.await(secondSnapshot).pipe(
+        Effect.timeout("1 second"),
+      );
+      yield* Effect.yieldNow;
+
+      assert.equal(firstSnapshotEvent._tag, "snapshot");
+      if (firstSnapshotEvent._tag === "snapshot") {
+        assert.equal(firstSnapshotEvent.local.refName, "feature/one");
+      }
+      assert.equal(secondSnapshotEvent._tag, "snapshot");
+      if (secondSnapshotEvent._tag === "snapshot") {
+        assert.equal(secondSnapshotEvent.local.refName, "feature/two");
+      }
+      assert.equal(remoteStatusCalls, 1);
+      assert.equal(maxActiveRefreshes, 1);
+
+      // Leave while the failed worktree refresh is still blocked. Its eventual
+      // failure belongs to the old subscription generation and must not
+      // recreate retry state after cleanup.
+      yield* Scope.close(firstScope, Exit.void);
+      yield* Deferred.succeed(releaseFirstRefresh, undefined);
+      yield* Deferred.await(secondRefreshStarted).pipe(Effect.timeout("1 second"));
+      yield* Deferred.await(secondRemoteUpdated).pipe(Effect.timeout("1 second"));
+      // The healthy sibling refreshes immediately, but joining it must not
+      // erase the failed worktree's retry deadline.
+      assert.equal(remoteStatusCalls, 2);
+      assert.equal(maxActiveRefreshes, 1);
+
+      const rejoinedScope = yield* Scope.make();
+      const rejoinedSnapshot = yield* Deferred.make<VcsStatusStreamEvent>();
+      yield* Stream.runForEach(
+        broadcaster.streamStatus(
+          { cwd: "/repo/worktrees/one" },
+          { automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(1)) },
+        ),
+        (event) =>
+          event._tag === "snapshot"
+            ? Deferred.succeed(rejoinedSnapshot, event).pipe(Effect.ignore)
+            : Effect.void,
+      ).pipe(Effect.forkIn(rejoinedScope));
+      yield* Deferred.await(rejoinedSnapshot).pipe(Effect.timeout("1 second"));
+      yield* Deferred.await(rejoinedFailedRefreshStarted).pipe(Effect.timeout("1 second"));
+      assert.equal(remoteStatusCalls, 3);
+
+      yield* Scope.close(rejoinedScope, Exit.void);
+      yield* Scope.close(secondScope, Exit.void);
+    }).pipe(Effect.provide(testLayer), TestClock.withLive);
+  });
+
+  it.effect("fetches once per repository tick and refreshes all worktrees less often", () => {
+    const calls: Array<{
+      cwd: string;
+      refreshUpstream: boolean | undefined;
+    }> = [];
+    const testLayer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provide(makeBackgroundPolicyLayer(() => true)),
+      Layer.provide(
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: () => Effect.succeed("git\0/repo/.git"),
+          resolveStatusRemoteKey: () => Effect.succeed("default"),
+          localStatus: () => Effect.succeed(baseLocalStatus),
+          remoteStatus: ({ cwd }, options) =>
+            Effect.sync(() => {
+              calls.push({
+                cwd,
+                refreshUpstream: options?.refreshUpstream,
+              });
+              return baseRemoteStatus;
+            }),
+          invalidateRemoteStatus: () => Effect.void,
+        } satisfies Partial<GitWorkflowService.GitWorkflowService["Service"]>),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const scope = yield* Scope.make();
+      const firstUpdated = yield* Deferred.make<void>();
+      const secondUpdated = yield* Deferred.make<void>();
+      const options = {
+        automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(1)),
+        automaticWorktreeStatusRefreshInterval: Effect.succeed(Duration.minutes(2)),
+      };
+
+      yield* Stream.runForEach(
+        broadcaster.streamStatus({ cwd: "/repo/worktrees/one" }, options),
+        (event) =>
+          event._tag === "remoteUpdated"
+            ? Deferred.succeed(firstUpdated, undefined).pipe(Effect.ignore)
+            : Effect.void,
+      ).pipe(Effect.forkIn(scope));
+      yield* Deferred.await(firstUpdated);
+
+      yield* Stream.runForEach(
+        broadcaster.streamStatus({ cwd: "/repo/worktrees/two" }, options),
+        (event) =>
+          event._tag === "remoteUpdated"
+            ? Deferred.succeed(secondUpdated, undefined).pipe(Effect.ignore)
+            : Effect.void,
+      ).pipe(Effect.forkIn(scope));
+      yield* Deferred.await(secondUpdated);
+
+      assert.deepStrictEqual(calls, [
+        { cwd: "/repo/worktrees/one", refreshUpstream: true },
+        { cwd: "/repo/worktrees/two", refreshUpstream: false },
+      ]);
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* Effect.yieldNow;
+      assert.deepStrictEqual(calls.slice(2), [
+        { cwd: "/repo/worktrees/one", refreshUpstream: true },
+      ]);
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* Effect.yieldNow;
+      assert.deepStrictEqual(calls.slice(3), [
+        { cwd: "/repo/worktrees/one", refreshUpstream: true },
+        { cwd: "/repo/worktrees/two", refreshUpstream: false },
+      ]);
+
+      yield* Scope.close(scope, Exit.void);
+    }).pipe(Effect.provide(Layer.merge(testLayer, TestClock.layer())));
+  });
+
+  it.effect("fetches each distinct upstream remote in a shared repository", () => {
+    const calls: Array<{ cwd: string; refreshUpstream: boolean | undefined }> = [];
+    const testLayer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provide(makeBackgroundPolicyLayer(() => true)),
+      Layer.provide(
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: () => Effect.succeed("git\0/repo/.git"),
+          resolveStatusRemoteKey: (cwd) =>
+            Effect.succeed(
+              cwd.endsWith("one") ? "git\0/repo/.git\0origin" : "git\0/repo/.git\0fork",
+            ),
+          localStatus: () => Effect.succeed(baseLocalStatus),
+          remoteStatus: ({ cwd }, options) =>
+            Effect.sync(() => {
+              calls.push({ cwd, refreshUpstream: options?.refreshUpstream });
+              return baseRemoteStatus;
+            }),
+          invalidateRemoteStatus: () => Effect.void,
+        } satisfies Partial<GitWorkflowService.GitWorkflowService["Service"]>),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const scope = yield* Scope.make();
+      const firstUpdated = yield* Deferred.make<void>();
+      const secondUpdated = yield* Deferred.make<void>();
+      const options = {
+        automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(1)),
+        automaticWorktreeStatusRefreshInterval: Effect.succeed(Duration.minutes(10)),
+      };
+
+      yield* Stream.runForEach(
+        broadcaster.streamStatus({ cwd: "/repo/worktrees/one" }, options),
+        (event) =>
+          event._tag === "remoteUpdated"
+            ? Deferred.succeed(firstUpdated, undefined).pipe(Effect.ignore)
+            : Effect.void,
+      ).pipe(Effect.forkIn(scope));
+      yield* Deferred.await(firstUpdated);
+      yield* Stream.runForEach(
+        broadcaster.streamStatus({ cwd: "/repo/worktrees/two" }, options),
+        (event) =>
+          event._tag === "remoteUpdated"
+            ? Deferred.succeed(secondUpdated, undefined).pipe(Effect.ignore)
+            : Effect.void,
+      ).pipe(Effect.forkIn(scope));
+      yield* Deferred.await(secondUpdated);
+      calls.length = 0;
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* Effect.yieldNow;
+      assert.deepStrictEqual(calls, [
+        { cwd: "/repo/worktrees/one", refreshUpstream: true },
+        { cwd: "/repo/worktrees/two", refreshUpstream: true },
+      ]);
+
+      yield* Scope.close(scope, Exit.void);
+    }).pipe(Effect.provide(Layer.merge(testLayer, TestClock.layer())));
+  });
+
+  it.effect("uses the earlier worktree refresh deadline", () => {
+    const calls: Array<{ cwd: string; refreshUpstream: boolean | undefined }> = [];
+    const testLayer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provide(makeBackgroundPolicyLayer(() => true)),
+      Layer.provide(
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: () => Effect.succeed("git\0/repo/.git"),
+          resolveStatusRemoteKey: () => Effect.succeed("git\0/repo/.git\0origin"),
+          localStatus: () => Effect.succeed(baseLocalStatus),
+          remoteStatus: ({ cwd }, options) =>
+            Effect.sync(() => {
+              calls.push({ cwd, refreshUpstream: options?.refreshUpstream });
+              return baseRemoteStatus;
+            }),
+          invalidateRemoteStatus: () => Effect.void,
+        } satisfies Partial<GitWorkflowService.GitWorkflowService["Service"]>),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const scope = yield* Scope.make();
+      const firstUpdated = yield* Deferred.make<void>();
+      yield* Stream.runForEach(
+        broadcaster.streamStatus(
+          { cwd: "/repo/worktrees/one" },
+          {
+            automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(10)),
+            automaticWorktreeStatusRefreshInterval: Effect.succeed(Duration.minutes(2)),
+          },
+        ),
+        (event) =>
+          event._tag === "remoteUpdated"
+            ? Deferred.succeed(firstUpdated, undefined).pipe(Effect.ignore)
+            : Effect.void,
+      ).pipe(Effect.forkIn(scope));
+      yield* Deferred.await(firstUpdated);
+      calls.length = 0;
+
+      yield* TestClock.adjust(Duration.minutes(2));
+      yield* Effect.yieldNow;
+      assert.deepStrictEqual(calls, [{ cwd: "/repo/worktrees/one", refreshUpstream: false }]);
+
+      yield* Scope.close(scope, Exit.void);
+    }).pipe(Effect.provide(Layer.merge(testLayer, TestClock.layer())));
+  });
+
+  it.effect("keeps no-upstream repository ticks as no-ops until the worktree deadline", () => {
+    const calls: Array<{ cwd: string; refreshUpstream: boolean | undefined }> = [];
+    const testLayer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provide(makeBackgroundPolicyLayer(() => true)),
+      Layer.provide(
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: () => Effect.succeed("git\0/repo/.git"),
+          resolveStatusRemoteKey: () => Effect.succeed(null),
+          localStatus: () => Effect.succeed(baseLocalStatus),
+          remoteStatus: ({ cwd }, options) =>
+            Effect.sync(() => {
+              calls.push({ cwd, refreshUpstream: options?.refreshUpstream });
+              return { ...baseRemoteStatus, hasUpstream: false };
+            }),
+          invalidateRemoteStatus: () => Effect.void,
+        } satisfies Partial<GitWorkflowService.GitWorkflowService["Service"]>),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const scope = yield* Scope.make();
+      const firstUpdated = yield* Deferred.make<void>();
+      yield* Stream.runForEach(
+        broadcaster.streamStatus(
+          { cwd: "/repo/worktrees/one" },
+          {
+            automaticRemoteRefreshInterval: Effect.succeed(Duration.minutes(1)),
+            automaticWorktreeStatusRefreshInterval: Effect.succeed(Duration.minutes(3)),
+          },
+        ),
+        (event) =>
+          event._tag === "remoteUpdated"
+            ? Deferred.succeed(firstUpdated, undefined).pipe(Effect.ignore)
+            : Effect.void,
+      ).pipe(Effect.forkIn(scope));
+      yield* Deferred.await(firstUpdated);
+      calls.length = 0;
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* Effect.yieldNow;
+      assert.deepStrictEqual(calls, []);
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* Effect.yieldNow;
+      assert.deepStrictEqual(calls, []);
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* Effect.yieldNow;
+      assert.deepStrictEqual(calls, [{ cwd: "/repo/worktrees/one", refreshUpstream: false }]);
+
+      yield* Scope.close(scope, Exit.void);
+    }).pipe(Effect.provide(Layer.merge(testLayer, TestClock.layer())));
   });
 
   it.effect("stops the remote poller after the last stream subscriber disconnects", () => {
@@ -748,6 +1164,8 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRepositoryKey: () => Effect.succeed("git\0/repo/.git"),
+          resolveStatusRemoteKey: () => Effect.succeed("default"),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -792,12 +1210,12 @@ describe("VcsStatusBroadcaster", () => {
       const secondSnapshot = yield* Deferred.make<VcsStatusStreamEvent>();
       const firstScope = yield* Scope.make();
       const secondScope = yield* Scope.make();
-      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo" }), (event) =>
+      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo/worktrees/one" }), (event) =>
         event._tag === "snapshot"
           ? Deferred.succeed(firstSnapshot, event).pipe(Effect.ignore)
           : Effect.void,
       ).pipe(Effect.forkIn(firstScope));
-      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo" }), (event) =>
+      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo/worktrees/two" }), (event) =>
         event._tag === "snapshot"
           ? Deferred.succeed(secondSnapshot, event).pipe(Effect.ignore)
           : Effect.void,

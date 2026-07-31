@@ -1,6 +1,8 @@
 import { assert, describe, expect, it, vi } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
@@ -24,6 +26,29 @@ function makeLayer(input: {
 }
 
 describe("GitWorkflowService", () => {
+  it("uses the common Git directory to coordinate worktrees", () => {
+    const freshness = {
+      source: "live-local" as const,
+      observedAt: DateTime.makeUnsafe("2026-07-31T00:00:00Z"),
+      expiresAt: Option.none(),
+    };
+
+    assert.equal(
+      GitWorkflowService.repositoryCoordinationKey({
+        kind: "git",
+        rootPath: "/repo",
+        metadataPath: "/repo/.git",
+        freshness,
+      }),
+      GitWorkflowService.repositoryCoordinationKey({
+        kind: "git",
+        rootPath: "/repo-worktrees/feature",
+        metadataPath: "/repo/.git",
+        freshness,
+      }),
+    );
+  });
+
   it.effect("returns an empty local status when no VCS repository is detected", () =>
     Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;

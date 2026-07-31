@@ -7,9 +7,10 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 import type {
@@ -26,10 +27,14 @@ import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 
 const DEFAULT_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
+// Fetch shared refs on the configured cadence, but avoid recomputing branch and
+// PR status for every sidebar worktree more often than the PR cache can change.
+const DEFAULT_WORKTREE_STATUS_REFRESH_INTERVAL = Duration.minutes(2);
 const VCS_STATUS_REFRESH_FAILURE_BASE_DELAY = Duration.seconds(30);
 const VCS_STATUS_REFRESH_FAILURE_MAX_DELAY = Duration.minutes(15);
 const MAX_FAILURE_DIAGNOSTIC_VALUES = 8;
 const MAX_FAILURE_DIAGNOSTIC_VALUE_LENGTH = 128;
+const MAX_CONCURRENT_REMOTE_REFRESHES = 4;
 
 function boundedDiagnosticValue(value: string): string {
   return value.slice(0, MAX_FAILURE_DIAGNOSTIC_VALUE_LENGTH);
@@ -132,11 +137,32 @@ interface CachedVcsStatus {
 interface ActiveRemotePoller {
   readonly fiber: Fiber.Fiber<void, never>;
   readonly subscriberCount: number;
-  readonly demandCwds: Ref.Ref<ReadonlyMap<string, number>>;
+  readonly demand: Ref.Ref<RepositoryDemand>;
+  readonly wakeQueue: Queue.Queue<void>;
+  readonly worktreeFailures: Ref.Ref<ReadonlyMap<string, WorktreeRefreshFailure>>;
+  readonly nextCwdGeneration: Ref.Ref<number>;
+}
+
+interface CwdDemand {
+  readonly subscriberCount: number;
+  readonly demandCwds: ReadonlyMap<string, number>;
+  readonly generation: number;
+}
+
+interface WorktreeRefreshFailure {
+  readonly consecutiveFailures: number;
+  readonly retryAt: number;
+  readonly generation: number;
+}
+
+interface RepositoryDemand {
+  readonly byCwd: ReadonlyMap<string, CwdDemand>;
+  readonly pendingInitialCwds: ReadonlySet<string>;
 }
 
 interface StreamStatusOptions {
   readonly automaticRemoteRefreshInterval?: Effect.Effect<Duration.Duration, never>;
+  readonly automaticWorktreeStatusRefreshInterval?: Effect.Effect<Duration.Duration, never>;
 }
 
 export function remoteRefreshFailureDelay(
@@ -193,6 +219,7 @@ export const make = Effect.gen(function* () {
   );
   const cacheRef = yield* Ref.make(new Map<string, CachedVcsStatus>());
   const pollersRef = yield* SynchronizedRef.make(new Map<string, ActiveRemotePoller>());
+  const globalRemoteRefreshSemaphore = yield* Semaphore.make(MAX_CONCURRENT_REMOTE_REFRESHES);
 
   const getCachedStatus = Effect.fn("VcsStatusBroadcaster.getCachedStatus")(function* (
     cwd: string,
@@ -380,53 +407,235 @@ export const make = Effect.gen(function* () {
   });
 
   const makeRemoteRefreshLoop = (
-    cwd: string,
-    demandCwdsRef: Ref.Ref<ReadonlyMap<string, number>>,
+    demandRef: Ref.Ref<RepositoryDemand>,
+    wakeQueue: Queue.Queue<void>,
+    worktreeFailuresRef: Ref.Ref<ReadonlyMap<string, WorktreeRefreshFailure>>,
     automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
-    refreshImmediately: boolean,
+    automaticWorktreeStatusRefreshInterval: Effect.Effect<Duration.Duration, never>,
   ) => {
     return Effect.gen(function* () {
       const consecutiveFailuresRef = yield* Ref.make(0);
-      const needsInitialRefreshRef = yield* Ref.make(refreshImmediately);
+      const lastRepositoryRefreshAtRef = yield* Ref.make<number | null>(null);
+      const lastWorktreeRefreshAtRef = yield* Ref.make<number | null>(null);
+      const preferredCwdRef = yield* Ref.make<string | null>(null);
       const refreshRemoteStatusIfEnabled = Effect.gen(function* () {
+        yield* Queue.clear(wakeQueue);
         const configuredInterval = yield* automaticRemoteRefreshInterval;
         const activeInterval = Duration.isZero(configuredInterval)
           ? DEFAULT_VCS_STATUS_REFRESH_INTERVAL
           : configuredInterval;
-        const needsInitialRefresh = yield* Ref.get(needsInitialRefreshRef);
-        if (Duration.isZero(configuredInterval) && !needsInitialRefresh) {
+        const worktreeStatusInterval = yield* automaticWorktreeStatusRefreshInterval;
+        const demand = yield* Ref.get(demandRef);
+        const attemptedGenerations = new Map(
+          [...demand.byCwd].map(([cwd, cwdDemand]) => [cwd, cwdDemand.generation] as const),
+        );
+        const activeCwds = (yield* Effect.all(
+          [...demand.byCwd].map(([cwd, cwdDemand]) =>
+            Effect.all(
+              [...cwdDemand.demandCwds.keys()].map((demandCwd) =>
+                backgroundPolicy.shouldRunScopeWork({
+                  type: "vcs-status",
+                  cwd: demandCwd,
+                }),
+              ),
+              { concurrency: "unbounded" },
+            ).pipe(Effect.map((results) => (results.some(Boolean) ? cwd : null))),
+          ),
+          { concurrency: "unbounded" },
+        )).filter((cwd): cwd is string => cwd !== null);
+        if (activeCwds.length === 0) {
           return activeInterval;
         }
 
-        const demandCwds = yield* Ref.get(demandCwdsRef);
-        const shouldRun =
-          needsInitialRefresh ||
-          (yield* Effect.all(
-            [...demandCwds.keys()].map((demandCwd) =>
-              backgroundPolicy.shouldRunScopeWork({
-                type: "vcs-status",
-                cwd: demandCwd,
-              }),
-            ),
-            { concurrency: "unbounded" },
-          )).some(Boolean);
-        if (!shouldRun) {
+        const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
+        const worktreeFailures = yield* Ref.updateAndGet(
+          worktreeFailuresRef,
+          (current) => new Map([...current].filter(([cwd]) => demand.byCwd.has(cwd))),
+        );
+        const eligibleCwds = activeCwds.filter((cwd) => {
+          const failure = worktreeFailures.get(cwd);
+          return (
+            failure === undefined ||
+            failure.generation !== demand.byCwd.get(cwd)?.generation ||
+            failure.retryAt <= now
+          );
+        });
+        const earliestWorktreeRetryAt = Math.min(
+          ...activeCwds.map((cwd) => {
+            const failure = worktreeFailures.get(cwd);
+            return failure !== undefined && failure.generation === demand.byCwd.get(cwd)?.generation
+              ? failure.retryAt
+              : Number.POSITIVE_INFINITY;
+          }),
+        );
+        const lastRepositoryRefreshAt = yield* Ref.get(lastRepositoryRefreshAtRef);
+        const lastWorktreeRefreshAt = yield* Ref.get(lastWorktreeRefreshAtRef);
+        const repositoryRefreshDue =
+          !Duration.isZero(configuredInterval) &&
+          (lastRepositoryRefreshAt === null ||
+            now - lastRepositoryRefreshAt >= Duration.toMillis(activeInterval));
+        const worktreeRefreshDue =
+          lastWorktreeRefreshAt === null ||
+          now - lastWorktreeRefreshAt >= Duration.toMillis(worktreeStatusInterval);
+        const pendingCwds = eligibleCwds.filter((cwd) => demand.pendingInitialCwds.has(cwd));
+        const targetCwds =
+          !Duration.isZero(configuredInterval) && worktreeRefreshDue ? eligibleCwds : pendingCwds;
+        if (Duration.isZero(configuredInterval) && targetCwds.length === 0) {
           return activeInterval;
         }
+        const remainingRepositoryDelay = Duration.millis(
+          Math.max(1, Duration.toMillis(activeInterval) - (now - (lastRepositoryRefreshAt ?? now))),
+        );
+        const remainingWorktreeDelay = Duration.millis(
+          Math.max(
+            1,
+            Duration.toMillis(worktreeStatusInterval) - (now - (lastWorktreeRefreshAt ?? now)),
+          ),
+        );
+        if (targetCwds.length === 0 && !repositoryRefreshDue) {
+          return Duration.min(remainingRepositoryDelay, remainingWorktreeDelay);
+        }
+        const preferredCwd = yield* Ref.get(preferredCwdRef);
+        const representativeCwd =
+          (preferredCwd !== null && eligibleCwds.includes(preferredCwd) ? preferredCwd : null) ??
+          targetCwds[0] ??
+          eligibleCwds[0];
+        if (!representativeCwd) {
+          return Number.isFinite(earliestWorktreeRetryAt)
+            ? Duration.millis(Math.max(1, earliestWorktreeRetryAt - now))
+            : activeInterval;
+        }
 
-        const exit = yield* refreshRemoteStatus(cwd, {
-          refreshUpstream: !Duration.isZero(configuredInterval),
-        }).pipe(Effect.exit);
-        if (Exit.isSuccess(exit)) {
-          yield* Ref.set(needsInitialRefreshRef, false);
+        const refreshOne = (cwd: string, refreshUpstream: boolean) =>
+          globalRemoteRefreshSemaphore.withPermit(refreshRemoteStatus(cwd, { refreshUpstream }));
+        const attempts: Array<{
+          readonly cwd: string;
+          readonly exit: Exit.Exit<VcsStatusRemoteResult | null, GitManagerServiceError>;
+        }> = [];
+        const attemptRefresh = Effect.fn("VcsStatusBroadcaster.attemptRemoteRefresh")(function* (
+          cwd: string,
+          refreshUpstream: boolean,
+        ) {
+          const exit = yield* refreshOne(cwd, refreshUpstream).pipe(Effect.exit);
+          attempts.push({ cwd, exit });
+          return Exit.isSuccess(exit);
+        });
+        const attemptedCwds = new Set<string>();
+        let repositoryRefreshSucceeded = !repositoryRefreshDue;
+
+        if (repositoryRefreshDue) {
+          const candidates = [
+            representativeCwd,
+            ...eligibleCwds.filter((cwd) => cwd !== representativeCwd),
+          ];
+          const distinctRemoteCandidates = new Map<string, string>();
+          for (const cwd of candidates) {
+            const remoteKey = yield* (
+              workflow.resolveStatusRemoteKey?.(cwd) ?? Effect.succeed("default")
+            ).pipe(Effect.orElseSucceed(() => `unresolved\0${cwd}`));
+            if (remoteKey !== null && !distinctRemoteCandidates.has(remoteKey)) {
+              distinctRemoteCandidates.set(remoteKey, cwd);
+            }
+          }
+          repositoryRefreshSucceeded = true;
+          for (const cwd of distinctRemoteCandidates.values()) {
+            attemptedCwds.add(cwd);
+            if (yield* attemptRefresh(cwd, true)) {
+              yield* Ref.set(preferredCwdRef, cwd);
+            } else {
+              repositoryRefreshSucceeded = false;
+            }
+          }
+        }
+
+        const remainingTargetCwds = targetCwds.filter((cwd) => !attemptedCwds.has(cwd));
+        yield* Effect.all(
+          remainingTargetCwds.map((cwd) => attemptRefresh(cwd, false).pipe(Effect.asVoid)),
+          { concurrency: MAX_CONCURRENT_REMOTE_REFRESHES },
+        );
+
+        if (attempts.length === 0 && repositoryRefreshDue) {
+          yield* Ref.set(lastRepositoryRefreshAtRef, now);
           yield* Ref.set(consecutiveFailuresRef, 0);
-          return activeInterval;
+          return Duration.min(activeInterval, remainingWorktreeDelay);
         }
 
-        const interruptionReasons = exit.cause.reasons.filter(Cause.isInterruptReason);
+        const interruptionReasons = attempts.flatMap(({ exit }) =>
+          Exit.isFailure(exit) ? exit.cause.reasons.filter(Cause.isInterruptReason) : [],
+        );
         if (interruptionReasons.length > 0) {
           return yield* Effect.failCause(Cause.fromReasons<never>(interruptionReasons));
         }
+
+        const successfulCwds = new Set(
+          attempts.filter(({ exit }) => Exit.isSuccess(exit)).map(({ cwd }) => cwd),
+        );
+        yield* Ref.update(worktreeFailuresRef, (current) => {
+          const next = new Map(current);
+          for (const { cwd, exit } of attempts) {
+            const generation = attemptedGenerations.get(cwd);
+            if (generation === undefined) continue;
+            if (Exit.isSuccess(exit)) {
+              if (next.get(cwd)?.generation === generation) next.delete(cwd);
+              continue;
+            }
+            const previous = next.get(cwd);
+            if (previous && previous.generation > generation) continue;
+            const consecutiveFailures =
+              (previous?.generation === generation ? previous.consecutiveFailures : 0) + 1;
+            next.set(cwd, {
+              consecutiveFailures,
+              retryAt:
+                now +
+                Duration.toMillis(remoteRefreshFailureDelay(consecutiveFailures, activeInterval)),
+              generation,
+            });
+          }
+          return next;
+        });
+        if (successfulCwds.size > 0) {
+          if (repositoryRefreshDue && repositoryRefreshSucceeded) {
+            yield* Ref.set(lastRepositoryRefreshAtRef, now);
+          }
+          if (targetCwds.length > 0) {
+            yield* Ref.update(demandRef, (current) => ({
+              ...current,
+              pendingInitialCwds: new Set(
+                [...current.pendingInitialCwds].filter((cwd) => !successfulCwds.has(cwd)),
+              ),
+            }));
+          }
+          if (worktreeRefreshDue) {
+            yield* Ref.set(lastWorktreeRefreshAtRef, now);
+          }
+          yield* Ref.set(consecutiveFailuresRef, 0);
+          const failedAttempts = attempts.filter(({ exit }) => Exit.isFailure(exit));
+          for (const failed of failedAttempts) {
+            if (Exit.isFailure(failed.exit)) {
+              yield* Effect.logWarning("VCS worktree remote status refresh failed", {
+                cwdLength: failed.cwd.length,
+                ...remoteRefreshFailureDiagnostics(failed.exit.cause),
+              });
+            }
+          }
+          if (Duration.isZero(configuredInterval)) {
+            return activeInterval;
+          }
+          const nextRepositoryDelay =
+            repositoryRefreshDue && repositoryRefreshSucceeded
+              ? activeInterval
+              : remainingRepositoryDelay;
+          const nextWorktreeDelay =
+            worktreeRefreshDue && targetCwds.length > 0
+              ? worktreeStatusInterval
+              : remainingWorktreeDelay;
+          return Duration.min(nextRepositoryDelay, nextWorktreeDelay);
+        }
+
+        const failureCauses = attempts.flatMap(({ exit }) =>
+          Exit.isFailure(exit) ? [exit.cause] : [],
+        );
+        const cause = failureCauses.slice(1).reduce(Cause.combine, failureCauses[0] ?? Cause.empty);
 
         const consecutiveFailures = yield* Ref.updateAndGet(
           consecutiveFailuresRef,
@@ -434,51 +643,72 @@ export const make = Effect.gen(function* () {
         );
         const nextDelay = remoteRefreshFailureDelay(consecutiveFailures, activeInterval);
         yield* Effect.logWarning("VCS remote status refresh failed", {
-          cwdLength: cwd.length,
-          ...remoteRefreshFailureDiagnostics(exit.cause),
+          cwdLength: representativeCwd.length,
+          ...remoteRefreshFailureDiagnostics(cause),
           consecutiveFailures,
           nextDelayMs: Duration.toMillis(nextDelay),
         });
         return nextDelay;
       });
-
-      if (!refreshImmediately) {
+      const initialDemand = yield* Ref.get(demandRef);
+      if (initialDemand.pendingInitialCwds.size === 0) {
         const configuredInterval = yield* automaticRemoteRefreshInterval;
-        yield* Effect.sleep(
-          Duration.isZero(configuredInterval)
-            ? DEFAULT_VCS_STATUS_REFRESH_INTERVAL
-            : configuredInterval,
+        yield* Queue.take(wakeQueue).pipe(
+          Effect.timeoutOption(
+            Duration.isZero(configuredInterval)
+              ? DEFAULT_VCS_STATUS_REFRESH_INTERVAL
+              : configuredInterval,
+          ),
         );
       }
-
-      return yield* refreshRemoteStatusIfEnabled.pipe(
-        Effect.repeat(
-          Schedule.identity<Duration.Duration>().pipe(
-            Schedule.addDelay(({ output: delay }) => Effect.succeed(delay)),
-          ),
-        ),
-        Effect.asVoid,
-      );
+      let nextDelay: Duration.Duration | null = null;
+      while (true) {
+        if (nextDelay !== null) {
+          yield* Queue.take(wakeQueue).pipe(Effect.timeoutOption(nextDelay));
+        }
+        nextDelay = yield* refreshRemoteStatusIfEnabled;
+      }
     });
   };
 
   const retainRemotePoller = Effect.fn("VcsStatusBroadcaster.retainRemotePoller")(function* (
     cwd: string,
+    repositoryKey: string,
     demandCwd: string,
     automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
-    refreshImmediately: boolean,
+    automaticWorktreeStatusRefreshInterval: Effect.Effect<Duration.Duration, never>,
+    needsInitialRefresh: boolean,
   ) {
     yield* SynchronizedRef.modifyEffect(pollersRef, (activePollers) => {
-      const existing = activePollers.get(cwd);
+      const existing = activePollers.get(repositoryKey);
       if (existing) {
-        return Ref.update(existing.demandCwds, (demandCwds) => {
-          const next = new Map(demandCwds);
-          next.set(demandCwd, (next.get(demandCwd) ?? 0) + 1);
-          return next;
-        }).pipe(
+        return Ref.modify(existing.nextCwdGeneration, (nextGeneration) => [
+          nextGeneration,
+          nextGeneration + 1,
+        ]).pipe(
+          Effect.flatMap((newGeneration) =>
+            Ref.update(existing.demand, (demand) => {
+              const currentCwdDemand = demand.byCwd.get(cwd);
+              const demandCwds = new Map(currentCwdDemand?.demandCwds ?? []);
+              demandCwds.set(demandCwd, (demandCwds.get(demandCwd) ?? 0) + 1);
+              const byCwd = new Map(demand.byCwd);
+              byCwd.set(cwd, {
+                subscriberCount: (currentCwdDemand?.subscriberCount ?? 0) + 1,
+                demandCwds,
+                generation: currentCwdDemand?.generation ?? newGeneration,
+              });
+              return {
+                byCwd,
+                pendingInitialCwds: needsInitialRefresh
+                  ? new Set(demand.pendingInitialCwds).add(cwd)
+                  : demand.pendingInitialCwds,
+              };
+            }),
+          ),
+          Effect.andThen(Queue.offer(existing.wakeQueue, undefined)),
           Effect.map(() => {
             const nextPollers = new Map(activePollers);
-            nextPollers.set(cwd, {
+            nextPollers.set(repositoryKey, {
               ...existing,
               subscriberCount: existing.subscriberCount + 1,
             });
@@ -487,21 +717,35 @@ export const make = Effect.gen(function* () {
         );
       }
 
-      return Ref.make<ReadonlyMap<string, number>>(new Map([[demandCwd, 1]])).pipe(
-        Effect.flatMap((demandCwds) =>
+      return Effect.all([
+        Ref.make<RepositoryDemand>({
+          byCwd: new Map([
+            [cwd, { subscriberCount: 1, demandCwds: new Map([[demandCwd, 1]]), generation: 0 }],
+          ]),
+          pendingInitialCwds: needsInitialRefresh ? new Set([cwd]) : new Set(),
+        }),
+        Queue.sliding<void>(1),
+        Ref.make<ReadonlyMap<string, WorktreeRefreshFailure>>(new Map()),
+        Ref.make(1),
+      ]).pipe(
+        Effect.flatMap(([demand, wakeQueue, worktreeFailures, nextCwdGeneration]) =>
           makeRemoteRefreshLoop(
-            cwd,
-            demandCwds,
+            demand,
+            wakeQueue,
+            worktreeFailures,
             automaticRemoteRefreshInterval,
-            refreshImmediately,
+            automaticWorktreeStatusRefreshInterval,
           ).pipe(
             Effect.forkIn(broadcasterScope),
             Effect.map((fiber) => {
               const nextPollers = new Map(activePollers);
-              nextPollers.set(cwd, {
+              nextPollers.set(repositoryKey, {
                 fiber,
                 subscriberCount: 1,
-                demandCwds,
+                demand,
+                wakeQueue,
+                worktreeFailures,
+                nextCwdGeneration,
               });
               return [undefined, nextPollers] as const;
             }),
@@ -512,29 +756,56 @@ export const make = Effect.gen(function* () {
   });
 
   const releaseRemotePoller = Effect.fn("VcsStatusBroadcaster.releaseRemotePoller")(function* (
+    repositoryKey: string,
     cwd: string,
     demandCwd: string,
   ) {
-    const pollerToInterrupt = yield* SynchronizedRef.modifyEffect(pollersRef, (activePollers) => {
-      const existing = activePollers.get(cwd);
+    const pollerToRelease = yield* SynchronizedRef.modifyEffect(pollersRef, (activePollers) => {
+      const existing = activePollers.get(repositoryKey);
       if (!existing) {
         return Effect.succeed([null, activePollers] as const);
       }
 
       if (existing.subscriberCount > 1) {
-        return Ref.update(existing.demandCwds, (demandCwds) => {
-          const nextDemandCwds = new Map(demandCwds);
+        return Ref.modify(existing.demand, (demand) => {
+          const currentCwdDemand = demand.byCwd.get(cwd);
+          if (!currentCwdDemand) return [false, demand] as const;
+          const nextDemandCwds = new Map(currentCwdDemand.demandCwds);
           const count = nextDemandCwds.get(demandCwd) ?? 0;
-          if (count <= 1) {
-            nextDemandCwds.delete(demandCwd);
-          } else {
-            nextDemandCwds.set(demandCwd, count - 1);
+          if (count <= 1) nextDemandCwds.delete(demandCwd);
+          else nextDemandCwds.set(demandCwd, count - 1);
+          const byCwd = new Map(demand.byCwd);
+          const removedCwd = currentCwdDemand.subscriberCount <= 1;
+          if (removedCwd) byCwd.delete(cwd);
+          else {
+            byCwd.set(cwd, {
+              subscriberCount: currentCwdDemand.subscriberCount - 1,
+              demandCwds: nextDemandCwds,
+              generation: currentCwdDemand.generation,
+            });
           }
-          return nextDemandCwds;
+          return [
+            removedCwd,
+            {
+              byCwd,
+              pendingInitialCwds: removedCwd
+                ? new Set([...demand.pendingInitialCwds].filter((pending) => pending !== cwd))
+                : demand.pendingInitialCwds,
+            },
+          ] as const;
         }).pipe(
+          Effect.tap((removedCwd) =>
+            removedCwd
+              ? Ref.update(existing.worktreeFailures, (failures) => {
+                  const next = new Map(failures);
+                  next.delete(cwd);
+                  return next;
+                })
+              : Effect.void,
+          ),
           Effect.as([
             null,
-            new Map(activePollers).set(cwd, {
+            new Map(activePollers).set(repositoryKey, {
               ...existing,
               subscriberCount: existing.subscriberCount - 1,
             }),
@@ -543,13 +814,14 @@ export const make = Effect.gen(function* () {
       }
 
       return Effect.succeed([
-        existing.fiber,
-        new Map([...activePollers].filter(([activeCwd]) => activeCwd !== cwd)),
+        existing,
+        new Map([...activePollers].filter(([key]) => key !== repositoryKey)),
       ] as const);
     });
 
-    if (pollerToInterrupt) {
-      yield* Fiber.interrupt(pollerToInterrupt).pipe(Effect.ignore);
+    if (pollerToRelease) {
+      yield* Fiber.interrupt(pollerToRelease.fiber).pipe(Effect.ignore);
+      yield* Queue.shutdown(pollerToRelease.wakeQueue);
     }
   });
 
@@ -557,19 +829,27 @@ export const make = Effect.gen(function* () {
     Stream.unwrap(
       Effect.gen(function* () {
         const cwd = yield* withFileSystem(normalizeCwd(input.cwd));
+        const repositoryKey =
+          (yield* workflow.resolveRepositoryKey(cwd)) ?? `non-repository\0${cwd}`;
         const subscription = yield* PubSub.subscribe(changesPubSub);
         const initialLocal = yield* getOrLoadLocalStatus(cwd);
         const cachedStatus = yield* getCachedStatus(cwd);
         const initialRemote = cachedStatus?.remote?.value ?? null;
         yield* retainRemotePoller(
           cwd,
+          repositoryKey,
           input.cwd,
           options?.automaticRemoteRefreshInterval ??
             Effect.succeed(DEFAULT_VCS_STATUS_REFRESH_INTERVAL),
+          options?.automaticWorktreeStatusRefreshInterval ??
+            Effect.succeed(DEFAULT_WORKTREE_STATUS_REFRESH_INTERVAL),
           cachedStatus?.remote === null || cachedStatus?.remote === undefined,
         );
 
-        const release = releaseRemotePoller(cwd, input.cwd).pipe(Effect.ignore, Effect.asVoid);
+        const release = releaseRemotePoller(repositoryKey, cwd, input.cwd).pipe(
+          Effect.ignore,
+          Effect.asVoid,
+        );
 
         return Stream.concat(
           Stream.make({

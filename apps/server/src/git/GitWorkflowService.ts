@@ -19,6 +19,7 @@ import {
   type GitPullRequestRefInput,
   type VcsPullResult,
   type VcsRemoveWorktreeInput,
+  type VcsRepositoryIdentity,
   type GitResolvePullRequestResult,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
@@ -48,6 +49,12 @@ export class GitWorkflowService extends Context.Service<
     readonly invalidateLocalStatus: (cwd: string) => Effect.Effect<void, never>;
     readonly invalidateRemoteStatus: (cwd: string) => Effect.Effect<void, never>;
     readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;
+    readonly resolveRepositoryKey: (
+      cwd: string,
+    ) => Effect.Effect<string | null, GitManagerServiceError>;
+    readonly resolveStatusRemoteKey: (
+      cwd: string,
+    ) => Effect.Effect<string | null, GitManagerServiceError>;
     readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
     readonly runStackedAction: (
       input: GitRunStackedActionInput,
@@ -132,6 +139,10 @@ function nonRepositoryListRefs(): VcsListRefsResult {
     nextCursor: null,
     totalCount: 0,
   };
+}
+
+export function repositoryCoordinationKey(repository: VcsRepositoryIdentity): string {
+  return `${repository.kind}\0${repository.metadataPath ?? repository.rootPath}`;
 }
 
 export const make = Effect.gen(function* () {
@@ -245,6 +256,34 @@ export const make = Effect.gen(function* () {
     return true;
   });
 
+  const resolveRepositoryKey = Effect.fn("GitWorkflowService.resolveRepositoryKey")(function* (
+    cwd: string,
+  ) {
+    const handle = yield* registry.detect({ cwd }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new GitManagerError({
+            operation: "GitWorkflowService.resolveRepositoryKey",
+            cwd,
+            detail: "Failed to detect a VCS repository for status coordination.",
+            cause,
+          }),
+      ),
+    );
+    if (!handle) {
+      return null;
+    }
+    if (handle.kind !== "git") {
+      return yield* new GitManagerError({
+        operation: "GitWorkflowService.resolveRepositoryKey",
+        cwd,
+        detail: `Status coordination currently supports Git repositories only; detected ${handle.kind}. (${cwd})`,
+      });
+    }
+
+    return repositoryCoordinationKey(handle.repository);
+  });
+
   const routeGitManager =
     <Input extends { readonly cwd: string }, Output>(
       operation: string,
@@ -277,6 +316,13 @@ export const make = Effect.gen(function* () {
     invalidateLocalStatus: gitManager.invalidateLocalStatus,
     invalidateRemoteStatus: gitManager.invalidateRemoteStatus,
     invalidateStatus: gitManager.invalidateStatus,
+    resolveRepositoryKey,
+    resolveStatusRemoteKey: (cwd) =>
+      detectGitRepositoryForStatus("GitWorkflowService.resolveStatusRemoteKey", cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository ? git.resolveStatusRemoteKey(cwd) : Effect.succeed(null),
+        ),
+      ),
     pullCurrentBranch: (cwd) =>
       ensureGitCommand("GitWorkflowService.pullCurrentBranch", cwd).pipe(
         Effect.andThen(git.pullCurrentBranch(cwd)),

@@ -67,7 +67,7 @@ describe("VcsDriverRegistry", () => {
                 return processOutput("/repo\n");
               }
               if (command === "rev-parse --git-common-dir") {
-                return processOutput("/repo/.git\n");
+                return processOutput(".git\n");
               }
               return processOutput("");
             }),
@@ -81,6 +81,7 @@ describe("VcsDriverRegistry", () => {
       const second = yield* registry.resolve({ cwd: "/repo", requestedKind: "git" });
 
       assert.equal(first.repository.rootPath, "/repo");
+      assert.equal(first.repository.metadataPath, "/repo/.git");
       assert.equal(second.repository.rootPath, "/repo");
       assert.deepStrictEqual(
         calls.map((call) => normalizeGitArgs(call.args).join(" ")),
