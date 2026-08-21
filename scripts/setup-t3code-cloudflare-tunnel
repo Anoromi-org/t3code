@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+domain="anoromi.com"
+artifacts_username="anoromi"
+artifacts_port=8096
+caddy_image="caddy:2-alpine"
+state_dir="${XDG_CONFIG_HOME:-$HOME/.config}/t3code-cloudflare"
+cloudflared_dir="$HOME/.cloudflared"
+service_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+service_name="cloudflared-t3code-local.service"
+config_file="$state_dir/config.yml"
+credentials_file="$state_dir/tunnel.json"
+artifacts_dir="$HOME/Artifacts"
+caddy_file="$state_dir/Caddyfile"
+compose_file="$state_dir/compose.yml"
+password_hash_file="$state_dir/artifacts-password.hash"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  setup-t3code-cloudflare-tunnel [setup] [T3_PORT]
+  setup-t3code-cloudflare-tunnel rotate-artifacts-password
+  setup-t3code-cloudflare-tunnel status
+
+The default T3 port is 3773. A numeric first argument remains supported.
+EOF
+}
+
+require_command() {
+  command -v "$1" >/dev/null || {
+    echo "Missing required command: $1" >&2
+    exit 1
+  }
+}
+
+require_docker() {
+  require_command docker
+  docker compose version >/dev/null
+  docker info >/dev/null
+}
+
+read_state() {
+  [[ -s "$state_dir/tunnel-id" && -s "$state_dir/hostname" ]] || {
+    echo "Tunnel state is missing; run setup first." >&2
+    exit 1
+  }
+  tunnel_id="$(<"$state_dir/tunnel-id")"
+  t3_hostname="$(<"$state_dir/hostname")"
+  artifacts_hostname="artifacts-${t3_hostname#t3-}"
+}
+
+prompt_password_hash() {
+  [[ -t 0 ]] || {
+    echo "Password setup requires an interactive terminal." >&2
+    exit 1
+  }
+
+  local password confirmation hash
+  while true; do
+    read -r -s -p "Artifacts password: " password
+    printf '\n'
+    read -r -s -p "Confirm password: " confirmation
+    printf '\n'
+    if [[ -z "$password" ]]; then
+      echo "Password cannot be empty." >&2
+    elif [[ "$password" != "$confirmation" ]]; then
+      echo "Passwords do not match." >&2
+    else
+      break
+    fi
+  done
+
+  hash="$(printf '%s\n' "$password" | docker run --rm -i "$caddy_image" \
+    caddy hash-password --algorithm bcrypt)"
+  password=""
+  confirmation=""
+  printf '%s\n' "$hash" >"$password_hash_file"
+  chmod 600 "$password_hash_file"
+}
+
+write_artifacts_config() {
+  local password_hash temp_caddy temp_compose
+  password_hash="$(<"$password_hash_file")"
+
+  temp_caddy="$(mktemp "$state_dir/Caddyfile.XXXXXX")"
+  temp_compose="$(mktemp "$state_dir/compose.yml.XXXXXX")"
+  trap 'rm -f -- "$temp_caddy" "$temp_compose"' RETURN
+
+  printf '%s\n' \
+    "http://:8096 {" \
+    "    root * /srv/artifacts" \
+    "    basic_auth {" \
+    "        $artifacts_username $password_hash" \
+    "    }" \
+    '    header Cache-Control "private, no-store"' \
+    '    header X-Content-Type-Options "nosniff"' \
+    "    file_server {" \
+    "        browse" \
+    '        hide .*' \
+    "    }" \
+    "}" >"$temp_caddy"
+
+  printf '%s\n' \
+    "services:" \
+    "  artifacts:" \
+    "    image: $caddy_image" \
+    "    user: \"$(id -u):$(id -g)\"" \
+    "    restart: unless-stopped" \
+    "    read_only: true" \
+    "    security_opt:" \
+    "      - no-new-privileges:true" \
+    "    cap_drop:" \
+    "      - ALL" \
+    "    cap_add:" \
+    "      - NET_BIND_SERVICE" \
+    "    ports:" \
+    "      - 127.0.0.1:${artifacts_port}:8096" \
+    "    volumes:" \
+    "      - $caddy_file:/etc/caddy/Caddyfile:ro" \
+    "      - $artifacts_dir:/srv/artifacts:ro" \
+    "    tmpfs:" \
+    "      - /config:uid=$(id -u),gid=$(id -g)" \
+    "      - /data:uid=$(id -u),gid=$(id -g)" \
+    "      - /tmp:uid=$(id -u),gid=$(id -g)" >"$temp_compose"
+
+  chmod 600 "$temp_caddy" "$temp_compose"
+  docker run --rm --volume "$temp_caddy:/etc/caddy/Caddyfile:ro" "$caddy_image" \
+    caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+  docker compose --project-name t3code-cloudflare --file "$temp_compose" config --quiet
+  mv -f "$temp_caddy" "$caddy_file"
+  mv -f "$temp_compose" "$compose_file"
+  trap - RETURN
+}
+
+start_artifacts() {
+  docker compose --project-name t3code-cloudflare --file "$compose_file" up -d --force-recreate
+
+  local status_code=""
+  for _ in {1..20}; do
+    status_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+      --connect-timeout 1 --max-time 2 "http://127.0.0.1:$artifacts_port/" || true)"
+    [[ "$status_code" == "401" ]] && return 0
+    sleep 0.25
+  done
+
+  echo "Artifacts server did not become ready; expected HTTP 401, got ${status_code:-no response}." >&2
+  exit 1
+}
+
+write_cloudflared_config() {
+  local t3_port="$1" temp_config
+  temp_config="$(mktemp "$state_dir/config.yml.XXXXXX")"
+  trap 'rm -f -- "$temp_config"' RETURN
+  printf '%s\n' \
+    "tunnel: $tunnel_id" \
+    "credentials-file: $credentials_file" \
+    "" \
+    "ingress:" \
+    "  - hostname: $t3_hostname" \
+    "    service: http://127.0.0.1:$t3_port" \
+    "  - hostname: $artifacts_hostname" \
+    "    service: http://127.0.0.1:$artifacts_port" \
+    "  - service: http_status:404" >"$temp_config"
+  chmod 600 "$temp_config"
+  cloudflared tunnel --config "$temp_config" ingress validate
+  mv -f "$temp_config" "$config_file"
+  trap - RETURN
+}
+
+write_cloudflared_service() {
+  local cloudflared_path temp_service
+  cloudflared_path="$(command -v cloudflared)"
+  temp_service="$(mktemp "$service_dir/${service_name}.XXXXXX")"
+  trap 'rm -f -- "$temp_service"' RETURN
+  printf '%s\n' \
+    "[Unit]" \
+    "Description=Cloudflare Tunnel for T3 Code and Artifacts" \
+    "After=network-online.target" \
+    "Wants=network-online.target" \
+    "" \
+    "[Service]" \
+    "Type=simple" \
+    "ExecStart=$cloudflared_path tunnel --config $config_file --no-autoupdate run $tunnel_id" \
+    "Restart=on-failure" \
+    "RestartSec=5s" \
+    "UMask=0077" \
+    "" \
+    "[Install]" \
+    "WantedBy=default.target" >"$temp_service"
+  chmod 600 "$temp_service"
+  mv -f "$temp_service" "$service_dir/$service_name"
+  trap - RETURN
+}
+
+setup() {
+  local t3_port="${1:-3773}" create_output tunnel_name suffix default_credentials
+  if ! [[ "$t3_port" =~ ^[0-9]+$ ]] || ((t3_port < 1 || t3_port > 65535)); then
+    echo "Invalid T3 port: $t3_port" >&2
+    exit 2
+  fi
+
+  for command in cloudflared jq openssl systemctl curl; do
+    require_command "$command"
+  done
+  require_docker
+
+  [[ -s "$cloudflared_dir/cert.pem" ]] || {
+    echo "Missing $cloudflared_dir/cert.pem; run: cloudflared tunnel login" >&2
+    exit 1
+  }
+
+  install -d -m 700 "$state_dir" "$service_dir"
+  install -d -m 755 "$artifacts_dir"
+
+  if [[ -s "$state_dir/tunnel-id" && -s "$state_dir/hostname" ]]; then
+    read_state
+  else
+    suffix="$(openssl rand -hex 16)"
+    t3_hostname="t3-${suffix}.${domain}"
+    artifacts_hostname="artifacts-${suffix}.${domain}"
+    tunnel_name="t3code-local-${suffix}"
+    create_output="$(cloudflared tunnel create \
+      --credentials-file "$credentials_file" --output json "$tunnel_name")"
+    tunnel_id="$(jq -er '.id' <<<"$create_output")"
+    printf '%s\n' "$tunnel_id" >"$state_dir/tunnel-id"
+    printf '%s\n' "$t3_hostname" >"$state_dir/hostname"
+    chmod 600 "$state_dir/tunnel-id" "$state_dir/hostname" "$credentials_file"
+  fi
+
+  if [[ ! -s "$credentials_file" ]]; then
+    default_credentials="$cloudflared_dir/${tunnel_id}.json"
+    [[ -s "$default_credentials" ]] || {
+      echo "Missing tunnel credentials for $tunnel_id" >&2
+      exit 1
+    }
+    install -m 600 "$default_credentials" "$credentials_file"
+  fi
+
+  if [[ ! -s "$password_hash_file" ]]; then
+    prompt_password_hash
+  fi
+  write_artifacts_config
+  start_artifacts
+
+  cloudflared tunnel route dns --overwrite-dns "$tunnel_id" "$t3_hostname"
+  cloudflared tunnel route dns --overwrite-dns "$tunnel_id" "$artifacts_hostname"
+  write_cloudflared_config "$t3_port"
+  write_cloudflared_service
+
+  systemctl --user daemon-reload
+  systemctl --user enable --now "$service_name"
+  systemctl --user restart "$service_name"
+
+  printf '\nReady:\n  T3:        https://%s\n  Artifacts: https://%s\n  Directory: %s\n  Username:  %s\n' \
+    "$t3_hostname" "$artifacts_hostname" "$artifacts_dir" "$artifacts_username"
+}
+
+rotate_password() {
+  require_docker
+  require_command curl
+  read_state
+  prompt_password_hash
+  write_artifacts_config
+  start_artifacts
+  echo "Artifacts password rotated."
+}
+
+status() {
+  read_state
+  printf 'T3:        https://%s\nArtifacts: https://%s\nDirectory: %s\n' \
+    "$t3_hostname" "$artifacts_hostname" "$artifacts_dir"
+  printf 'Tunnel:    '
+  systemctl --user is-active "$service_name" || true
+  printf 'Artifacts: '
+  docker compose --project-name t3code-cloudflare --file "$compose_file" ps \
+    --status running --format '{{.Status}}' 2>/dev/null || echo "not configured"
+}
+
+command_name="${1:-setup}"
+case "$command_name" in
+  setup)
+    setup "${2:-3773}"
+    ;;
+  rotate-artifacts-password)
+    rotate_password
+    ;;
+  status)
+    status
+    ;;
+  help | --help | -h)
+    usage
+    ;;
+  *[!0-9]*)
+    usage >&2
+    exit 2
+    ;;
+  *)
+    setup "$command_name"
+    ;;
+esac
