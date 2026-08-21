@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   applyGitStatusStreamEvent,
+  buildGeneratedWorktreeBranchName,
   buildTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
@@ -63,6 +64,15 @@ describe("parseGitHubRepositoryNameWithOwnerFromRemoteUrl", () => {
 });
 
 describe("isTemporaryWorktreeBranch", () => {
+  it("builds semantic worktree refs without temporary random tokens", () => {
+    expect(buildGeneratedWorktreeBranchName("refs/heads/T3Code/Fix Worktree Names")).toBe(
+      "t3code/fix-worktree-names",
+    );
+    expect(buildGeneratedWorktreeBranchName("fix/worktree names")).toBe(
+      "t3code/fix/worktree-names",
+    );
+  });
+
   it("matches the generated temporary worktree refName format", () => {
     expect(
       isTemporaryWorktreeBranch(

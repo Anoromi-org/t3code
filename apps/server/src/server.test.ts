@@ -100,6 +100,7 @@ import {
   resolveAvailableEditorsForConfig,
   resolveFileManagerRevealKindForConfig,
 } from "./ws.ts";
+import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
@@ -500,6 +501,7 @@ const buildAppUnderTest = (options?: {
     providerInstanceRegistry?: Partial<ProviderInstanceRegistry["Service"]>;
     antigravityInstallation?: Partial<AntigravityInstallation["Service"]>;
     serverSettings?: Partial<ServerSettings.ServerSettingsService["Service"]>;
+    textGeneration?: Partial<TextGeneration.TextGeneration["Service"]>;
     externalLauncher?: Partial<ExternalLauncher.ExternalLauncher["Service"]>;
     vcsDriver?: Partial<VcsDriver.VcsDriver["Service"]>;
     vcsDriverRegistry?: Partial<VcsDriverRegistry.VcsDriverRegistry["Service"]>;
@@ -784,6 +786,13 @@ const buildAppUnderTest = (options?: {
           Layer.mock(AntigravityInstallation)({
             managedDirectory: "unused-test-antigravity-runtime",
             ...options?.layers?.antigravityInstallation,
+          }),
+          Layer.mock(TextGeneration.TextGeneration)({
+            generateCommitMessage: () => Effect.die("unexpected commit message generation"),
+            generatePrContent: () => Effect.die("unexpected PR content generation"),
+            generateBranchName: () => Effect.die("unexpected branch name generation"),
+            generateThreadTitle: () => Effect.die("unexpected thread title generation"),
+            ...options?.layers?.textGeneration,
           }),
         ),
       ),
@@ -10197,6 +10206,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           refName: fetchedOriginCommit,
           newRefName: "t3code/bootstrap-refName",
           baseRefName: "main",
+          idempotencyKey: "cmd-bootstrap-turn-start",
           path: null,
         });
         assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
@@ -10242,6 +10252,220 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           assert.equal(finalCommand.bootstrap, undefined);
         }
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("checks out an existing branch directly when bootstrapping a worktree", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const createWorktree = vi.fn(
+        (_: Parameters<GitVcsDriver.GitVcsDriver["Service"]["createWorktree"]>[0]) =>
+          Effect.succeed({
+            worktree: {
+              refName: "feature/existing",
+              path: "/tmp/feature-existing",
+            },
+          }),
+      );
+      yield* buildAppUnderTest({
+        layers: {
+          gitVcsDriver: { createWorktree },
+          vcsStatusBroadcaster: {
+            refreshStatus: () =>
+              Effect.succeed({
+                isRepo: true,
+                hasPrimaryRemote: true,
+                isDefaultRef: false,
+                refName: "feature/existing",
+                hasWorkingTreeChanges: false,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+                hasUpstream: false,
+                aheadCount: 0,
+                behindCount: 0,
+                aheadOfDefaultCount: 0,
+                pr: null,
+              }),
+          },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-existing-worktree"),
+            threadId: ThreadId.make("thread-existing-worktree"),
+            message: {
+              messageId: MessageId.make("msg-existing-worktree"),
+              role: "user",
+              text: "continue on this branch",
+              attachments: [],
+            },
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            bootstrap: {
+              prepareWorktree: {
+                projectCwd: "/tmp/project",
+                baseBranch: "feature/existing",
+              },
+            },
+            createdAt: "2026-01-01T00:00:00.000Z",
+          }),
+        ),
+      );
+
+      assert.deepEqual(createWorktree.mock.calls[0]?.[0], {
+        cwd: "/tmp/project",
+        refName: "feature/existing",
+        idempotencyKey: "cmd-existing-worktree",
+        path: null,
+      });
+      assert.deepEqual(
+        dispatchedCommands.map((command) => command.type),
+        ["thread.meta.update", "thread.turn.start"],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("generates the final branch before creating an unnamed worktree", () =>
+    Effect.gen(function* () {
+      const generateBranchName = vi.fn(() =>
+        Effect.succeed({ branch: "fix worktree directory names" }),
+      );
+      const createWorktree = vi.fn(
+        (_: Parameters<GitVcsDriver.GitVcsDriver["Service"]["createWorktree"]>[0]) =>
+          Effect.succeed({
+            worktree: {
+              refName: "t3code/fix-worktree-directory-names",
+              path: "/tmp/t3code-fix-worktree-directory-names",
+            },
+          }),
+      );
+      let preparedWorktreePath: string | null = null;
+      let threadExists = false;
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const runSetupScript = vi.fn(() => Effect.succeed({ status: "no-script" as const }));
+
+      yield* buildAppUnderTest({
+        layers: {
+          textGeneration: { generateBranchName },
+          gitVcsDriver: { createWorktree },
+          vcsStatusBroadcaster: {
+            refreshStatus: () =>
+              Effect.succeed({
+                isRepo: true,
+                hasPrimaryRemote: true,
+                isDefaultRef: false,
+                refName: "t3code/fix-worktree-directory-names",
+                hasWorkingTreeChanges: false,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+                hasUpstream: false,
+                aheadCount: 0,
+                behindCount: 0,
+                aheadOfDefaultCount: 0,
+                pr: null,
+              }),
+          },
+          orchestrationEngine: {
+            dispatch: (command) => {
+              dispatchedCommands.push(command);
+              if (command.type === "thread.create") {
+                threadExists = true;
+              }
+              if (command.type === "thread.meta.update") {
+                preparedWorktreePath = command.worktreePath ?? null;
+              }
+              return Effect.succeed({ sequence: 1 });
+            },
+            readEvents: () => Stream.empty,
+          },
+          projectionSnapshotQuery: {
+            getThreadShellById: (threadId) =>
+              Effect.succeed(
+                !threadExists
+                  ? Option.none()
+                  : Option.some(
+                      makeDefaultOrchestrationThreadShell({
+                        id: threadId,
+                        branch: "t3code/fix-worktree-directory-names",
+                        worktreePath: preparedWorktreePath,
+                      }),
+                    ),
+              ),
+          },
+          projectSetupScriptRunner: { runForThread: runSetupScript },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const command = {
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-generated-worktree"),
+        threadId: ThreadId.make("thread-generated-worktree"),
+        message: {
+          messageId: MessageId.make("msg-generated-worktree"),
+          role: "user",
+          text: "Fix the worktree directory names",
+          attachments: [],
+        },
+        modelSelection: defaultModelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        bootstrap: {
+          createThread: {
+            projectId: defaultProjectId,
+            title: "Fix worktree directory names",
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: "main",
+            worktreePath: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+          prepareWorktree: {
+            projectCwd: "/tmp/project",
+            baseBranch: "main",
+            generateBranch: true,
+          },
+          runSetupScript: true,
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      } as const;
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.gen(function* () {
+            yield* client[ORCHESTRATION_WS_METHODS.dispatchCommand](command);
+            yield* client[ORCHESTRATION_WS_METHODS.dispatchCommand](command);
+          }),
+        ),
+      );
+
+      assert.equal(generateBranchName.mock.calls.length, 1);
+      assert.equal(createWorktree.mock.calls.length, 1);
+      assert.equal(runSetupScript.mock.calls.length, 1);
+      assert.equal(
+        dispatchedCommands.filter((command) => command.type === "thread.create").length,
+        1,
+      );
+      assert.deepEqual(createWorktree.mock.calls[0]?.[0], {
+        cwd: "/tmp/project",
+        refName: "main",
+        newRefName: "t3code/fix-worktree-directory-names",
+        baseRefName: "main",
+        ensureUniqueRefName: true,
+        idempotencyKey: "cmd-generated-worktree",
+        path: null,
+      });
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect.each([
@@ -10357,6 +10581,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         refName: "main",
         newRefName: "t3code/bootstrap-refName",
         baseRefName: "main",
+        idempotencyKey: "cmd-bootstrap-turn-start-no-origin",
         path: null,
       });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),

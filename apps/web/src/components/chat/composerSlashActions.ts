@@ -2,11 +2,17 @@ import type {
   ModelCapabilities,
   ProviderOptionDescriptor,
   ProviderOptionSelection,
+  VcsRef,
 } from "@t3tools/contracts";
+import { deriveLocalBranchNameFromRemoteRef } from "@t3tools/shared/git";
 import { getProviderOptionDescriptors } from "@t3tools/shared/model";
 
 const REASONING_DESCRIPTOR_IDS = new Set(["reasoningEffort", "reasoning", "effort"]);
 const FAST_SERVICE_TIER_IDS = new Set(["priority", "fast"]);
+
+export function resolveWorktreeTargetBranchName(branch: Pick<VcsRef, "isRemote" | "name">) {
+  return branch.isRemote ? deriveLocalBranchNameFromRemoteRef(branch.name) : branch.name;
+}
 
 export interface FastModeDescriptor {
   readonly id: string;

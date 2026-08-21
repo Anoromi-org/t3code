@@ -10,6 +10,7 @@ import {
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 
 import type { UploadedMobileAttachment } from "./attachmentUpload";
+import { buildProjectThreadWorkspaceBootstrap } from "./projectThreadWorkspace";
 
 export function deriveThreadTitleFromPrompt(value: string): string {
   const trimmed = assistantCitationsToPlainText(value).trim();
@@ -38,8 +39,8 @@ export interface ProjectThreadStartTurnSpec {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly startFromOrigin: boolean;
-  /** Generated temp branch for worktree mode; unused for local mode. */
-  readonly worktreeBranchName: string;
+  readonly supportsServerBranchGeneration: boolean;
+  readonly legacyBranchName?: string;
 }
 
 /**
@@ -49,7 +50,6 @@ export interface ProjectThreadStartTurnSpec {
  */
 export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpec) {
   const title = deriveThreadTitleFromPrompt(spec.text);
-  const isWorktree = spec.workspaceMode === "worktree";
   return {
     commandId: CommandId.make(spec.commandId),
     threadId: ThreadId.make(spec.threadId),
@@ -71,20 +71,18 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
         runtimeMode: spec.runtimeMode,
         interactionMode: spec.interactionMode,
         branch: spec.branch,
-        worktreePath: isWorktree ? null : spec.worktreePath,
+        worktreePath: spec.worktreePath,
         createdAt: spec.createdAt,
       },
-      ...(isWorktree
-        ? {
-            prepareWorktree: {
-              projectCwd: spec.projectCwd,
-              baseBranch: spec.branch!,
-              branch: spec.worktreeBranchName,
-              ...(spec.startFromOrigin ? { startFromOrigin: true } : {}),
-            },
-            runSetupScript: true,
-          }
-        : {}),
+      ...buildProjectThreadWorkspaceBootstrap({
+        projectCwd: spec.projectCwd,
+        workspaceMode: spec.workspaceMode,
+        branch: spec.branch,
+        worktreePath: spec.worktreePath,
+        startFromOrigin: spec.startFromOrigin,
+        supportsServerBranchGeneration: spec.supportsServerBranchGeneration,
+        ...(spec.legacyBranchName !== undefined ? { legacyBranchName: spec.legacyBranchName } : {}),
+      }),
     },
     createdAt: spec.createdAt,
   };

@@ -2179,7 +2179,7 @@ describe("ProviderCommandReactor", () => {
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({ input: prompt });
   });
 
-  it("generates a worktree branch name for the first turn", async () => {
+  it("renames a legacy temporary worktree branch on the first turn", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
     const prompt = `Add a safer reconnect backoff. ${serializeAssistantCitation(assistantCitation)}`;
@@ -2289,6 +2289,39 @@ describe("ProviderCommandReactor", () => {
       harness.startSession.mock.invocationCallOrder[0]!,
     );
   });
+
+  effectIt.effect("does not rename an explicitly selected worktree branch", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(createHarness);
+      const now = "2026-01-01T00:00:00.000Z";
+
+      yield* harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-existing-branch"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "feature/existing",
+        worktreePath: "/tmp/provider-project-worktree",
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-existing-branch"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-existing-branch"),
+          role: "user",
+          text: "Continue on this exact branch.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+
+      yield* Effect.promise(() => harness.drain());
+      expect(harness.generateBranchName).not.toHaveBeenCalled();
+      expect(harness.renameBranch).not.toHaveBeenCalled();
+    }),
+  );
 
   it("forwards codex model options through session start and turn send", async () => {
     const harness = await createHarness();

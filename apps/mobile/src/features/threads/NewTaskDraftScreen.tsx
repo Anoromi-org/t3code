@@ -983,8 +983,10 @@ export function NewTaskDraftScreen(props: {
       modelSelection,
       envMode: workspaceMode,
       branch: creationBranch,
-      worktreePath: workspaceMode === "worktree" ? null : selectedWorktreePath,
+      worktreePath: selectedWorktreePath,
       startFromOrigin,
+      supportsServerBranchGeneration:
+        selectedEnvironmentServerConfig?.worktreeBranchGeneration === true,
       runtimeMode,
       interactionMode,
       initialMessageText,

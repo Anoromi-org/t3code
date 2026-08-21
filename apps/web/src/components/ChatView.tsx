@@ -410,8 +410,10 @@ import {
   resolveComposerProviderSelection,
   resolveDraftHeroState,
   resolveProactiveTurnDiffAction,
+  resolvePendingNamedWorktreeSourceSelection,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
+  resolveWorktreeBranchPreparation,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   shouldWriteThreadErrorToCurrentServerThread,
@@ -6565,6 +6567,14 @@ export default function ChatView(props: ChatViewProps) {
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath
         ? activeThreadBranch
         : null;
+    const worktreeBranchPreparation = baseBranchForWorktree
+      ? resolveWorktreeBranchPreparation({
+          baseBranch: baseBranchForWorktree,
+          requestedBranchName: worktreeBranchName,
+          supportsServerBranchGeneration: serverConfig?.worktreeBranchGeneration === true,
+          legacyBranchName: buildTemporaryWorktreeBranchName(randomHex),
+        })
+      : null;
 
     // In worktree mode, require an explicit base branch so we don't silently
     // fall back to local execution when branch selection is missing.
@@ -6880,8 +6890,15 @@ export default function ChatView(props: ChatViewProps) {
                     prepareWorktree: {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
-                      branch: worktreeBranchName ?? buildTemporaryWorktreeBranchName(randomHex),
-                      ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      ...(worktreeBranchPreparation?.branch
+                        ? { branch: worktreeBranchPreparation.branch }
+                        : {}),
+                      ...(worktreeBranchPreparation?.generateBranch
+                        ? { generateBranch: true }
+                        : {}),
+                      ...(startFromOrigin && !worktreeBranchPreparation?.reuseExistingBranch
+                        ? { startFromOrigin: true }
+                        : {}),
                     },
                     runSetupScript: true,
                   }
@@ -7656,6 +7673,7 @@ export default function ChatView(props: ChatViewProps) {
       branch: VcsRef | string | null;
       envMode: DraftThreadEnvMode;
       worktreeBranchName?: string | null;
+      selectionIntent?: "branch" | "worktree";
     }): Promise<boolean> => {
       if (!activeThread || !activeProject) return false;
 
@@ -7724,6 +7742,33 @@ export default function ChatView(props: ChatViewProps) {
         }
 
         const branch = input.branch;
+        const pendingWorktreeSource = resolvePendingNamedWorktreeSourceSelection({
+          selectionIntent: input.selectionIntent,
+          requestedEnvMode: input.envMode,
+          activeWorktreePath: activeThread.worktreePath,
+          worktreeBranchName,
+          selectedSourceBranch: branch.name,
+        });
+        if (pendingWorktreeSource) {
+          const applied = await applyContext(pendingWorktreeSource);
+          if (applied) scheduleComposerFocus();
+          return applied;
+        }
+        const existingWorktreePath =
+          branch.worktreePath && branch.worktreePath !== activeProject.workspaceRoot
+            ? branch.worktreePath
+            : null;
+        if (branch.worktreePath) {
+          const applied = await applyContext({
+            branch: branch.name,
+            worktreePath: existingWorktreePath,
+            envMode: existingWorktreePath ? "worktree" : "local",
+            worktreeBranchName: null,
+          });
+          if (applied) scheduleComposerFocus();
+          return applied;
+        }
+
         if (
           shouldSelectRefAsWorktreeBase({
             requestedEnvMode: input.envMode,
@@ -7737,21 +7782,6 @@ export default function ChatView(props: ChatViewProps) {
             worktreePath: null,
             envMode: "worktree",
             worktreeBranchName: input.worktreeBranchName ?? null,
-          });
-          if (applied) scheduleComposerFocus();
-          return applied;
-        }
-
-        const existingWorktreePath =
-          branch.worktreePath && branch.worktreePath !== activeProject.workspaceRoot
-            ? branch.worktreePath
-            : null;
-        if (branch.worktreePath) {
-          const applied = await applyContext({
-            branch: branch.name,
-            worktreePath: existingWorktreePath,
-            envMode: existingWorktreePath ? "worktree" : "local",
-            worktreeBranchName: null,
           });
           if (applied) scheduleComposerFocus();
           return applied;
@@ -7810,13 +7840,13 @@ export default function ChatView(props: ChatViewProps) {
       stopThreadSession,
       switchGitRef,
       updateThreadMetadata,
+      worktreeBranchName,
     ],
   );
 
   const onActiveThreadBranchOverrideChange = useCallback((branch: string | null) => {
     const nextOverride = resolveToolbarBranchOverride(branch);
     setPendingServerThreadBranch(nextOverride.branch);
-    setPendingServerWorktreeBranchName(nextOverride.worktreeBranchName);
   }, []);
 
   const onStartFromOriginChange = (nextStartFromOrigin: boolean) => {

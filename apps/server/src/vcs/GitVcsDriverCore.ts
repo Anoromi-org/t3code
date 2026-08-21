@@ -727,6 +727,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const { worktreesDir } = yield* ServerConfig;
   const crypto = yield* Crypto.Crypto;
+  const worktreeCreationMutex = yield* Semaphore.make(1);
 
   const executeRaw: GitVcsDriver.GitVcsDriver["Service"]["execute"] = Effect.fnUntraced(
     function* (input) {
@@ -2843,13 +2844,61 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input) {
-    const targetBranch = input.newRefName ?? input.refName;
+    const idempotencyConfigPrefix = input.idempotencyKey
+      ? yield* crypto.digest("SHA-256", new TextEncoder().encode(input.idempotencyKey)).pipe(
+          Effect.map(Encoding.encodeHex),
+          Effect.map((hash) => `t3code-bootstrap.${hash}`),
+          Effect.mapError(
+            (cause) =>
+              new GitCommandError({
+                ...gitCommandContext({
+                  operation: "GitVcsDriver.createWorktree.hashIdempotencyKey",
+                  cwd: input.cwd,
+                  args: [],
+                }),
+                detail: "Failed to hash the worktree idempotency key.",
+                cause,
+              }),
+          ),
+        )
+      : null;
+    if (idempotencyConfigPrefix !== null) {
+      const [rememberedBranch, rememberedPath] = yield* Effect.all([
+        readConfigValue(input.cwd, `${idempotencyConfigPrefix}.branch`),
+        readConfigValue(input.cwd, `${idempotencyConfigPrefix}.path`),
+      ]);
+      if (
+        rememberedBranch !== null &&
+        rememberedPath !== null &&
+        (yield* branchExists(input.cwd, rememberedBranch)) &&
+        (yield* fileSystem.exists(rememberedPath).pipe(Effect.orElseSucceed(() => false)))
+      ) {
+        return { worktree: { path: rememberedPath, refName: rememberedBranch } };
+      }
+    }
+    const targetBranch =
+      input.newRefName && input.ensureUniqueRefName === true
+        ? yield* resolveAvailableBranchName(input.cwd, input.newRefName)
+        : (input.newRefName ?? input.refName);
     const sanitizedBranch = targetBranch.replace(/\//g, "-");
     const repoName = path.basename(input.cwd);
     const worktreePath = input.path ?? path.join(worktreesDir, repoName, sanitizedBranch);
     const args = input.newRefName
-      ? ["worktree", "add", "-b", input.newRefName, worktreePath, input.refName]
+      ? ["worktree", "add", "-b", targetBranch, worktreePath, input.refName]
       : ["worktree", "add", worktreePath, input.refName];
+
+    if (idempotencyConfigPrefix !== null) {
+      yield* runGit("GitVcsDriver.createWorktree.rememberBranch", input.cwd, [
+        "config",
+        `${idempotencyConfigPrefix}.branch`,
+        targetBranch,
+      ]);
+      yield* runGit("GitVcsDriver.createWorktree.rememberPath", input.cwd, [
+        "config",
+        `${idempotencyConfigPrefix}.path`,
+        worktreePath,
+      ]);
+    }
 
     yield* executeGit("GitVcsDriver.createWorktree", input.cwd, args, {
       fallbackErrorDetail: "git worktree add failed",
@@ -2889,7 +2938,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const baseBranch = parsedBaseRef?.branchName ?? input.baseRefName;
       yield* runGit("GitVcsDriver.createWorktree.configureBaseRef", input.cwd, [
         "config",
-        `branch.${input.newRefName}.gh-merge-base`,
+        `branch.${targetBranch}.gh-merge-base`,
         baseBranch,
       ]);
     }
@@ -3329,7 +3378,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     getReviewDiffFileContents,
     readConfigValue,
     listRefs,
-    createWorktree: (input) => withListRefsInvalidation(input.cwd, createWorktree(input)),
+    createWorktree: (input) =>
+      worktreeCreationMutex.withPermit(withListRefsInvalidation(input.cwd, createWorktree(input))),
     fetchPullRequestBranch: (input) =>
       withListRefsInvalidation(input.cwd, fetchPullRequestBranch(input)),
     fetchPullRequestHeadCommit,

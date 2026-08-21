@@ -68,6 +68,7 @@ import {
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+import { buildGeneratedWorktreeBranchName } from "@t3tools/shared/git";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
@@ -101,6 +102,7 @@ import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner
 import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
+import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -521,6 +523,7 @@ const makeWsRpcLayer = (
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const providerService = yield* ProviderService.ProviderService;
+      const textGeneration = yield* TextGeneration.TextGeneration;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const providerAuth = yield* ProviderAuthService;
       const providerInstances = yield* ProviderInstanceRegistry;
@@ -572,6 +575,24 @@ const makeWsRpcLayer = (
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
+      const bootstrapWorktreesByCommandId = new Map<
+        string,
+        { branch: string; path: string; setupStarted: boolean }
+      >();
+      const rememberBootstrapWorktree = (
+        commandId: CommandId,
+        state: { branch: string; path: string; setupStarted: boolean },
+      ) => {
+        if (
+          !bootstrapWorktreesByCommandId.has(commandId) &&
+          bootstrapWorktreesByCommandId.size >= 2_048
+        ) {
+          const oldestCommandId = bootstrapWorktreesByCommandId.keys().next().value;
+          if (oldestCommandId !== undefined) bootstrapWorktreesByCommandId.delete(oldestCommandId);
+        }
+        bootstrapWorktreesByCommandId.set(commandId, state);
+        return state;
+      };
       yield* Effect.addFinalizer(() =>
         Ref.get(rpcClientIds).pipe(
           Effect.flatMap((clientIds) =>
@@ -959,6 +980,7 @@ const makeWsRpcLayer = (
           let targetProjectId = bootstrap?.createThread?.projectId;
           let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
           let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
+          let bootstrapWorktreeState = bootstrapWorktreesByCommandId.get(command.commandId);
 
           const cleanupCreatedThread = () =>
             createdThread
@@ -1056,6 +1078,12 @@ const makeWsRpcLayer = (
               if (!bootstrap?.runSetupScript || !targetWorktreePath) {
                 return;
               }
+              if (bootstrapWorktreeState?.setupStarted === true) {
+                return;
+              }
+              if (bootstrapWorktreeState) {
+                bootstrapWorktreeState.setupStarted = true;
+              }
               const worktreePath = targetWorktreePath;
               const requestedAt = yield* nowIso;
               yield* projectSetupScriptRunner
@@ -1090,7 +1118,10 @@ const makeWsRpcLayer = (
             });
 
           const bootstrapProgram = Effect.gen(function* () {
-            if (bootstrap?.createThread) {
+            const existingBootstrapThread = bootstrap?.createThread
+              ? yield* projectionSnapshotQuery.getThreadShellById(command.threadId)
+              : Option.none();
+            if (bootstrap?.createThread && Option.isNone(existingBootstrapThread)) {
               const created = yield* dispatchFromClient({
                 type: "thread.create",
                 commandId: yield* serverCommandId("bootstrap-thread-create"),
@@ -1113,50 +1144,137 @@ const makeWsRpcLayer = (
             }
 
             if (bootstrap?.prepareWorktree) {
-              let worktreeBaseRef = bootstrap.prepareWorktree.baseBranch;
-              // "Start from origin" is a stored default; repos without the
-              // requested remote branch fall back to the local base branch.
-              const startFromOrigin =
-                bootstrap.prepareWorktree.startFromOrigin === true &&
-                (yield* gitWorkflow.remoteExists({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  remoteName: "origin",
-                }));
-              if (startFromOrigin) {
-                yield* gitWorkflow.fetchRemote({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  remoteName: "origin",
-                });
-                const remoteBaseExists = yield* gitWorkflow.remoteBranchExists({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  refName: bootstrap.prepareWorktree.baseBranch,
-                  remoteName: "origin",
-                });
-                if (remoteBaseExists) {
-                  const resolvedRemoteBase = yield* gitWorkflow.resolveRemoteTrackingCommit({
-                    cwd: bootstrap.prepareWorktree.projectCwd,
-                    refName: bootstrap.prepareWorktree.baseBranch,
-                    fallbackRemoteName: "origin",
+              const prepareWorktree = bootstrap.prepareWorktree;
+              const preparedThread = yield* projectionSnapshotQuery.getThreadShellById(
+                command.threadId,
+              );
+              if (bootstrapWorktreeState) {
+                targetWorktreePath = bootstrapWorktreeState.path;
+                if (
+                  Option.isNone(preparedThread) ||
+                  preparedThread.value.worktreePath !== bootstrapWorktreeState.path
+                ) {
+                  yield* dispatchFromClient({
+                    type: "thread.meta.update",
+                    commandId: yield* serverCommandId("bootstrap-thread-meta-update"),
+                    threadId: command.threadId,
+                    branch: bootstrapWorktreeState.branch,
+                    worktreePath: bootstrapWorktreeState.path,
                   });
-                  worktreeBaseRef = resolvedRemoteBase.commitSha;
                 }
+              } else if (
+                Option.isSome(preparedThread) &&
+                preparedThread.value.worktreePath !== null
+              ) {
+                const detail = yield* projectionSnapshotQuery.getThreadDetailById(command.threadId);
+                bootstrapWorktreeState = rememberBootstrapWorktree(command.commandId, {
+                  branch: preparedThread.value.branch ?? prepareWorktree.baseBranch,
+                  path: preparedThread.value.worktreePath,
+                  setupStarted:
+                    Option.isSome(detail) &&
+                    detail.value.activities.some((activity) =>
+                      activity.kind.startsWith("setup-script."),
+                    ),
+                });
+                targetWorktreePath = bootstrapWorktreeState.path;
+              } else {
+                let newWorktreeBranch = prepareWorktree.branch;
+                if (
+                  prepareWorktree.branch === undefined &&
+                  prepareWorktree.generateBranch === true
+                ) {
+                  const generatedBranch = yield* Effect.gen(function* () {
+                    const settings = yield* serverSettings.getSettings;
+                    const modelSelection =
+                      settings.sourceControlWriterModelSelection === null
+                        ? settings.textGenerationModelSelection
+                        : ServerSettings.resolveSourceControlWriterModelSelection(
+                            settings,
+                            yield* providerRegistry.getProviders,
+                          );
+                    return yield* textGeneration.generateBranchName({
+                      cwd: prepareWorktree.projectCwd,
+                      message: command.message.text,
+                      attachments: command.message.attachments,
+                      modelSelection,
+                    });
+                  }).pipe(
+                    Effect.catch((error) =>
+                      Effect.logWarning(
+                        "worktree branch generation failed; deriving the branch from the first message",
+                        {
+                          threadId: command.threadId,
+                          detail: error.message,
+                        },
+                      ).pipe(
+                        Effect.as({
+                          branch: command.message.text,
+                        }),
+                      ),
+                    ),
+                  );
+                  newWorktreeBranch = buildGeneratedWorktreeBranchName(generatedBranch.branch);
+                }
+                let worktreeBaseRef = prepareWorktree.baseBranch;
+                // "Start from origin" is a stored default; repos without an
+                // origin remote fall back to the local base branch instead of
+                // failing the whole bootstrap on `git fetch origin`.
+                const startFromOrigin =
+                  prepareWorktree.startFromOrigin === true &&
+                  newWorktreeBranch !== undefined &&
+                  (yield* gitWorkflow.remoteExists({
+                    cwd: prepareWorktree.projectCwd,
+                    remoteName: "origin",
+                  }));
+                if (startFromOrigin) {
+                  yield* gitWorkflow.fetchRemote({
+                    cwd: prepareWorktree.projectCwd,
+                    remoteName: "origin",
+                  });
+                  const remoteBaseExists = yield* gitWorkflow.remoteBranchExists({
+                    cwd: prepareWorktree.projectCwd,
+                    refName: prepareWorktree.baseBranch,
+                    remoteName: "origin",
+                  });
+                  if (remoteBaseExists) {
+                    const resolvedRemoteBase = yield* gitWorkflow.resolveRemoteTrackingCommit({
+                      cwd: prepareWorktree.projectCwd,
+                      refName: prepareWorktree.baseBranch,
+                      fallbackRemoteName: "origin",
+                    });
+                    worktreeBaseRef = resolvedRemoteBase.commitSha;
+                  }
+                }
+                const worktree = yield* gitWorkflow.createWorktree({
+                  cwd: prepareWorktree.projectCwd,
+                  refName: worktreeBaseRef,
+                  ...(newWorktreeBranch
+                    ? {
+                        newRefName: newWorktreeBranch,
+                        baseRefName: prepareWorktree.baseBranch,
+                        ...(prepareWorktree.generateBranch === true
+                          ? { ensureUniqueRefName: true }
+                          : {}),
+                      }
+                    : {}),
+                  idempotencyKey: command.commandId,
+                  path: null,
+                });
+                targetWorktreePath = worktree.worktree.path;
+                bootstrapWorktreeState = rememberBootstrapWorktree(command.commandId, {
+                  branch: worktree.worktree.refName,
+                  path: worktree.worktree.path,
+                  setupStarted: false,
+                });
+                yield* dispatchFromClient({
+                  type: "thread.meta.update",
+                  commandId: yield* serverCommandId("bootstrap-thread-meta-update"),
+                  threadId: command.threadId,
+                  branch: worktree.worktree.refName,
+                  worktreePath: targetWorktreePath,
+                });
+                yield* refreshGitStatus(targetWorktreePath);
               }
-              const worktree = yield* gitWorkflow.createWorktree({
-                cwd: bootstrap.prepareWorktree.projectCwd,
-                refName: worktreeBaseRef,
-                newRefName: bootstrap.prepareWorktree.branch,
-                baseRefName: bootstrap.prepareWorktree.baseBranch,
-                path: null,
-              });
-              targetWorktreePath = worktree.worktree.path;
-              yield* dispatchFromClient({
-                type: "thread.meta.update",
-                commandId: yield* serverCommandId("bootstrap-thread-meta-update"),
-                threadId: command.threadId,
-                branch: worktree.worktree.refName,
-                worktreePath: targetWorktreePath,
-              });
-              yield* refreshGitStatus(targetWorktreePath);
             }
 
             yield* runSetupProgram();
@@ -1275,6 +1393,7 @@ const makeWsRpcLayer = (
               }),
           threadResumeCompletionMarker: true,
           threadSnapshotPagination: true,
+          worktreeBranchGeneration: true,
         };
       });
 

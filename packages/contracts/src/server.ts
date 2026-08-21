@@ -590,6 +590,8 @@ export const ServerConfig = Schema.Struct({
    * stays absent for subscribers that did not opt in.
    */
   usageLimitSources: Schema.optional(UsageLimitSourceSnapshots),
+  /** Whether unnamed worktrees can ask the server to generate their final branch name. */
+  worktreeBranchGeneration: Schema.optionalKey(Schema.Boolean),
 });
 export type ServerConfig = typeof ServerConfig.Type;
 

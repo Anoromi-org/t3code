@@ -926,7 +926,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           // out then, so recording a queue-time guess would pin a stale label
           // to a thread that ran somewhere else.
           branch: workspaceSelection?.branch ?? null,
-          worktreePath: mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
+          worktreePath: workspaceSelection?.worktreePath ?? null,
           // The draft only carries the flag when the user touched it; fall
           // back to the resolved default (server settings) so queued tasks
           // drain with the same origin mode the composer displayed.

@@ -888,7 +888,11 @@ export function useThreadOutboxDrain(): void {
           branch: creation.branch,
           worktreePath: creation.worktreePath,
           startFromOrigin: creation.startFromOrigin ?? false,
-          worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
+          supportsServerBranchGeneration:
+            serverConfigs.get(queuedMessage.environmentId)?.worktreeBranchGeneration === true,
+          ...(serverConfigs.get(queuedMessage.environmentId)?.worktreeBranchGeneration === true
+            ? {}
+            : { legacyBranchName: buildTemporaryWorktreeBranchName(randomHex) }),
         }),
       });
       const { reportFailure } = makeDeliveryHelpers(queuedMessage);
@@ -913,7 +917,7 @@ export function useThreadOutboxDrain(): void {
       }
       return outcome === "removed";
     },
-    [makeDeliveryHelpers, restoreQueuedMessage, startTurn],
+    [makeDeliveryHelpers, restoreQueuedMessage, serverConfigs, startTurn],
   );
 
   useEffect(() => {

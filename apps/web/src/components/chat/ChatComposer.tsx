@@ -194,6 +194,7 @@ import {
   replaceProviderOptionSelection,
   resolveFastModeDescriptor,
   resolveReasoningDescriptor,
+  resolveWorktreeTargetBranchName,
   toggleFastModeOptionSelection,
 } from "./composerSlashActions";
 import {
@@ -1328,6 +1329,7 @@ export interface ChatComposerProps {
     branch: VcsRef | string | null;
     envMode: "local" | "worktree";
     worktreeBranchName?: string | null;
+    selectionIntent?: "branch" | "worktree";
   }) => Promise<boolean> | boolean;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   toggleInteractionMode: () => void;
@@ -3106,19 +3108,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       if (item.type === "branch") {
         const selectedWorktreePath = item.branch.worktreePath;
+        const requestedEnvMode =
+          composerMenuSlashCommand?.command === "worktree" ||
+          (selectedWorktreePath && selectedWorktreePath !== activeProjectCwd)
+            ? "worktree"
+            : selectedWorktreePath === activeProjectCwd
+              ? runContextEnvMode === "worktree" && activeRunContextWorktreePath === null
+                ? "worktree"
+                : "local"
+              : runContextEnvMode;
         setIsRunContextSelectionPending(true);
         try {
           const appliedContext = await onSelectRunContext({
             branch: item.branch,
-            envMode:
-              composerMenuSlashCommand?.command === "worktree" ||
-              (selectedWorktreePath && selectedWorktreePath !== activeProjectCwd)
-                ? "worktree"
-                : selectedWorktreePath === activeProjectCwd
-                  ? runContextEnvMode === "worktree" && activeRunContextWorktreePath === null
-                    ? "worktree"
-                    : "local"
-                  : runContextEnvMode,
+            envMode: requestedEnvMode,
+            selectionIntent: composerMenuSlashCommand?.command === "branch" ? "branch" : "worktree",
+            ...(composerMenuSlashCommand?.command === "worktree" &&
+            requestedEnvMode === "worktree" &&
+            selectedWorktreePath === null
+              ? {
+                  worktreeBranchName: resolveWorktreeTargetBranchName(item.branch),
+                }
+              : {}),
           });
           if (!appliedContext) return;
         } finally {
