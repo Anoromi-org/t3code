@@ -33,6 +33,7 @@ export function useCreateProjectThread() {
       readonly branch: string | null;
       readonly worktreePath: string | null;
       readonly startFromOrigin?: boolean;
+      readonly supportsServerBranchGeneration: boolean;
       readonly runtimeMode: RuntimeMode;
       readonly interactionMode: ProviderInteractionMode;
       readonly initialMessageText: string;
@@ -74,7 +75,10 @@ export function useCreateProjectThread() {
           branch: input.branch,
           worktreePath: input.worktreePath,
           startFromOrigin: input.startFromOrigin ?? false,
-          worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
+          supportsServerBranchGeneration: input.supportsServerBranchGeneration,
+          ...(!input.supportsServerBranchGeneration && input.envMode === "worktree"
+            ? { legacyBranchName: buildTemporaryWorktreeBranchName(randomHex) }
+            : {}),
         }),
       });
       if (AsyncResult.isFailure(result)) {

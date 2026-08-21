@@ -35,10 +35,14 @@ describe("VcsCreateWorktreeInput", () => {
       refName: "0123456789abcdef",
       newRefName: "feature/new",
       baseRefName: "origin/main",
+      ensureUniqueRefName: true,
+      idempotencyKey: "command-1",
       path: "/tmp/worktree",
     });
 
     expect(parsed.baseRefName).toBe("origin/main");
+    expect(parsed.ensureUniqueRefName).toBe(true);
+    expect(parsed.idempotencyKey).toBe("command-1");
   });
 });
 

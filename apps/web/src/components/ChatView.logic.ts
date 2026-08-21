@@ -288,6 +288,55 @@ export function resolveSendEnvMode(input: {
   return input.isGitRepo ? input.requestedEnvMode : "local";
 }
 
+export function resolveWorktreeBranchPreparation(input: {
+  baseBranch: string;
+  requestedBranchName: string | null;
+  supportsServerBranchGeneration?: boolean;
+  legacyBranchName?: string;
+}): {
+  branch?: string;
+  generateBranch?: true;
+  reuseExistingBranch: boolean;
+} {
+  if (input.requestedBranchName === null) {
+    return input.supportsServerBranchGeneration === false
+      ? { branch: input.legacyBranchName!, reuseExistingBranch: false }
+      : { generateBranch: true, reuseExistingBranch: false };
+  }
+  if (input.requestedBranchName === input.baseBranch) {
+    return { reuseExistingBranch: true };
+  }
+  return { branch: input.requestedBranchName, reuseExistingBranch: false };
+}
+
+export function resolvePendingNamedWorktreeSourceSelection(input: {
+  selectionIntent: "branch" | "worktree" | undefined;
+  requestedEnvMode: DraftThreadEnvMode;
+  activeWorktreePath: string | null;
+  worktreeBranchName: string | null;
+  selectedSourceBranch: string;
+}): {
+  branch: string;
+  worktreePath: null;
+  envMode: "worktree";
+  worktreeBranchName: string;
+} | null {
+  if (
+    input.selectionIntent !== "branch" ||
+    input.requestedEnvMode !== "worktree" ||
+    input.activeWorktreePath !== null ||
+    input.worktreeBranchName === null
+  ) {
+    return null;
+  }
+  return {
+    branch: input.selectedSourceBranch,
+    worktreePath: null,
+    envMode: "worktree",
+    worktreeBranchName: input.worktreeBranchName,
+  };
+}
+
 export function cloneComposerImageForRetry(
   image: ComposerImageAttachment,
 ): ComposerImageAttachment {

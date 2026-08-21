@@ -166,7 +166,7 @@ describe("shouldSelectRefAsWorktreeBase", () => {
     ).toBe(false);
   });
 
-  it("uses the project-root ref as a base for a requested worktree", () => {
+  it("reuses the project-root checkout instead of treating it as a worktree base", () => {
     expect(
       shouldSelectRefAsWorktreeBase({
         requestedEnvMode: "worktree",
@@ -174,15 +174,14 @@ describe("shouldSelectRefAsWorktreeBase", () => {
         activeWorktreePath: null,
         selectedRefWorktreePath: "/repo",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
 describe("resolveToolbarBranchOverride", () => {
-  it("clears a named worktree target when the toolbar selects a base branch", () => {
+  it("changes only the source branch for a pending named worktree", () => {
     expect(resolveToolbarBranchOverride("release")).toEqual({
       branch: "release",
-      worktreeBranchName: null,
     });
   });
 });

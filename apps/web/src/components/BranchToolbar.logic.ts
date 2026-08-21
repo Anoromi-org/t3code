@@ -160,16 +160,14 @@ export function shouldSelectRefAsWorktreeBase(input: {
   return (
     input.requestedEnvMode === "worktree" &&
     input.activeWorktreePath === null &&
-    (input.selectedRefWorktreePath === null ||
-      input.selectedRefWorktreePath === input.activeProjectCwd)
+    input.selectedRefWorktreePath === null
   );
 }
 
 export function resolveToolbarBranchOverride(branch: string | null): {
   branch: string | null;
-  worktreeBranchName: null;
 } {
-  return { branch, worktreeBranchName: null };
+  return { branch };
 }
 
 export function resolveBranchToolbarValue(input: {

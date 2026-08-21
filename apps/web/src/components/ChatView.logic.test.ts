@@ -27,14 +27,85 @@ import {
   isBranchMismatchDismissedForSession,
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
+  resolvePendingNamedWorktreeSourceSelection,
   resolveThreadMetadataUpdateForNextTurn,
   resolveChatScopedShortcutAction,
   resolveSendEnvMode,
+  resolveWorktreeBranchPreparation,
   scheduleEnvironmentReconnectWarning,
   startNewThreadForProject,
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
+
+describe("worktree branch preparation", () => {
+  it("keeps the worktree name when /branch changes its source", () => {
+    expect(
+      resolvePendingNamedWorktreeSourceSelection({
+        selectionIntent: "branch",
+        requestedEnvMode: "worktree",
+        activeWorktreePath: null,
+        worktreeBranchName: "smth",
+        selectedSourceBranch: "main",
+      }),
+    ).toEqual({
+      branch: "main",
+      worktreePath: null,
+      envMode: "worktree",
+      worktreeBranchName: "smth",
+    });
+  });
+
+  it("does not reinterpret /worktree selection as a source-only change", () => {
+    expect(
+      resolvePendingNamedWorktreeSourceSelection({
+        selectionIntent: "worktree",
+        requestedEnvMode: "worktree",
+        activeWorktreePath: null,
+        worktreeBranchName: "smth",
+        selectedSourceBranch: "main",
+      }),
+    ).toBeNull();
+  });
+
+  it("checks out an exact existing branch without creating another branch", () => {
+    expect(
+      resolveWorktreeBranchPreparation({
+        baseBranch: "feature/existing",
+        requestedBranchName: "feature/existing",
+      }),
+    ).toEqual({ reuseExistingBranch: true });
+  });
+
+  it("creates an explicit new branch without a temporary name", () => {
+    expect(
+      resolveWorktreeBranchPreparation({
+        baseBranch: "main",
+        requestedBranchName: "feature/new-worktree",
+      }),
+    ).toEqual({ branch: "feature/new-worktree", reuseExistingBranch: false });
+  });
+
+  it("requests semantic branch generation before creating an unnamed worktree", () => {
+    expect(
+      resolveWorktreeBranchPreparation({
+        baseBranch: "main",
+        requestedBranchName: null,
+      }),
+    ).toEqual({ generateBranch: true, reuseExistingBranch: false });
+  });
+
+  it("uses a legacy temporary branch when the server cannot generate one", () => {
+    expect(
+      resolveWorktreeBranchPreparation({
+        baseBranch: "main",
+        requestedBranchName: null,
+        supportsServerBranchGeneration: false,
+        legacyBranchName: "t3code/12345678",
+      }),
+    ).toEqual({ branch: "t3code/12345678", reuseExistingBranch: false });
+  });
+});
 
 const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");

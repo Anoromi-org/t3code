@@ -4,8 +4,21 @@ import {
   replaceProviderOptionSelection,
   resolveFastModeDescriptor,
   resolveReasoningDescriptor,
+  resolveWorktreeTargetBranchName,
   toggleFastModeOptionSelection,
 } from "./composerSlashActions";
+
+describe("resolveWorktreeTargetBranchName", () => {
+  it("keeps an existing local branch name unchanged", () => {
+    expect(resolveWorktreeTargetBranchName({ name: "feature/existing" })).toBe("feature/existing");
+  });
+
+  it("materializes a remote ref under its local branch name", () => {
+    expect(resolveWorktreeTargetBranchName({ name: "origin/feature/remote", isRemote: true })).toBe(
+      "feature/remote",
+    );
+  });
+});
 
 const capabilities = {
   optionDescriptors: [

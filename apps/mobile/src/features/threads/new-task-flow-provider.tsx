@@ -774,7 +774,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           ...(projectCwd !== undefined ? { projectCwd } : {}),
           workspaceMode: mode,
           branch: workspaceSelection?.branch ?? null,
-          worktreePath: mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
+          worktreePath: workspaceSelection?.worktreePath ?? null,
           // The draft only carries the flag when the user touched it; fall
           // back to the resolved default (server settings) so queued tasks
           // drain with the same origin mode the composer displayed.
