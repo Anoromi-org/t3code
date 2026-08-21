@@ -1,0 +1,4 @@
+interface:
+  display_name: "Share Artifacts"
+  short_description: "Publish visual artifacts through a private URL"
+  default_prompt: "Use $share-artifacts to publish and link the artifact for me."
