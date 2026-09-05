@@ -2256,6 +2256,27 @@ export const makeCodexSessionRuntime = (
         updatedAt: yield* nowIso,
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
+      if (options.resumeCursor !== undefined) {
+        const completedTurns = opened.thread.turns
+          .filter((turn) => turn.status !== "inProgress")
+          .toSorted(
+            (left, right) =>
+              (left.startedAt ?? left.completedAt ?? 0) -
+                (right.startedAt ?? right.completedAt ?? 0) || left.id.localeCompare(right.id),
+          );
+        yield* Effect.forEach(
+          completedTurns,
+          (turn) =>
+            emitEvent({
+              kind: "notification",
+              threadId: options.threadId,
+              method: "thread/historyTurn",
+              turnId: TurnId.make(turn.id),
+              payload: turn,
+            }),
+          { concurrency: 1 },
+        ).pipe(Effect.asVoid);
+      }
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
       return session;
     });

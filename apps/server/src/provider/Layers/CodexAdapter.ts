@@ -12,6 +12,8 @@ import {
   type CanonicalItemType,
   type CanonicalRequestType,
   type CodexSettings,
+  IsoDateTime,
+  MessageId,
   ProviderDriverKind,
   type ProviderEvent,
   ProviderInstanceId,
@@ -34,6 +36,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as NodeCrypto from "node:crypto";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -623,6 +626,79 @@ function toTurnStatus(
     default:
       return "completed";
   }
+}
+
+function codexEpochSecondsToIso(seconds: number | null | undefined): IsoDateTime | null {
+  return seconds === null || seconds === undefined
+    ? null
+    : IsoDateTime.make(DateTime.formatIso(DateTime.makeUnsafe(seconds * 1_000)));
+}
+
+function mapCodexHistoryTurn(
+  event: ProviderEvent,
+  canonicalThreadId: ThreadId,
+): ProviderRuntimeEvent | undefined {
+  const turn = readPayload(EffectCodexSchema.V2ThreadResumeResponse__Turn, event.payload);
+  const turnId = event.turnId;
+  if (!turn || !turnId || turn.status === "inProgress") {
+    return undefined;
+  }
+
+  const startedAt = codexEpochSecondsToIso(turn.startedAt);
+  const completedAt = codexEpochSecondsToIso(turn.completedAt);
+  const requestedAt = startedAt ?? completedAt ?? event.createdAt;
+  const messageBaseMs = DateTime.toEpochMillis(DateTime.makeUnsafe(requestedAt));
+  const messages: Array<
+    Extract<ProviderRuntimeEvent, { type: "turn.reconciled" }>["payload"]["messages"][number]
+  > = [];
+  turn.items.forEach((item, index) => {
+    const createdAt = IsoDateTime.make(
+      DateTime.formatIso(DateTime.makeUnsafe(messageBaseMs + index)),
+    );
+    if (item.type === "userMessage") {
+      const text = trimText(
+        item.content
+          .filter((content) => content.type === "text")
+          .map((content) => content.text)
+          .join("\n"),
+      );
+      if (text) {
+        messages.push({
+          messageId: MessageId.make(`user:${item.id}`),
+          role: "user",
+          text,
+          createdAt,
+        });
+      }
+      return;
+    }
+    if (item.type === "agentMessage") {
+      const text = trimText(item.text);
+      if (text) {
+        messages.push({
+          messageId: MessageId.make(`assistant:${item.id}`),
+          role: "assistant",
+          text,
+          createdAt,
+        });
+      }
+    }
+  });
+  if (messages.length === 0) {
+    return undefined;
+  }
+
+  return {
+    ...runtimeEventBase(event, canonicalThreadId),
+    type: "turn.reconciled",
+    payload: {
+      state: toTurnStatus(turn.status),
+      requestedAt,
+      startedAt,
+      completedAt,
+      messages,
+    },
+  };
 }
 
 function normalizeItemType(raw: string | undefined | null): string {
@@ -1298,6 +1374,10 @@ function mapToRuntimeEvents(
 ): ReadonlyArray<ProviderRuntimeEvent> {
   if (event.kind === "notification" && event.method.startsWith("collabAgent/")) {
     return mapCollabAgentEvent(event, canonicalThreadId);
+  }
+  if (event.method === "thread/historyTurn") {
+    const reconciled = mapCodexHistoryTurn(event, canonicalThreadId);
+    return reconciled ? [reconciled] : [];
   }
   if (event.kind === "error") {
     if (!event.message) {

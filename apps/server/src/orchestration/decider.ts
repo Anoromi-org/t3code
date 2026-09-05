@@ -1327,6 +1327,64 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.turn.reconcile": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const messageEvents = yield* Effect.forEach(
+        command.messages,
+        (message) =>
+          Effect.map(
+            withEventBase({
+              aggregateKind: "thread",
+              aggregateId: command.threadId,
+              occurredAt: message.createdAt,
+              commandId: command.commandId,
+            }),
+            (base) =>
+              ({
+                ...base,
+                type: "thread.message-sent",
+                payload: {
+                  threadId: command.threadId,
+                  messageId: message.messageId,
+                  role: message.role,
+                  text: message.text,
+                  turnId: command.turnId,
+                  streaming: false,
+                  createdAt: message.createdAt,
+                  updatedAt: message.createdAt,
+                },
+              }) satisfies Omit<OrchestrationEvent, "sequence">,
+          ),
+        { concurrency: 1 },
+      );
+      const assistantMessageId =
+        command.messages.findLast((message) => message.role === "assistant")?.messageId ?? null;
+      const turnEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.turn-reconciled",
+        payload: {
+          threadId: command.threadId,
+          turnId: command.turnId,
+          pendingMessageId: command.pendingMessageId,
+          assistantMessageId,
+          state: command.state,
+          requestedAt: command.requestedAt,
+          startedAt: command.startedAt,
+          completedAt: command.completedAt,
+        },
+      };
+      return [...messageEvents, turnEvent];
+    }
+
     case "thread.proposed-plan.upsert": {
       yield* requireThread({
         readModel,

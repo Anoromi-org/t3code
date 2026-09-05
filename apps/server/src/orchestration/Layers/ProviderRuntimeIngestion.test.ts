@@ -41,7 +41,9 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
+import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -234,7 +236,10 @@ async function waitForThread(
 
 describe("ProviderRuntimeIngestion", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | ProviderRuntimeIngestionService | ProjectionSnapshotQuery,
+    | OrchestrationEngineService
+    | ProviderRuntimeIngestionService
+    | ProjectionSnapshotQuery
+    | ProjectionTurnRepository,
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -293,6 +298,7 @@ describe("ProviderRuntimeIngestion", () => {
       // engine, and the snapshot query (reader).
       Layer.provideMerge(ThreadBackgroundLiveness.layer),
       Layer.provideMerge(ThreadPlanProgress.layer),
+      Layer.provideMerge(ProjectionTurnRepositoryLive),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
@@ -307,6 +313,7 @@ describe("ProviderRuntimeIngestion", () => {
     const engine = await testRuntime.runPromise(Effect.service(OrchestrationEngineService));
     const snapshotQuery = await testRuntime.runPromise(Effect.service(ProjectionSnapshotQuery));
     const ingestion = await testRuntime.runPromise(Effect.service(ProviderRuntimeIngestionService));
+    const turns = await testRuntime.runPromise(Effect.service(ProjectionTurnRepository));
     scope = await Effect.runPromise(Scope.make("sequential"));
     await testRuntime.runPromise(ingestion.start().pipe(Scope.provide(scope)));
     const drain = () => testRuntime.runPromise(ingestion.drain);
@@ -384,6 +391,8 @@ describe("ProviderRuntimeIngestion", () => {
       emitAndDrain,
       sqlCount: sqlCounter.count,
       setProviderSession: provider.setSession,
+      readTurn: (turnId: TurnId) =>
+        Effect.runPromise(turns.getByTurnId({ threadId: ThreadId.make("thread-1"), turnId })),
       drain,
     };
   }
@@ -618,6 +627,142 @@ describe("ProviderRuntimeIngestion", () => {
       state: "running",
       requestedAt: pendingAt,
     });
+  });
+
+  it("reconciles a missing provider turn once and skips later snapshots", async () => {
+    const harness = await createHarness();
+    const reconciledEvent = {
+      type: "turn.reconciled" as const,
+      eventId: asEventId("evt-turn-reconciled"),
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      createdAt: "2026-01-02T00:00:06.000Z",
+      turnId: asTurnId("turn-reconciled"),
+      payload: {
+        state: "completed" as const,
+        requestedAt: "2026-01-02T00:00:00.000Z",
+        startedAt: "2026-01-02T00:00:00.000Z",
+        completedAt: "2026-01-02T00:00:05.000Z",
+        messages: [
+          {
+            messageId: "user:user-reconciled",
+            role: "user" as const,
+            text: "continue",
+            createdAt: "2026-01-02T00:00:00.000Z",
+          },
+          {
+            messageId: "assistant:assistant-reconciled",
+            role: "assistant" as const,
+            text: "finished",
+            createdAt: "2026-01-02T00:00:00.001Z",
+          },
+        ],
+      },
+    };
+
+    harness.emit(reconciledEvent);
+    const thread = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.latestTurn?.turnId === "turn-reconciled" &&
+        entry.messages.some((message) => message.id === "assistant:assistant-reconciled"),
+    );
+    expect(thread.latestTurn?.state).toBe("completed");
+    expect(thread.messages.map((message) => [message.id, message.role, message.text])).toEqual([
+      ["user:user-reconciled", "user", "continue"],
+      ["assistant:assistant-reconciled", "assistant", "finished"],
+    ]);
+
+    harness.emit({
+      ...reconciledEvent,
+      eventId: asEventId("evt-turn-reconciled-duplicate"),
+      payload: {
+        ...reconciledEvent.payload,
+        messages: reconciledEvent.payload.messages.map((message) => ({
+          ...message,
+          text: "duplicate should be ignored",
+        })),
+      },
+    });
+    await harness.drain();
+
+    const afterDuplicate = await harness.readModel();
+    const reconciledThread = afterDuplicate.threads.find((entry) => entry.id === "thread-1");
+    expect(reconciledThread?.messages.map((message) => [message.id, message.text])).toEqual([
+      ["user:user-reconciled", "continue"],
+      ["assistant:assistant-reconciled", "finished"],
+    ]);
+  });
+
+  it("preserves a T3-started turn's pending user message during reconciliation", async () => {
+    const harness = await createHarness();
+    const requestedAt = "2026-01-02T00:00:00.000Z";
+    await harness.dispatch({
+      type: "thread.turn.start",
+      commandId: CommandId.make("cmd-existing-turn-start"),
+      threadId: asThreadId("thread-1"),
+      message: {
+        messageId: asMessageId("user:original"),
+        role: "user",
+        text: "original prompt",
+        attachments: [],
+      },
+      runtimeMode: "approval-required",
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      createdAt: requestedAt,
+    });
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-existing-turn-started"),
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-existing"),
+      createdAt: requestedAt,
+    });
+    await waitForThread(
+      harness.readModel,
+      (thread) => thread.latestTurn?.turnId === "turn-existing",
+    );
+
+    harness.emit({
+      type: "turn.reconciled",
+      eventId: asEventId("evt-existing-turn-reconciled"),
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-existing"),
+      createdAt: "2026-01-02T00:00:06.000Z",
+      payload: {
+        state: "completed",
+        requestedAt,
+        startedAt: requestedAt,
+        completedAt: "2026-01-02T00:00:05.000Z",
+        messages: [
+          {
+            messageId: "user:provider-copy",
+            role: "user",
+            text: "original prompt",
+            createdAt: requestedAt,
+          },
+          {
+            messageId: "assistant:provider-copy",
+            role: "assistant",
+            text: "completed externally",
+            createdAt: "2026-01-02T00:00:00.001Z",
+          },
+        ],
+      },
+    });
+    await waitForThread(harness.readModel, (thread) => thread.latestTurn?.state === "completed");
+
+    const turn = await harness.readTurn(asTurnId("turn-existing"));
+    expect(turn._tag).toBe("Some");
+    if (turn._tag === "Some") {
+      expect(turn.value.pendingMessageId).toBe("user:original");
+    }
+    const snapshot = await harness.readModel();
+    const thread = snapshot.threads.find((entry) => entry.id === "thread-1");
+    expect(thread?.messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(thread?.messages.some((message) => message.id === "user:provider-copy")).toBe(false);
   });
 
   it("applies provider session.state.changed transitions directly", async () => {

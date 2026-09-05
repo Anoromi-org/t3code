@@ -34,6 +34,7 @@ import {
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
+  ThreadTurnReconciledPayload,
 } from "./Schemas.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
@@ -594,6 +595,37 @@ export function projectEvent(
           }),
         };
       });
+
+    case "thread.turn-reconciled":
+      return decodeForEvent(ThreadTurnReconciledPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          const latestTurn =
+            thread.latestTurn === null ||
+            payload.requestedAt > thread.latestTurn.requestedAt ||
+            (payload.requestedAt === thread.latestTurn.requestedAt &&
+              payload.turnId.localeCompare(thread.latestTurn.turnId) >= 0)
+              ? {
+                  turnId: payload.turnId,
+                  state: payload.state,
+                  requestedAt: payload.requestedAt,
+                  startedAt: payload.startedAt,
+                  completedAt: payload.completedAt,
+                  assistantMessageId: payload.assistantMessageId,
+                }
+              : thread.latestTurn;
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              latestTurn,
+              updatedAt: event.occurredAt >= thread.updatedAt ? event.occurredAt : thread.updatedAt,
+            }),
+          };
+        }),
+      );
 
     case "thread.session-set":
       return Effect.gen(function* () {

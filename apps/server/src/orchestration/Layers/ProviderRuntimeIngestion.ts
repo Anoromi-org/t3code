@@ -1581,6 +1581,62 @@ const make = Effect.gen(function* () {
           return loadedThreadDetail;
         });
 
+      if (event.type === "turn.reconciled") {
+        const turnId = toTurnId(event.turnId);
+        if (!turnId) {
+          return;
+        }
+        const existingTurn = yield* projectionTurnRepository.getByTurnId({
+          threadId: thread.id,
+          turnId,
+        });
+        if (
+          Option.isSome(existingTurn) &&
+          (existingTurn.value.state === "completed" ||
+            existingTurn.value.state === "error" ||
+            existingTurn.value.state === "interrupted")
+        ) {
+          return;
+        }
+        const messages = event.payload.messages
+          .filter(
+            (message) =>
+              message.role !== "user" ||
+              Option.isNone(existingTurn) ||
+              existingTurn.value.pendingMessageId === null,
+          )
+          .map((message) => ({
+            ...message,
+            messageId: MessageId.make(message.messageId),
+          }));
+        const reconciledUserMessageId = event.payload.messages.find(
+          (message) => message.role === "user",
+        )?.messageId;
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.reconcile",
+          commandId: yield* providerCommandId(event, "turn-reconcile"),
+          threadId: thread.id,
+          turnId,
+          pendingMessageId: Option.isSome(existingTurn)
+            ? existingTurn.value.pendingMessageId
+            : reconciledUserMessageId
+              ? MessageId.make(reconciledUserMessageId)
+              : null,
+          state:
+            event.payload.state === "failed"
+              ? "error"
+              : event.payload.state === "cancelled"
+                ? "interrupted"
+                : event.payload.state,
+          requestedAt: event.payload.requestedAt,
+          startedAt: event.payload.startedAt,
+          completedAt: event.payload.completedAt,
+          messages,
+          createdAt: event.createdAt,
+        });
+        return;
+      }
+
       const now = event.createdAt;
       const eventTurnId = toTurnId(event.turnId);
       const activeTurnId = thread.session?.activeTurnId ?? null;

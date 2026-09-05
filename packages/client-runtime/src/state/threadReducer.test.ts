@@ -632,6 +632,58 @@ describe("applyThreadDetailEvent", () => {
     });
   });
 
+  describe("thread.turn-reconciled", () => {
+    const threadWithLatestTurn: OrchestrationThread = {
+      ...baseThread,
+      latestTurn: {
+        turnId: TurnId.make("turn-b"),
+        state: "completed",
+        requestedAt: "2026-04-01T07:00:00.000Z",
+        startedAt: "2026-04-01T07:00:00.000Z",
+        completedAt: "2026-04-01T07:00:01.000Z",
+        assistantMessageId: MessageId.make("assistant-b"),
+      },
+    };
+
+    const reconcile = (turnId: string) =>
+      applyThreadDetailEvent(threadWithLatestTurn, {
+        ...baseEventFields,
+        sequence: 9,
+        occurredAt: "2026-04-01T08:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.turn-reconciled",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          turnId: TurnId.make(turnId),
+          pendingMessageId: MessageId.make(`user-${turnId}`),
+          assistantMessageId: MessageId.make(`assistant-${turnId}`),
+          state: "completed",
+          requestedAt: "2026-04-01T07:00:00.000Z",
+          startedAt: "2026-04-01T07:00:00.000Z",
+          completedAt: "2026-04-01T07:00:02.000Z",
+        },
+      });
+
+    it("updates live state and breaks timestamp ties by turn id", () => {
+      const older = reconcile("turn-a");
+      expect(older.kind).toBe("updated");
+      if (older.kind === "updated") {
+        expect(older.thread.latestTurn?.turnId).toBe("turn-b");
+      }
+
+      const newer = reconcile("turn-c");
+      expect(newer.kind).toBe("updated");
+      if (newer.kind === "updated") {
+        expect(newer.thread.latestTurn).toMatchObject({
+          turnId: "turn-c",
+          assistantMessageId: "assistant-turn-c",
+          state: "completed",
+        });
+      }
+    });
+  });
+
   describe("thread.session-set", () => {
     it("settles a running latestTurn when the session leaves the running status", () => {
       const threadWithRunningTurn: OrchestrationThread = {

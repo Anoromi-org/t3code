@@ -971,6 +971,37 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.turn-reconciled": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          const updatedAt = event.occurredAt;
+          const existingLatestTurn = existingRow.value.latestTurnId
+            ? yield* projectionTurnRepository.getByTurnId({
+                threadId: event.payload.threadId,
+                turnId: existingRow.value.latestTurnId,
+              })
+            : Option.none();
+          const latestTurnId =
+            Option.isNone(existingLatestTurn) ||
+            event.payload.requestedAt > existingLatestTurn.value.requestedAt ||
+            (event.payload.requestedAt === existingLatestTurn.value.requestedAt &&
+              event.payload.turnId.localeCompare(existingLatestTurn.value.turnId ?? "") >= 0)
+              ? event.payload.turnId
+              : existingRow.value.latestTurnId;
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId,
+            updatedAt:
+              updatedAt >= existingRow.value.updatedAt ? updatedAt : existingRow.value.updatedAt,
+          });
+          yield* refreshThreadShellSummary(event.payload.threadId);
+          return;
+        }
+
         case "thread.reverted": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -1552,6 +1583,45 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             checkpointRef: null,
             checkpointStatus: null,
             checkpointFiles: [],
+          });
+          return;
+        }
+
+        case "thread.turn-reconciled": {
+          const existingTurn = yield* projectionTurnRepository.getByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+          const checkpointFields = Option.match(existingTurn, {
+            onNone: () => ({
+              checkpointTurnCount: null,
+              checkpointRef: null,
+              checkpointStatus: null,
+              checkpointFiles: [],
+            }),
+            onSome: (turn) => ({
+              checkpointTurnCount: turn.checkpointTurnCount,
+              checkpointRef: turn.checkpointRef,
+              checkpointStatus: turn.checkpointStatus,
+              checkpointFiles: turn.checkpointFiles,
+            }),
+          });
+          yield* projectionTurnRepository.upsertByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+            pendingMessageId: event.payload.pendingMessageId,
+            sourceProposedPlanThreadId: Option.isSome(existingTurn)
+              ? existingTurn.value.sourceProposedPlanThreadId
+              : null,
+            sourceProposedPlanId: Option.isSome(existingTurn)
+              ? existingTurn.value.sourceProposedPlanId
+              : null,
+            assistantMessageId: event.payload.assistantMessageId,
+            state: event.payload.state,
+            requestedAt: event.payload.requestedAt,
+            startedAt: event.payload.startedAt,
+            completedAt: event.payload.completedAt,
+            ...checkpointFields,
           });
           return;
         }

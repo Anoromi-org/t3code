@@ -163,6 +163,7 @@ const ProviderRuntimeEventType = Schema.Literals([
   "thread.realtime.error",
   "thread.realtime.closed",
   "turn.started",
+  "turn.reconciled",
   "turn.completed",
   "turn.aborted",
   "turn.plan.updated",
@@ -215,6 +216,7 @@ const ThreadRealtimeAudioDeltaType = Schema.Literal("thread.realtime.audio.delta
 const ThreadRealtimeErrorType = Schema.Literal("thread.realtime.error");
 const ThreadRealtimeClosedType = Schema.Literal("thread.realtime.closed");
 const TurnStartedType = Schema.Literal("turn.started");
+const TurnReconciledType = Schema.Literal("turn.reconciled");
 const TurnCompletedType = Schema.Literal("turn.completed");
 const TurnAbortedType = Schema.Literal("turn.aborted");
 const TurnPlanUpdatedType = Schema.Literal("turn.plan.updated");
@@ -396,6 +398,23 @@ export const TurnTokenUsage = Schema.Union([
   }),
 ]);
 export type TurnTokenUsage = typeof TurnTokenUsage.Type;
+
+const ReconciledTurnMessage = Schema.Struct({
+  messageId: TrimmedNonEmptyStringSchema,
+  role: Schema.Literals(["user", "assistant"]),
+  text: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ReconciledTurnMessage = typeof ReconciledTurnMessage.Type;
+
+const TurnReconciledPayload = Schema.Struct({
+  state: RuntimeTurnState,
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime),
+  completedAt: Schema.NullOr(IsoDateTime),
+  messages: Schema.Array(ReconciledTurnMessage),
+});
+export type TurnReconciledPayload = typeof TurnReconciledPayload.Type;
 
 const TurnCompletedPayload = Schema.Struct({
   state: RuntimeTurnState,
@@ -974,6 +993,13 @@ const ProviderRuntimeTurnStartedEvent = Schema.Struct({
 });
 export type ProviderRuntimeTurnStartedEvent = typeof ProviderRuntimeTurnStartedEvent.Type;
 
+const ProviderRuntimeTurnReconciledEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: TurnReconciledType,
+  payload: TurnReconciledPayload,
+});
+export type ProviderRuntimeTurnReconciledEvent = typeof ProviderRuntimeTurnReconciledEvent.Type;
+
 const ProviderRuntimeTurnCompletedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: TurnCompletedType,
@@ -1241,6 +1267,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeThreadRealtimeErrorEvent,
   ProviderRuntimeThreadRealtimeClosedEvent,
   ProviderRuntimeTurnStartedEvent,
+  ProviderRuntimeTurnReconciledEvent,
   ProviderRuntimeTurnCompletedEvent,
   ProviderRuntimeTurnAbortedEvent,
   ProviderRuntimeTurnPlanUpdatedEvent,

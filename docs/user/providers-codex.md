@@ -69,3 +69,7 @@ In an existing Codex thread, send `/feedback` with an optional description, for
 example `/feedback The agent stopped before finishing the tests`. This uploads
 the conversation and Codex logs to OpenAI. The returned thread ID can be shared
 with OpenAI support.
+
+## Continue a session outside T3 Code
+
+If you continue the same Codex session outside T3 Code, T3 Code restores completed user and assistant messages the next time it resumes that session. Tool transcripts are not copied during this reconciliation.

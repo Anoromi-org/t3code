@@ -402,6 +402,31 @@ export function applyThreadDetailEvent(
       };
     }
 
+    case "thread.turn-reconciled": {
+      const latestTurn =
+        thread.latestTurn === null ||
+        event.payload.requestedAt > thread.latestTurn.requestedAt ||
+        (event.payload.requestedAt === thread.latestTurn.requestedAt &&
+          event.payload.turnId.localeCompare(thread.latestTurn.turnId) >= 0)
+          ? {
+              turnId: event.payload.turnId,
+              state: event.payload.state,
+              requestedAt: event.payload.requestedAt,
+              startedAt: event.payload.startedAt,
+              completedAt: event.payload.completedAt,
+              assistantMessageId: event.payload.assistantMessageId,
+            }
+          : thread.latestTurn;
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          latestTurn,
+          updatedAt: event.occurredAt >= thread.updatedAt ? event.occurredAt : thread.updatedAt,
+        },
+      };
+    }
+
     // ── Session ─────────────────────────────────────────────────────
     case "thread.session-set": {
       // Leaving the "running" session status is the turn-end signal: settle a

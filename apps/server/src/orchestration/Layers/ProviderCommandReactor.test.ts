@@ -2292,7 +2292,7 @@ describe("ProviderCommandReactor", () => {
 
   effectIt.effect("does not rename an explicitly selected worktree branch", () =>
     Effect.gen(function* () {
-      const harness = yield* Effect.promise(createHarness);
+      const harness = yield* Effect.promise(() => createHarness());
       const now = "2026-01-01T00:00:00.000Z";
 
       yield* harness.engine.dispatch({

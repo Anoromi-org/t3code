@@ -19,15 +19,19 @@ Use these exact layouts:
 - HTML JavaScript: `/home/anoromi/Artifacts/<artifact-name>/script.js`
 - HTML CSS: `/home/anoromi/Artifacts/<artifact-name>/styles.css`
 
-Use this link template for showing a file to the user:
+Read the artifacts origin from:
 
-`https://artifacts-4afcfbd4411e55ac20ad6860ca087a32.anoromi.com/<relative-path>`
+`~/.agents/urls/artifacts.txt`
 
-Paste the final URL as a clickable Markdown link.
+Require one absolute `https://` URL with no path or trailing slash. If the file is missing or
+invalid, stop and tell the user to run `scripts/setup-t3code-cloudflare-tunnel sync-urls` from the
+T3 Code repository. Never guess or hardcode the origin.
+
+Append `/<relative-path>` to that origin and paste the final URL as a clickable Markdown link.
 
 Map `<relative-path>` directly from the path beneath `/home/anoromi/Artifacts`. For example:
 
-- `/home/anoromi/Artifacts/demo.mp4` → `https://artifacts-4afcfbd4411e55ac20ad6860ca087a32.anoromi.com/demo.mp4`
-- `/home/anoromi/Artifacts/plan/index.html` → `https://artifacts-4afcfbd4411e55ac20ad6860ca087a32.anoromi.com/plan/`
+- `/home/anoromi/Artifacts/demo.mp4` → `<artifacts-origin>/demo.mp4`
+- `/home/anoromi/Artifacts/plan/index.html` → `<artifacts-origin>/plan/`
 
 Use URL-safe artifact names. Verify that the artifact exists before pasting the link. When checking the public origin without credentials, treat HTTP `401 Unauthorized` as confirmation that the protected artifacts server is reachable. Do not ask for, log, or include authentication credentials in the URL.

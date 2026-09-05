@@ -1231,6 +1231,68 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("maps resumed Codex turns to timestamped reconciliation events", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-history-turn"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-02T00:00:00.000Z",
+        method: "thread/historyTurn",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-history"),
+        payload: {
+          id: "turn-history",
+          status: "completed",
+          startedAt: 1_767_225_600,
+          completedAt: 1_767_225_605,
+          items: [
+            {
+              type: "userMessage",
+              id: "user-history",
+              content: [{ type: "text", text: "continue" }],
+            },
+            {
+              type: "agentMessage",
+              id: "assistant-history",
+              text: "finished",
+            },
+          ],
+        },
+      });
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "turn.reconciled") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.turnId, "turn-history");
+      NodeAssert.deepStrictEqual(firstEvent.value.payload, {
+        state: "completed",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        completedAt: "2026-01-01T00:00:05.000Z",
+        messages: [
+          {
+            messageId: "user:user-history",
+            role: "user",
+            text: "continue",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            messageId: "assistant:assistant-history",
+            role: "assistant",
+            text: "finished",
+            createdAt: "2026-01-01T00:00:00.001Z",
+          },
+        ],
+      });
+    }),
+  );
+
   it.effect("labels MCP lifecycle entries with server and tool names", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();

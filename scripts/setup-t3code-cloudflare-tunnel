@@ -4,8 +4,10 @@ set -euo pipefail
 domain="anoromi.com"
 artifacts_username="anoromi"
 artifacts_port=8096
+interactions_port=5173
 caddy_image="caddy:2-alpine"
 state_dir="${XDG_CONFIG_HOME:-$HOME/.config}/t3code-cloudflare"
+agent_urls_dir="$HOME/.agents/urls"
 cloudflared_dir="$HOME/.cloudflared"
 service_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 service_name="cloudflared-t3code-local.service"
@@ -15,12 +17,18 @@ artifacts_dir="$HOME/Artifacts"
 caddy_file="$state_dir/Caddyfile"
 compose_file="$state_dir/compose.yml"
 password_hash_file="$state_dir/artifacts-password.hash"
+t3_url_file="$agent_urls_dir/t3-code.txt"
+artifacts_url_file="$agent_urls_dir/artifacts.txt"
+interactions_url_file="$agent_urls_dir/interactions.txt"
+cloudflared_config_changed=0
+cloudflared_service_changed=0
 
 usage() {
   cat <<'EOF'
 Usage:
   setup-t3code-cloudflare-tunnel [setup] [T3_PORT]
   setup-t3code-cloudflare-tunnel rotate-artifacts-password
+  setup-t3code-cloudflare-tunnel sync-urls
   setup-t3code-cloudflare-tunnel status
 
 The default T3 port is 3773. A numeric first argument remains supported.
@@ -48,6 +56,24 @@ read_state() {
   tunnel_id="$(<"$state_dir/tunnel-id")"
   t3_hostname="$(<"$state_dir/hostname")"
   artifacts_hostname="artifacts-${t3_hostname#t3-}"
+  interactions_hostname="interactions-${t3_hostname#t3-}"
+}
+
+write_agent_urls() {
+  local temp_t3_url temp_artifacts_url temp_interactions_url
+  install -d -m 700 "$agent_urls_dir"
+  temp_t3_url="$(mktemp "$agent_urls_dir/t3-code.txt.XXXXXX")"
+  temp_artifacts_url="$(mktemp "$agent_urls_dir/artifacts.txt.XXXXXX")"
+  temp_interactions_url="$(mktemp "$agent_urls_dir/interactions.txt.XXXXXX")"
+  trap 'rm -f -- "$temp_t3_url" "$temp_artifacts_url" "$temp_interactions_url"' RETURN
+  printf 'https://%s\n' "$t3_hostname" >"$temp_t3_url"
+  printf 'https://%s\n' "$artifacts_hostname" >"$temp_artifacts_url"
+  printf 'https://%s\n' "$interactions_hostname" >"$temp_interactions_url"
+  chmod 600 "$temp_t3_url" "$temp_artifacts_url" "$temp_interactions_url"
+  mv -f "$temp_t3_url" "$t3_url_file"
+  mv -f "$temp_artifacts_url" "$artifacts_url_file"
+  mv -f "$temp_interactions_url" "$interactions_url_file"
+  trap - RETURN
 }
 
 prompt_password_hash() {
@@ -148,6 +174,28 @@ start_artifacts() {
   exit 1
 }
 
+check_t3_origin() {
+  local t3_port="$1" status_code=""
+  status_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+    --connect-timeout 2 --max-time 5 \
+    "http://127.0.0.1:$t3_port/.well-known/t3/environment" || true)"
+  [[ "$status_code" == "200" ]] && return 0
+
+  echo "T3 is not ready on port $t3_port; expected HTTP 200, got ${status_code:-no response}." >&2
+  exit 1
+}
+
+check_interactions_origin() {
+  local status_code=""
+  status_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+    --connect-timeout 2 --max-time 5 \
+    "http://127.0.0.1:$interactions_port/__interaction/spaces" || true)"
+  [[ "$status_code" == "200" ]] && return 0
+
+  echo "Interaction platform is not ready on port $interactions_port; expected HTTP 200, got ${status_code:-no response}." >&2
+  exit 1
+}
+
 write_cloudflared_config() {
   local t3_port="$1" temp_config
   temp_config="$(mktemp "$state_dir/config.yml.XXXXXX")"
@@ -161,10 +209,17 @@ write_cloudflared_config() {
     "    service: http://127.0.0.1:$t3_port" \
     "  - hostname: $artifacts_hostname" \
     "    service: http://127.0.0.1:$artifacts_port" \
+    "  - hostname: $interactions_hostname" \
+    "    service: http://127.0.0.1:$interactions_port" \
     "  - service: http_status:404" >"$temp_config"
   chmod 600 "$temp_config"
   cloudflared tunnel --config "$temp_config" ingress validate
-  mv -f "$temp_config" "$config_file"
+  if [[ -f "$config_file" ]] && cmp -s "$temp_config" "$config_file"; then
+    rm -f -- "$temp_config"
+  else
+    mv -f "$temp_config" "$config_file"
+    cloudflared_config_changed=1
+  fi
   trap - RETURN
 }
 
@@ -175,7 +230,7 @@ write_cloudflared_service() {
   trap 'rm -f -- "$temp_service"' RETURN
   printf '%s\n' \
     "[Unit]" \
-    "Description=Cloudflare Tunnel for T3 Code and Artifacts" \
+    "Description=Cloudflare Tunnel for T3 Code, Interactions, and Artifacts" \
     "After=network-online.target" \
     "Wants=network-online.target" \
     "" \
@@ -189,7 +244,13 @@ write_cloudflared_service() {
     "[Install]" \
     "WantedBy=default.target" >"$temp_service"
   chmod 600 "$temp_service"
-  mv -f "$temp_service" "$service_dir/$service_name"
+  if [[ -f "$service_dir/$service_name" ]] && \
+    cmp -s "$temp_service" "$service_dir/$service_name"; then
+    rm -f -- "$temp_service"
+  else
+    mv -f "$temp_service" "$service_dir/$service_name"
+    cloudflared_service_changed=1
+  fi
   trap - RETURN
 }
 
@@ -200,7 +261,7 @@ setup() {
     exit 2
   fi
 
-  for command in cloudflared jq openssl systemctl curl; do
+  for command in cloudflared jq openssl systemctl loginctl curl; do
     require_command "$command"
   done
   require_docker
@@ -219,6 +280,7 @@ setup() {
     suffix="$(openssl rand -hex 16)"
     t3_hostname="t3-${suffix}.${domain}"
     artifacts_hostname="artifacts-${suffix}.${domain}"
+    interactions_hostname="interactions-${suffix}.${domain}"
     tunnel_name="t3code-local-${suffix}"
     create_output="$(cloudflared tunnel create \
       --credentials-file "$credentials_file" --output json "$tunnel_name")"
@@ -242,18 +304,37 @@ setup() {
   fi
   write_artifacts_config
   start_artifacts
+  check_t3_origin "$t3_port"
+  check_interactions_origin
 
   cloudflared tunnel route dns --overwrite-dns "$tunnel_id" "$t3_hostname"
   cloudflared tunnel route dns --overwrite-dns "$tunnel_id" "$artifacts_hostname"
+  cloudflared tunnel route dns --overwrite-dns "$tunnel_id" "$interactions_hostname"
   write_cloudflared_config "$t3_port"
   write_cloudflared_service
 
-  systemctl --user daemon-reload
-  systemctl --user enable --now "$service_name"
-  systemctl --user restart "$service_name"
+  loginctl enable-linger "$(id -un)"
+  if ((cloudflared_service_changed)); then
+    systemctl --user daemon-reload
+  fi
+  systemctl --user enable "$service_name"
+  if ! systemctl --user is-active --quiet "$service_name"; then
+    systemctl --user start "$service_name"
+  elif ((cloudflared_config_changed || cloudflared_service_changed)); then
+    systemctl --user restart "$service_name"
+  fi
+  write_agent_urls
 
-  printf '\nReady:\n  T3:        https://%s\n  Artifacts: https://%s\n  Directory: %s\n  Username:  %s\n' \
-    "$t3_hostname" "$artifacts_hostname" "$artifacts_dir" "$artifacts_username"
+  printf '\nReady:\n  T3:          https://%s\n  Artifacts:   https://%s\n  Interactions: https://%s\n  URL files:   %s\n  Directory:   %s\n  Username:    %s\n' \
+    "$t3_hostname" "$artifacts_hostname" "$interactions_hostname" \
+    "$agent_urls_dir" "$artifacts_dir" "$artifacts_username"
+}
+
+sync_urls() {
+  read_state
+  write_agent_urls
+  printf 'Wrote:\n  %s\n  %s\n  %s\n' \
+    "$t3_url_file" "$artifacts_url_file" "$interactions_url_file"
 }
 
 rotate_password() {
@@ -268,8 +349,8 @@ rotate_password() {
 
 status() {
   read_state
-  printf 'T3:        https://%s\nArtifacts: https://%s\nDirectory: %s\n' \
-    "$t3_hostname" "$artifacts_hostname" "$artifacts_dir"
+  printf 'T3:          https://%s\nArtifacts:   https://%s\nInteractions: https://%s\nDirectory:   %s\n' \
+    "$t3_hostname" "$artifacts_hostname" "$interactions_hostname" "$artifacts_dir"
   printf 'Tunnel:    '
   systemctl --user is-active "$service_name" || true
   printf 'Artifacts: '
@@ -284,6 +365,9 @@ case "$command_name" in
     ;;
   rotate-artifacts-password)
     rotate_password
+    ;;
+  sync-urls)
+    sync_urls
     ;;
   status)
     status
