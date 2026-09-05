@@ -3,6 +3,14 @@
 Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
+## Project and thread shortcuts
+
+With the default bindings, `Mod+P` opens project actions and `Mod+Shift+P` opens the file picker. `Mod+E` opens thread navigation. `Mod+Shift+S` focuses the composer, and `Mod+Shift+C` interrupts a running turn.
+
+Thread settlement, reference copying, and pinning use `Mod+Alt+Shift+S`, `Mod+Alt+Shift+C`, and `Mod+Alt+Shift+P`. Existing custom bindings continue to take precedence.
+
+On desktop, hold Control and press Tab to cycle recent threads. Add Shift to cycle backward, release Control to select, or press Escape to cancel.
+
 ## Edit the configuration file
 
 Keybindings live on the environment's machine, in

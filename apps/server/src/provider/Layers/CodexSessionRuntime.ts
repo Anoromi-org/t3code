@@ -2264,18 +2264,14 @@ export const makeCodexSessionRuntime = (
               (left.startedAt ?? left.completedAt ?? 0) -
                 (right.startedAt ?? right.completedAt ?? 0) || left.id.localeCompare(right.id),
           );
-        yield* Effect.forEach(
-          completedTurns,
-          (turn) =>
-            emitEvent({
-              kind: "notification",
-              threadId: options.threadId,
-              method: "thread/historyTurn",
-              turnId: TurnId.make(turn.id),
-              payload: turn,
-            }),
-          { concurrency: 1 },
-        ).pipe(Effect.asVoid);
+        if (completedTurns.length > 0) {
+          yield* emitEvent({
+            kind: "notification",
+            threadId: options.threadId,
+            method: "thread/history",
+            payload: completedTurns,
+          });
+        }
       }
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
       return session;

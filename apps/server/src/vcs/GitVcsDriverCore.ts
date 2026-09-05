@@ -2863,17 +2863,36 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         )
       : null;
     if (idempotencyConfigPrefix !== null) {
-      const [rememberedBranch, rememberedPath] = yield* Effect.all([
+      const [rememberedBranch, rememberedPath, completed] = yield* Effect.all([
         readConfigValue(input.cwd, `${idempotencyConfigPrefix}.branch`),
         readConfigValue(input.cwd, `${idempotencyConfigPrefix}.path`),
+        readConfigValue(input.cwd, `${idempotencyConfigPrefix}.completed`),
       ]);
       if (
+        completed === "true" &&
         rememberedBranch !== null &&
         rememberedPath !== null &&
         (yield* branchExists(input.cwd, rememberedBranch)) &&
         (yield* fileSystem.exists(rememberedPath).pipe(Effect.orElseSucceed(() => false)))
       ) {
-        return { worktree: { path: rememberedPath, refName: rememberedBranch } };
+        const registered = yield* runGitStdout(
+          "GitVcsDriver.createWorktree.verifyRegistry",
+          input.cwd,
+          ["worktree", "list", "--porcelain", "-z"],
+        );
+        const registeredPath = parseWorktreeBranchPaths(registered).get(rememberedBranch);
+        const checkedOutBranch = yield* runGitStdout(
+          "GitVcsDriver.createWorktree.verifyHead",
+          rememberedPath,
+          ["symbolic-ref", "--short", "HEAD"],
+        ).pipe(Effect.orElseSucceed(() => ""));
+        if (
+          registeredPath &&
+          path.resolve(registeredPath) === path.resolve(rememberedPath) &&
+          checkedOutBranch.trim() === rememberedBranch
+        ) {
+          return { worktree: { path: rememberedPath, refName: rememberedBranch } };
+        }
       }
     }
     const targetBranch =
@@ -2888,6 +2907,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       : ["worktree", "add", worktreePath, input.refName];
 
     if (idempotencyConfigPrefix !== null) {
+      yield* runGit("GitVcsDriver.createWorktree.markIncomplete", input.cwd, [
+        "config",
+        `${idempotencyConfigPrefix}.completed`,
+        "false",
+      ]);
       yield* runGit("GitVcsDriver.createWorktree.rememberBranch", input.cwd, [
         "config",
         `${idempotencyConfigPrefix}.branch`,
@@ -2940,6 +2964,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         "config",
         `branch.${targetBranch}.gh-merge-base`,
         baseBranch,
+      ]);
+    }
+
+    if (idempotencyConfigPrefix !== null) {
+      yield* runGit("GitVcsDriver.createWorktree.markCompleted", input.cwd, [
+        "config",
+        `${idempotencyConfigPrefix}.completed`,
+        "true",
       ]);
     }
 

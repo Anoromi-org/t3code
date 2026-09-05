@@ -164,6 +164,7 @@ const ProviderRuntimeEventType = Schema.Literals([
   "thread.realtime.closed",
   "turn.started",
   "turn.reconciled",
+  "thread.history.reconciled",
   "turn.completed",
   "turn.aborted",
   "turn.plan.updated",
@@ -1037,6 +1038,16 @@ const ProviderRuntimeTurnProposedCompletedEvent = Schema.Struct({
 export type ProviderRuntimeTurnProposedCompletedEvent =
   typeof ProviderRuntimeTurnProposedCompletedEvent.Type;
 
+const ProviderRuntimeThreadHistoryReconciledEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: Schema.Literal("thread.history.reconciled"),
+  payload: Schema.Struct({
+    events: Schema.Array(
+      Schema.Union([ProviderRuntimeTurnReconciledEvent, ProviderRuntimeTurnProposedCompletedEvent]),
+    ),
+  }),
+});
+
 const ProviderRuntimeTurnDiffUpdatedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: TurnDiffUpdatedType,
@@ -1268,6 +1279,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeThreadRealtimeClosedEvent,
   ProviderRuntimeTurnStartedEvent,
   ProviderRuntimeTurnReconciledEvent,
+  ProviderRuntimeThreadHistoryReconciledEvent,
   ProviderRuntimeTurnCompletedEvent,
   ProviderRuntimeTurnAbortedEvent,
   ProviderRuntimeTurnPlanUpdatedEvent,

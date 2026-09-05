@@ -1,0 +1,1222 @@
+{
+  "source": "c33c2b96240c1936f6ea8698aa6944daea25e82b",
+  "upstream": "4631000f5a7666c88402ce11a9ebb8cdef7a7dad",
+  "features": [
+    {
+      "sourceCommit": "1c562361ffee8f213f2f518b047d0ec30aa83c2e",
+      "rebasedCommit": "4d56252bc27c2f4dd9683fe053691e1efc7760f6",
+      "subject": "repo add local agent and workflow guidance"
+    },
+    {
+      "sourceCommit": "b5a3d858e7a9adda0f1c92ab1afb73e487d6180d",
+      "rebasedCommit": "6947b03b5e541d1947141f72448f95250017f973",
+      "subject": "server add fork-compatible persistence migrations"
+    },
+    {
+      "sourceCommit": "512aa2ad2c88afa8130241ab20c1bc0095583925",
+      "rebasedCommit": "25ddb486db0c547f26ce689f766379b1166cf060",
+      "subject": "desktop add Nix packaging and local launch support"
+    },
+    {
+      "sourceCommit": "dc9e128698dcf775a0d917263b91a341e0642b42",
+      "rebasedCommit": "51b40dfcd56824bdf9da348b9076c088b037f51a",
+      "subject": "desktop integrate reliable Hyprnav and Corkdiff"
+    },
+    {
+      "sourceCommit": "2ee0c8da621b15ab3d478d20f4dbc589ff213a58",
+      "rebasedCommit": "31baca265e7fe33a0122952e0999eee41625656f",
+      "subject": "restore Hyprnav settings and shortcut contracts"
+    },
+    {
+      "sourceCommit": "8aa0836944a52860fecfd602f99fcd01a3e9d845",
+      "rebasedCommit": "22fa6175e640d306103e55b7d1835f75524bfad2",
+      "subject": "desktop restore Hyprnav runtime orchestration"
+    },
+    {
+      "sourceCommit": "f8f604945d88754532880825bb2758b7ded327f5",
+      "rebasedCommit": "3b795bc5bdc19f741fe767f91a6878c16e092c4f",
+      "subject": "web restore Hyprnav settings and runtime sync"
+    },
+    {
+      "sourceCommit": "4e02e0b720bff9b43bc6c51ff4864cfa2366e8a5",
+      "rebasedCommit": "4c6227a910fdc54a9e636a63f0fc2acd2b7e868c",
+      "subject": "web restore keyboard composer actions"
+    },
+    {
+      "sourceCommit": "ff02634a352c2e12c72a643d8f7b525a5bfa7aa7",
+      "rebasedCommit": "ff68ecc6e95e9a10f04002b19bb5fdbd2aedd711",
+      "subject": "web add project actions panel"
+    },
+    {
+      "sourceCommit": "42ad0895e6e809b4a89d4c53952c8d65e9aeddce",
+      "rebasedCommit": "0198e373baaeef08dd763f7dddab6b27865aca95",
+      "subject": "web add fast mode and chat shortcuts"
+    },
+    {
+      "sourceCommit": "103e68c37a91551a8fc3c6c843e6e36fff1bcb53",
+      "rebasedCommit": "5ce53209dc5015b912160a59c2d7922ab9de6ad2",
+      "subject": "server preserve latest turn on session settlement"
+    },
+    {
+      "sourceCommit": "dde65177ad85f3ecd677cad1e9644ce96b1b954f",
+      "rebasedCommit": "7ee84c6f3ba7f73ac7c94cd92a77c547ac3aca9c",
+      "subject": "mobile configure fork release identity"
+    },
+    {
+      "sourceCommit": "e11feafb0b1233a87650f5db6b0776098b1967b9",
+      "rebasedCommit": "f8e0fd92ecb12340b41c3391d2d2c04b2fd22723",
+      "subject": "client harden thread resynchronization on app activation"
+    },
+    {
+      "sourceCommit": "43f6158b84db26ce91f2e3aadcb9e8a4b311c550",
+      "rebasedCommit": "460a1b8bf72b7bb0435c44a23cbf662ae92fa7ec",
+      "subject": "web open Markdown file links in the preferred editor"
+    },
+    {
+      "sourceCommit": "90573c499f20327e6999122ae077855cfd30faaf",
+      "rebasedCommit": "e4f4a0b31b3c2cb3419eec85cbef25e34c2ade1a",
+      "subject": "desktop add Ctrl+Tab thread switcher and stabilize tsgo prepare"
+    },
+    {
+      "sourceCommit": "2946e912e88c322f17a76dcba9d757de61893c8a",
+      "rebasedCommit": "53e12c4f55459c60006ad19bee316b6d86937dd6",
+      "subject": "feat(observability): trace stalls and coordinate VCS polling"
+    },
+    {
+      "sourceCommit": "a5dc00a023b02175bb13d771c875b5e3b5f6c341",
+      "rebasedCommit": "cc375596cc1e706557054aa425019978dc89b47e",
+      "subject": "server generate unique idempotent worktree branches"
+    },
+    {
+      "sourceCommit": "6e5dce06b2319b7ca4ee4dd3bd1eab576f2d8a34",
+      "rebasedCommit": "d0db9502fe58f5b8012ff6b01ec845b71dcc6a4e",
+      "subject": "add cloudflare expose"
+    },
+    {
+      "sourceCommit": "c33c2b96240c1936f6ea8698aa6944daea25e82b",
+      "rebasedCommit": "49fa66dbede94431bcb35549462405e026ce4b8d",
+      "subject": "backup: capture pending modernization source"
+    }
+  ],
+  "tests": [
+    {
+      "sourcePath": "apps/desktop/scripts/electron-launcher.test.mjs",
+      "currentPath": "apps/desktop/scripts/electron-launcher.test.mjs",
+      "addedCases": [
+        "uses a packaged Electron override without downloading another runtime",
+        "does not disable sandboxing for an explicit Electron wrapper"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/scripts/electron-sandbox.test.mjs",
+      "currentPath": "apps/desktop/scripts/electron-sandbox.test.mjs",
+      "addedCases": [
+        "Nix Electron sandbox selection",
+        "uses a configured NixOS setuid sandbox helper",
+        "uses user namespaces on Home Manager hosts without a system helper",
+        "rejects a system helper without root ownership and mode 4755",
+        "starts without a sandbox when Ubuntu blocks unprivileged user namespaces",
+        "honors the explicit disable-sandbox override"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/scripts/launch-environment.test.mjs",
+      "currentPath": "apps/desktop/scripts/launch-environment.test.mjs",
+      "addedCases": [
+        "local desktop launch environment",
+        "parses exact values including empty, multiline, and equals characters",
+        "preserves exported shell-function keys instead of rejecting a valid process environment",
+        "uses the captured user environment without leaking the inner Nix shell",
+        "preserves ordinary launches when no snapshot is requested",
+        "reads and deletes a private snapshot before returning the runtime environment",
+        "fails closed and still deletes malformed snapshots",
+        "fails when cleanup cannot be completed"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/scripts/local-launch-environment-wrapper.test.mjs",
+      "currentPath": "apps/desktop/scripts/local-launch-environment-wrapper.test.mjs",
+      "addedCases": [
+        "t3code-local environment capture",
+        "captures PATH before the Home Manager launcher adds runtime tools",
+        "creates a private pre-Nix snapshot and removes it after a failed launch",
+        "forwards ${signalCase.signal} to the complete process group and removes its snapshot"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/scripts/preload-sandbox.test.mjs",
+      "currentPath": "apps/desktop/scripts/preload-sandbox.test.mjs",
+      "addedCases": [
+        "sandboxed desktop preload",
+        "does not import external runtime packages that Electron cannot load"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/scripts/runtime-args.test.mjs",
+      "currentPath": "apps/desktop/scripts/runtime-args.test.mjs",
+      "addedCases": [
+        "desktop runtime arguments",
+        "adds explicit Wayland arguments and environment hints on Linux",
+        "does not emit arguments for invalid modes or non-Linux hosts",
+        "does not force Wayland from a stale NixOS hint in an X11 session",
+        "uses Electron and NixOS hints only when no explicit mode is configured"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/scripts/smoke-test.mjs",
+      "currentPath": "apps/desktop/scripts/smoke-test.mjs",
+      "addedCases": [],
+      "status": "pending desktop UI permission"
+    },
+    {
+      "sourcePath": "apps/desktop/src/app/DesktopAppIdentity.test.ts",
+      "currentPath": "apps/desktop/src/app/DesktopAppIdentity.test.ts",
+      "addedCases": ["re-registers the Linux protocol handler after applying a desktop override"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/app/DesktopEnvironment.test.ts",
+      "currentPath": "apps/desktop/src/app/DesktopEnvironment.test.ts",
+      "addedCases": [
+        "derives Electron",
+        "uses a configured Linux desktop entry name override",
+        "uses a configured Linux URL handler executable"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/app/DesktopLinuxUrlHandler.test.ts",
+      "currentPath": "apps/desktop/src/app/DesktopLinuxUrlHandler.test.ts",
+      "addedCases": ["prefers the packaged launcher override to the Electron executable"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts",
+      "currentPath": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts",
+      "currentPath": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/corkdiff/ExternalCorkdiff.test.ts",
+      "currentPath": "apps/desktop/src/corkdiff/ExternalCorkdiff.test.ts",
+      "addedCases": [
+        "ExternalCorkdiff helpers",
+        "surfaces the wrapped launch diagnostic",
+        "uses a stable hashed Ghostty class without exposing the thread id",
+        "builds direct Ghostty and Neovim arguments",
+        "creates a stable per-thread Neovim address without exposing the thread id",
+        "builds a bounded Neovim credential update expression",
+        "passes a websocket ticket in Corkdiff",
+        "builds the server-supported plugin ticket URL for Corkdiff",
+        "parses workspace ids and finds the matching class",
+        "schedules credential replacement before ticket expiry",
+        "preserves an immediate spawn failure after a workspace id is printed",
+        "kills a command that hangs after printing its workspace id",
+        "kills commands that exceed their time bound",
+        "bounds captured stdout and stderr independently",
+        "ExternalCorkdiffManager",
+        "launches with a mocked ticket-authenticated Corkdiff URL and reuses the session",
+        "coalesces concurrent launches for one thread",
+        "relaunches when the managed Ghostty class is gone",
+        "leaves an unmanaged Ghostty intact until a fresh ticket is available",
+        "adopts a Hyprnav-launched Corkdiff through the shared per-thread socket",
+        "preserves an adopted viewer when a queued connection refresh fails",
+        "serializes concurrent adoption and applies the newest supplied connection",
+        "discards an older connection that resolves after a newer open request",
+        "transfers refresh ownership only after the newer connection succeeds",
+        "does not apply an old refresh that resolves after newer credentials were installed",
+        "keeps prior refresh ownership when credential adoption cannot focus the live viewer",
+        "rolls a failed queued adoption back to the adoption that completed before it",
+        "keeps an expired managed Ghostty focusable while credential replacement is pending",
+        "refreshes a live managed Ghostty in place",
+        "replaces a managed Ghostty after its live Neovim endpoint rejects refresh",
+        "preserves a refresh failure recorded while the managed window is being focused",
+        "does not let a rejected stale probe delete a replacement session",
+        "reports a managed window closed when it exits during a rejected refresh",
+        "keeps a failed refresh marked unhealthy when liveness inspection rejects",
+        "waits for the target address when another same-class client is listed first",
+        "stops credential refresh when the managed window was closed",
+        "treats a client that closes during focus as stale",
+        "does not report success until the Ghostty client is observable"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/electron/ElectronApp.test.ts",
+      "currentPath": "apps/desktop/src/electron/ElectronApp.test.ts",
+      "addedCases": ["allows a system package wrapper to force packaged behavior"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/hyprnav/HyprnavEnvironment.test.ts",
+      "currentPath": "apps/desktop/src/hyprnav/HyprnavEnvironment.test.ts",
+      "addedCases": [
+        "Hyprnav helpers",
+        "builds stable nested environment ids and normalizes scoped clears",
+        "rejects unavailable command placeholders",
+        "preserves shell parameter expansions while replacing Hyprnav placeholders",
+        "expands Corkdiff with the current desktop connection environment",
+        "builds a stable Corkdiff socket and safely encoded live connection update",
+        "uses the available fallback editor command and Linux file manager",
+        "HyprnavEnvironmentManager",
+        "atomically ensures scopes, clears names, assigns actions, then locks",
+        "globally orders lock-bearing synchronization across thread switches",
+        "assigns a fresh slot before clearing its previous display name",
+        "refreshes a running Hyprnav-launched Corkdiff before republishing",
+        "removes an identity-matched stale Corkdiff socket and continues publication",
+        "reports a missing Hyprnav binary without throwing",
+        "reports Hyprnav stdin pipe failures without an unhandled stream error",
+        "publishes only project operations when a worktree was removed",
+        "preserves missing project roots and non-ENOENT worktree failures"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/hyprnav/WorktreeTerminal.test.ts",
+      "currentPath": "apps/desktop/src/hyprnav/WorktreeTerminal.test.ts",
+      "addedCases": [
+        "WorktreeTerminalLauncher",
+        "resolves electron-builder and Nix packaged helper layouts",
+        "parses launcher output",
+        "opens through the Wayland Ghostty worktree script",
+        "reads the hydrated process environment when spawning",
+        "waits for list output to close before parsing",
+        "kills a helper that exceeds its bounded lifetime"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/ipc/methods/window.test.ts",
+      "currentPath": "apps/desktop/src/ipc/methods/window.test.ts",
+      "addedCases": [
+        "syncHyprnavEnvironment",
+        "preserves applied scopes through IPC result encoding"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/preview/Manager.test.ts",
+      "currentPath": "apps/desktop/src/preview/Manager.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/settings/DesktopClientSettings.test.ts",
+      "currentPath": "apps/desktop/src/settings/DesktopClientSettings.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/window/DesktopThreadSwitcher.test.ts",
+      "currentPath": "apps/desktop/src/window/DesktopThreadSwitcher.test.ts",
+      "addedCases": [
+        "desktop thread switcher input",
+        "dispatches forward, backward, commit, and cancel gestures",
+        "commits on blur only while active and ignores unrelated input",
+        "identifies preview inputs that must be forwarded to the main renderer"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/src/window/DesktopWindow.test.ts",
+      "currentPath": "apps/desktop/src/window/DesktopWindow.test.ts",
+      "addedCases": ["routes the native Ctrl+Tab gesture lifecycle to the renderer"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/desktop/vite.config.test.ts",
+      "currentPath": "apps/desktop/vite.config.test.ts",
+      "addedCases": [
+        "desktop pack configuration",
+        "bundles workspace imports into the standalone Ghostty helper"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/mobile/app.config.test.ts",
+      "currentPath": "apps/mobile/app.config.test.ts",
+      "addedCases": [
+        "mobile release configuration",
+        "uses fork identity and upstream platform configuration for ${expected.variant}",
+        "retains the personal-team bundle and reduced-capability override",
+        "enables associated domains only for an explicitly configured authorized host",
+        "does not retain the upstream App Store Connect submission target",
+        "validates the injected App Store target",
+        "rejects a personal-team build without a valid bundle identifier",
+        "rejects an iOS relying party that is not a hostname"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/mobile/src/lib/projectThreadStartTurn.test.ts",
+      "currentPath": "apps/mobile/src/lib/projectThreadStartTurn.test.ts",
+      "addedCases": [
+        "buildProjectThreadWorkspaceBootstrap",
+        "asks the server to generate the final branch before creating a worktree",
+        "does not prepare a worktree for local threads",
+        "falls back to a legacy temporary branch for older servers",
+        "reuses an already selected worktree without preparing another one"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/desktop/DesktopFocus.test.ts",
+      "currentPath": "apps/server/src/desktop/DesktopFocus.test.ts",
+      "addedCases": [
+        "DesktopFocus",
+        "finds the desktop by current or initial WM class",
+        "focuses the matching Hyprland client with direct argv"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/git/GitWorkflowService.test.ts",
+      "currentPath": "apps/server/src/git/GitWorkflowService.test.ts",
+      "addedCases": ["uses the common Git directory to coordinate worktrees"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/keybindings.test.ts",
+      "currentPath": "apps/server/src/keybindings.test.ts",
+      "addedCases": [
+        "repairs only the exact generated command-palette shortcut config",
+        "migrates the legacy command bar binding to project actions",
+        "moves only the former default file picker shortcut",
+        "preserves a customized command-palette shortcut",
+        "preserves customized chat-scoped shortcuts",
+        "backfills composer focus without displacing an existing stash default",
+        "removes every custom keybinding for a command",
+        "replaces every custom keybinding for a command"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/keybindingsCompatibility.test.ts",
+      "currentPath": "apps/server/src/keybindingsCompatibility.test.ts",
+      "addedCases": [
+        "removes commands unsupported by the current mobile client schema",
+        "preserves the complete config for non-mobile and unknown clients",
+        "preserves the complete config for mobile browser sessions"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/mcp/McpSessionRegistry.test.ts",
+      "currentPath": "apps/server/src/mcp/McpSessionRegistry.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/mcp/McpThreadContextQuery.test.ts",
+      "currentPath": "apps/server/src/mcp/McpThreadContextQuery.test.ts",
+      "addedCases": [
+        "reads current context and paginates active threads on the same worktree",
+        "returns none when the credential"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/mcp/toolkits/thread-context/tools.test.ts",
+      "currentPath": "apps/server/src/mcp/toolkits/thread-context/tools.test.ts",
+      "addedCases": [
+        "exports read-only provider-compatible schemas",
+        "returns context bound to the authenticated provider session"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/observability/EventLoopStallMonitor.test.ts",
+      "currentPath": "apps/server/src/observability/EventLoopStallMonitor.test.ts",
+      "addedCases": ["traces event loop samples only when they exceed the stall threshold"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/orchestration/Layers/ProjectionPipeline.test.ts",
+      "currentPath": "apps/server/src/orchestration/Layers/ProjectionPipeline.test.ts",
+      "addedCases": [
+        "preserves the latest turn and actionable plan when a plan session settles",
+        "limits startup repair to reconstructable settlement pointers",
+        "preserves latest turns across non-running settlement statuses"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts",
+      "currentPath": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts",
+      "currentPath": "apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts",
+      "addedCases": [
+        "renames a legacy temporary worktree branch on the first turn",
+        "does not rename an explicitly selected worktree branch"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts",
+      "currentPath": "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts",
+      "addedCases": [
+        "reconciles a missing provider turn once and skips later snapshots",
+        "preserves a T3-started turn"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/orchestration/decider.projectScripts.test.ts",
+      "currentPath": "apps/server/src/orchestration/decider.projectScripts.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/persistence/Layers/ProjectionRepositories.test.ts",
+      "currentPath": "apps/server/src/persistence/Layers/ProjectionRepositories.test.ts",
+      "addedCases": [
+        "excludes one-shot repair markers from the projector watermark",
+        "round-trips project Hyprnav overrides"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/persistence/Migrations/048_RepairForkMigrationCompatibility.test.ts",
+      "currentPath": "apps/server/src/persistence/Migrations/048_RepairForkMigrationCompatibility.test.ts",
+      "addedCases": [
+        "retries typed and wrapped SQLite snapshot contention",
+        "does not retry non-contention failures",
+        "returns the contention failure after exhausting retries",
+        "completes concurrent repair startup across two independent runtimes",
+        "applies the canonical and fork migrations on a fresh database",
+        "repairs the previous 34-41 ledger while preserving its historical names",
+        "preserves the former 35-42 ledger and restores canonical 35-40 effects",
+        "repairs only canonical effects already claimed by the divergent ledger",
+        "prepares canonical prerequisites before colliding fork ledgers resume",
+        "prepares a historical migration-20 ledger during bounded forward migration",
+        "creates shell-summary prerequisites before canonical migration 24",
+        "backfills a missing latest-turn pointer when no authoritative event exists",
+        "repairs a historical fork ledger without rewriting it"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/persistence/Migrations/Migrations.realDatabase.test.ts",
+      "currentPath": "apps/server/src/persistence/Migrations/Migrations.realDatabase.test.ts",
+      "addedCases": ["migrates an explicitly supplied real database copy"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/persistence/NodeSqliteClient.test.ts",
+      "currentPath": "packages/shared/src/nodeSqliteClient.test.ts",
+      "addedCases": ["waits briefly for competing SQLite writers"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+      "currentPath": "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+      "addedCases": ["maps resumed Codex turns to timestamped reconciliation events"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/server.test.ts",
+      "currentPath": "apps/server/src/server.test.ts",
+      "addedCases": [
+        "projects unsupported keybindings out of mobile websocket responses",
+        "accepts a websocket ticket through the redacted plugin token parameter",
+        "checks out an existing branch directly when bootstrapping a worktree",
+        "generates the final branch before creating an unnamed worktree"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/terminal/Manager.test.ts",
+      "currentPath": "apps/server/src/terminal/Manager.test.ts",
+      "addedCases": [
+        "passes the restored user shell environment to the PTY without Nix prompt poison"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/vcs/GitVcsDriverCore.test.ts",
+      "currentPath": "apps/server/src/vcs/GitVcsDriverCore.test.ts",
+      "addedCases": [
+        "checks out an existing ref without creating a second branch",
+        "derives the default worktree directory from the final branch name",
+        "suffixes generated branch and directory names when the first name is taken",
+        "serializes concurrent generated worktrees with the same requested name",
+        "recovers a created worktree by bootstrap idempotency key"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/vcs/VcsDriverRegistry.test.ts",
+      "currentPath": "apps/server/src/vcs/VcsDriverRegistry.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/server/src/vcs/VcsStatusBroadcaster.test.ts",
+      "currentPath": "apps/server/src/vcs/VcsStatusBroadcaster.test.ts",
+      "addedCases": [
+        "continues with healthy worktrees when one repository member fails",
+        "fetches once per repository tick and refreshes all worktrees less often",
+        "fetches each distinct upstream remote in a shared repository",
+        "uses the earlier worktree refresh deadline",
+        "keeps no-upstream repository ticks as no-ops until the worktree deadline"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/BranchToolbar.logic.test.ts",
+      "currentPath": "apps/web/src/components/BranchToolbar.logic.test.ts",
+      "addedCases": [
+        "shouldSelectRefAsWorktreeBase",
+        "uses an unattached ref as the base for a pending new worktree",
+        "keeps an active worktree attached while switching its ref",
+        "reuses the project-root checkout instead of treating it as a worktree base",
+        "resolveToolbarBranchOverride",
+        "changes only the source branch for a pending named worktree"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/ChatMarkdown.browser.tsx",
+      "currentPath": "apps/web/src/components/ChatMarkdown.browser.tsx",
+      "addedCases": [
+        "MarkdownFileLink",
+        "opens code paths in the preferred editor on primary click",
+        "routes the context menu to the integrated browser when available",
+        "opens file preview and copies relative and full paths from the context menu"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/ChatView.logic.test.ts",
+      "currentPath": "apps/web/src/components/ChatView.logic.test.ts",
+      "addedCases": [
+        "worktree branch preparation",
+        "keeps the worktree name when /branch changes its source",
+        "does not reinterpret /worktree selection as a source-only change",
+        "checks out an exact existing branch without creating another branch",
+        "creates an explicit new branch without a temporary name",
+        "requests semantic branch generation before creating an unnamed worktree",
+        "uses a legacy temporary branch when the server cannot generate one",
+        "resolveChatScopedShortcutAction",
+        "focuses an available composer",
+        "interrupts only a running session",
+        "acquireScopedActionLock",
+        "blocks duplicate work per scope without blocking another scope"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/CommandMenus.browser.tsx",
+      "currentPath": "apps/web/src/components/CommandMenus.browser.tsx",
+      "addedCases": [
+        "keyboard command menus",
+        "cycles frozen MRU entries and navigates exactly once when committed",
+        "does not commit a thread removed during an active gesture",
+        "canonicalizes a draft promoted during an active gesture",
+        "cancels without navigation and does not stack over another command surface",
+        "opens navigation with Ctrl+E and routes to the chosen thread",
+        "opens navigation with Ctrl+E and starts the chosen project draft",
+        "opens an existing invested grouped draft instead of creating another",
+        "falls back to a new thread for a stale draft mapping",
+        "opens the command palette with Ctrl+K and executes settings",
+        "does not stack the command palette over open navigation",
+        "isolates keyboard events from global handlers while navigation is open"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/HyprnavRuntimeOrchestrator.browser.tsx",
+      "currentPath": "apps/web/src/components/HyprnavRuntimeOrchestrator.browser.tsx",
+      "addedCases": [
+        "HyprnavRuntimeOrchestrator",
+        "publishes and locks the final UUID-scoped thread after rerendering"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/NavigationCommandMenu.logic.test.ts",
+      "currentPath": "apps/web/src/components/NavigationCommandMenu.logic.test.ts",
+      "addedCases": [
+        "buildNavigationCommandResults",
+        "shows recent threads when the query is empty",
+        "labels every grouped sibling when their logical project has a draft",
+        "resolves a grouped project",
+        "ignores a stale logical-project draft mapping",
+        "searches threads and projects and preserves scoped draft identity",
+        "matches thread branch names",
+        "ranks an active project before an equal-score project without activity",
+        "excludes archived threads from recents and search"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/ProjectActionsPanel.browser.tsx",
+      "currentPath": "apps/web/src/components/ProjectActionsPanel.browser.tsx",
+      "addedCases": [
+        "ProjectActionsPanel",
+        "opens with Mod+P, searches, and runs a configured action once",
+        "routes commit through the existing Git action request flow",
+        "opens the selected editor and restores focus after Escape",
+        "does not stack over another command surface",
+        "blocks unrelated global shortcuts while the panel is open"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/ProjectActionsPanel.logic.test.ts",
+      "currentPath": "apps/web/src/components/ProjectActionsPanel.logic.test.ts",
+      "addedCases": [
+        "project action descriptors",
+        "builds configured actions and open targets with stable intents",
+        "shows initialize for a non-repository",
+        "replaces repository initialization with a busy row while it runs",
+        "shows commit for changes without duplicating the recommended action",
+        "shows publish without unavailable remote actions",
+        "reports a detached ref instead of claiming source control is synchronized",
+        "shows an open pull request action",
+        "replaces unavailable actions with one loading or error row",
+        "filters by aliases and preserves group order",
+        "open project action shortcut disposition",
+        "closes for its toggle and blocks other resolved global shortcuts"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/ProjectScriptsControl.browser.tsx",
+      "currentPath": "apps/web/src/components/ProjectScriptsControl.browser.tsx",
+      "addedCases": [
+        "ProjectScriptsControl browser",
+        "submits a cleared shortcut when editing a project action"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/RecentThreadSwitcher.browser.tsx",
+      "currentPath": "apps/web/src/components/RecentThreadSwitcher.browser.tsx",
+      "addedCases": [
+        "RecentThreadSwitcher",
+        "renders the Ctrl+E-style list without search and updates its highlight",
+        "commits clicked targets and cancels on Escape"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/RecentThreadSwitcher.logic.test.ts",
+      "currentPath": "apps/web/src/components/RecentThreadSwitcher.logic.test.ts",
+      "addedCases": [
+        "recent thread switcher item resolution",
+        "preserves MRU order across real threads and drafts",
+        "canonicalizes promoted drafts and deduplicates the real thread",
+        "prunes archived, missing, cleared-draft, and projectless entries",
+        "keeps identical thread ids distinct across environments"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/chat/ChatComposerSlashCommands.browser.tsx",
+      "currentPath": "apps/web/src/components/chat/ChatComposerSlashCommands.browser.tsx",
+      "addedCases": [
+        "composer slash commands",
+        "selects a live reasoning mode with typing and Enter",
+        "clears prompt-injected reasoning when selecting another mode",
+        "applies prompt-injected reasoning modes to the prompt",
+        "does not offer a named worktree until refs finish loading",
+        "does not accept a named worktree before its base branch resolves",
+        "hides VCS actions outside a repository",
+        "debounces ref searches while typing a slash command",
+        "loads every branch page while the VCS slash menu is open",
+        "lists every supported keyboard action from the bare slash menu",
+        "keeps legacy plan commands behind the plan mode setting",
+        "sends disabled legacy plan commands as ordinary prompt text",
+        "shows the provider default and toggles fast mode from the keyboard",
+        "leaves unsupported /fast available for normal submission",
+        "submits /fast normally when composer context is attached",
+        "selects branches and named worktrees without pointer input",
+        "selects exact branches while the ref stream refreshes in the background",
+        "keeps an unknown branch command intact after loading completes",
+        "blocks repeated pointer selections while a context change is pending",
+        "keeps the slash command when a context change does not apply",
+        "does not keep the removed /r alias open"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/chat/composerSlashActions.test.ts",
+      "currentPath": "apps/web/src/components/chat/composerSlashActions.test.ts",
+      "addedCases": [
+        "resolveWorktreeTargetBranchName",
+        "keeps an existing local branch name unchanged",
+        "materializes a remote ref under its local branch name",
+        "composer slash actions",
+        "uses the provider",
+        "applies the persisted reasoning selection",
+        "finds fast mode and preserves unrelated selections when updating",
+        "toggles fast mode while preserving unrelated selections",
+        "does not claim fast mode when the model has no live descriptor",
+        "does not claim a non-boolean descriptor named fastMode",
+        "keeps legacy boolean fast-mode descriptors working",
+        "does not infer fast mode from a service tier without a fast option"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/externalCorkdiffRouting.test.ts",
+      "currentPath": "apps/web/src/components/externalCorkdiffRouting.test.ts",
+      "addedCases": [
+        "routeDiffShortcut",
+        "opens external Corkdiff for primary-local server threads",
+        "reports a missing working directory and opens the in-app viewer",
+        "reports IPC rejection and opens the in-app viewer"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/runContextSelection.test.ts",
+      "currentPath": "apps/web/src/components/runContextSelection.test.ts",
+      "addedCases": [
+        "requireSuccessfulRunContextMutation",
+        "accepts successful mutations",
+        "leaves interrupted mutations unapplied",
+        "preserves actionable failures"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/settings/AddProviderInstanceDialog.browser.tsx",
+      "currentPath": "apps/web/src/components/settings/AddProviderInstanceDialog.browser.tsx",
+      "addedCases": [
+        "AddProviderInstanceDialog",
+        "keeps the dialog open when provider persistence fails"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/settings/KeybindingsSettings.logic.test.ts",
+      "currentPath": "apps/web/src/components/settings/KeybindingsSettings.logic.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/settings/ProjectHyprnavSettingsPanel.browser.tsx",
+      "currentPath": "apps/web/src/components/settings/ProjectHyprnavSettingsPanel.browser.tsx",
+      "addedCases": [
+        "HyprnavEditor browser",
+        "renders bindings, validates edits, adds rows, and saves the parsed settings",
+        "resets an inherited project and surfaces unavailable-runtime status",
+        "preserves unsaved drafts across projection and settings-source refreshes",
+        "blocks grouped editing mode changes while a save is pending"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/settings/ProjectHyprnavSettingsPanel.logic.test.ts",
+      "currentPath": "apps/web/src/components/settings/ProjectHyprnavSettingsPanel.logic.test.ts",
+      "addedCases": [
+        "ProjectHyprnavSettingsPanel logic",
+        "round trips every editable binding field",
+        "rejects duplicate slots only within the same scope",
+        "requires valid absolute workspaces and shell commands",
+        "rejects slot and workspace integers outside the persisted safe range",
+        "rejects binding names longer than the persisted contract allows",
+        "persists inherited null when a project matches the global defaults",
+        "applies same-mode settings to every logical-project member and honors its default",
+        "keeps grouped project settings isolated in separate mode",
+        "chooses the primary local member as the stable shared settings source",
+        "defaults a group with divergent persisted settings to separate mode",
+        "excludes stale physical-project duplicates from grouped save scope",
+        "deduplicates physical projects before selecting inherited default targets",
+        "persists an explicit grouped-project editing mode",
+        "waits for an editing-mode transition before resolving save scope",
+        "synchronizes grouped settings before persisting same mode",
+        "does not persist same mode when grouped synchronization fails",
+        "restores grouped settings when same-mode persistence fails",
+        "surfaces a grouped-settings rollback failure with the persistence error",
+        "updates remote grouped projects before the primary project",
+        "rolls back successful grouped-project updates after a later failure",
+        "publishes removed slots and cleared names after a durable settings change",
+        "cleans up both durable and possibly-applied settings after a failed publication",
+        "reports publication exceptions as saved but not applied",
+        "does not report synchronization after partial scopes exhaust retries",
+        "does not report runtime synchronization for a remote-only save"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/components/settings/projectHyprnavNavigation.browser.tsx",
+      "currentPath": "apps/web/src/components/settings/projectHyprnavNavigation.browser.tsx",
+      "addedCases": [
+        "project Hyprnav navigation",
+        "routes the settings navigation item to Hyprnav defaults",
+        "routes sidebar-v2 project settings to the scoped project",
+        "routes the legacy context action without losing environment identity"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/components/settings/settingsSearch.test.ts",
+      "currentPath": "apps/web/src/components/settings/settingsSearch.test.ts",
+      "addedCases": ["exposes Hyprnav through the current settings navigation"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/composer-logic.test.ts",
+      "currentPath": "apps/web/src/composer-logic.test.ts",
+      "addedCases": [
+        "keeps reasoning selection active while typing a value",
+        "keeps branch and worktree selection active after a space",
+        "does not recognize the removed /r alias as a reasoning command",
+        "parseComposerMenuSlashCommandQuery",
+        "parses supported multiword command queries",
+        "rejects the removed reasoning alias",
+        "parses standalone /fast commands case-insensitively",
+        "canRunStandaloneComposerSlashCommand",
+        "requires every composer context collection to be empty",
+        "does not execute slash actions while an expired terminal pill remains attached"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/composerDraftStore.test.ts",
+      "currentPath": "apps/web/src/composerDraftStore.test.ts",
+      "addedCases": ["stores a requested worktree branch separately from its base ref"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/hooks/useChatScopedShortcuts.browser.tsx",
+      "currentPath": "apps/web/src/hooks/useChatScopedShortcuts.browser.tsx",
+      "addedCases": [
+        "chat-scoped shortcuts",
+        "focuses the composer with Mod+S",
+        "interrupts a running turn once and consumes repeats",
+        "does not consume interrupt while idle",
+        "leaves terminal focus in control",
+        "leaves an open command surface in control",
+        "does not handle an event already prevented by another owner",
+        "leaves the composer model picker in control",
+        "honors custom preview-scoped bindings with live preview context",
+        "does not fire a custom non-preview binding while preview owns focus"
+      ],
+      "status": "pending browser permission"
+    },
+    {
+      "sourcePath": "apps/web/src/hooks/useSettings.test.ts",
+      "currentPath": "apps/web/src/hooks/useSettings.test.ts",
+      "addedCases": [
+        "createSettingsOperationQueue",
+        "resolves same-environment map updates after the preceding durable write",
+        "does not block settings writes for a different environment",
+        "continues from durable state after an earlier server write fails",
+        "rebases a queued map update onto the authoritative server response",
+        "persistIndependentSettingsPatches",
+        "still persists client settings when the server update fails",
+        "starts client persistence without waiting for the server write",
+        "createClientSettingsPatchQueue",
+        "serializes writes, merges concurrent patches, and publishes only durable snapshots",
+        "does not publish a settings patch when persistence fails",
+        "resolves functional updates against the preceding durable settings",
+        "rebases later updates onto the last durable snapshot after a failure"
+      ],
+      "status": "passed",
+      "notes": "createClientSettingsPatchQueue suite ported to persistClientSettingsDurablePatch against upstream durable queue; all four behavioral cases retained."
+    },
+    {
+      "sourcePath": "apps/web/src/hyprnavRuntime.test.ts",
+      "currentPath": "apps/web/src/hyprnavRuntime.test.ts",
+      "addedCases": [
+        "hyprnavRuntime",
+        "keys publication by semantic inputs instead of projection object identity",
+        "retries transient results and returns the final result",
+        "keeps retrying when stale-worktree recovery omits requested scopes",
+        "retries partial scope acknowledgements and reports exhausted retries",
+        "does not retry an obsolete publication after the active thread changes",
+        "resolves a preferred editor only when a binding needs it",
+        "publishes enriched requests with one refreshed Corkdiff connection",
+        "continues with independent targets after one target fails",
+        "publishes unrelated targets when Corkdiff credential resolution fails",
+        "skips repeated editor-dependent failures while publishing unrelated targets",
+        "publishes editor-independent bindings when no editor is available",
+        "resolves Corkdiff credentials for non-thread URL placeholders",
+        "rejects a non-thread Corkdiff launch binding without blocking other bindings",
+        "reuses a batch-wide runtime-unavailable failure after retries",
+        "continues after a target-specific unavailable dependency",
+        "drops a publication superseded while resolving Corkdiff credentials",
+        "targets threads using the runtime primary environment UUID, not the desktop bootstrap id",
+        "tracks cleanup independently for project, worktree, and thread scopes",
+        "retains cleanup from attempted state until a later publication is acknowledged",
+        "keeps cleanup pending for scopes omitted by stale-target recovery",
+        "detects whether the platform exposed the optional Hyprnav bridge",
+        "persists minimal publication history across renderer restarts",
+        "replaces legacy credentials and schedules Corkdiff refresh before ticket expiry",
+        "cancels and wakes a pending credential refresh"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/hyprnavSettings.test.ts",
+      "currentPath": "apps/web/src/hyprnavSettings.test.ts",
+      "addedCases": [
+        "hyprnavSettings",
+        "validates duplicate project slots within the same scope only",
+        "validates empty shell commands",
+        "does not require commands for nothing bindings",
+        "emits removed bindings when slot or scope ownership changes",
+        "does not emit removed bindings when only actions or commands change",
+        "does not emit removed bindings when only workspace targeting changes",
+        "detects slot names cleared without treating the binding as removed",
+        "builds project, worktree, and thread jobs for known local threads",
+        "resolves threads from duplicate project records through the retained physical project",
+        "publishes base bindings and cleanup for every distinct known non-root worktree",
+        "falls back to a project-root job when no local threads are known",
+        "detects when Hyprnav settings need a Corkdiff connection",
+        "resolves project defaults when the override is null",
+        "prefers the project override over global Hyprnav defaults"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/keybindings.test.ts",
+      "currentPath": "apps/web/src/keybindings.test.ts",
+      "addedCases": [
+        "default composer shortcuts",
+        "keeps stash and focus independently reachable",
+        "isProjectActionsShortcut",
+        "matches Mod+P outside terminal focus",
+        "matches navigation.commandMenu shortcut outside terminal focus"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/lib/projectScriptKeybindings.test.ts",
+      "currentPath": "apps/web/src/lib/projectScriptKeybindings.test.ts",
+      "addedCases": [
+        "removes the persisted project shortcut when it is cleared",
+        "replaces the persisted project shortcut when it changes",
+        "clears every persisted shortcut for a project action",
+        "rolls back the project update when shortcut persistence fails",
+        "wires multi-binding removal and script rollback as one persistence operation"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/observability/clientTracing.test.ts",
+      "currentPath": "apps/web/src/observability/clientTracing.test.ts",
+      "addedCases": [
+        "client performance tracing",
+        "records the slowest scripts without URL query data",
+        "bounds attribution strings and redacts sensitive path segments"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/recentThreadStore.test.ts",
+      "currentPath": "apps/web/src/recentThreadStore.test.ts",
+      "addedCases": [
+        "recent thread MRU store",
+        "records unique normal visits in MRU order",
+        "freezes one forward and backward traversal gesture",
+        "commits the selected target once and cancel preserves history",
+        "does not open with fewer than two targets and closes after pruning",
+        "preserves scoped environment identity and deduplicates canonical targets"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "apps/web/src/rightPanelStore.test.ts",
+      "currentPath": "apps/web/src/rightPanelStore.test.ts",
+      "addedCases": ["keeps the diff fallback open across repeated external launch failures"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/client-runtime/src/authorization/remote.test.ts",
+      "currentPath": "packages/client-runtime/src/authorization/remote.test.ts",
+      "addedCases": ["replaces stale websocket credentials with an encoded plugin ticket"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/client-runtime/src/state/threadReducer.test.ts",
+      "currentPath": "packages/client-runtime/src/state/threadReducer.test.ts",
+      "addedCases": [
+        "thread.turn-reconciled",
+        "updates live state and breaks timestamp ties by turn id"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/client-runtime/src/state/threads-sync.test.ts",
+      "currentPath": "packages/client-runtime/src/state/threads-sync.test.ts",
+      "addedCases": [
+        "does not resubscribe a deleted thread when the app returns to the foreground",
+        "resumes from the deletion cursor when the RPC session is replaced"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/contracts/src/git.test.ts",
+      "currentPath": "packages/contracts/src/git.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/contracts/src/hyprnav.test.ts",
+      "currentPath": "packages/contracts/src/hyprnav.test.ts",
+      "addedCases": [
+        "normalizes legacy bindings and supplies Corkdiff",
+        "defaults missing scope and workspace without overwriting explicit targets",
+        "rejects malformed canonical bindings instead of treating them as legacy settings"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/contracts/src/ipc.test.ts",
+      "currentPath": "packages/contracts/src/ipc.test.ts",
+      "addedCases": [
+        "DesktopThreadSwitcherAction",
+        "accepts the complete desktop gesture lifecycle",
+        "rejects unknown desktop actions"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/contracts/src/keybindings.test.ts",
+      "currentPath": "packages/contracts/src/keybindings.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/contracts/src/orchestration.test.ts",
+      "currentPath": "packages/contracts/src/orchestration.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/contracts/src/settings.test.ts",
+      "currentPath": "packages/contracts/src/settings.test.ts",
+      "addedCases": [
+        "ClientSettings Hyprnav defaults",
+        "hydrates project defaults and grouped state for legacy settings"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/shared/src/git.test.ts",
+      "currentPath": "packages/shared/src/git.test.ts",
+      "addedCases": ["builds semantic worktree refs without temporary random tokens"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/shared/src/hyprland.test.ts",
+      "currentPath": "packages/shared/src/hyprland.test.ts",
+      "addedCases": [
+        "Hyprland 0.55 dispatchers",
+        "builds Lua dispatchers for workspace and exact-window focus",
+        "rejects invalid values before interpolating Lua",
+        "treats Hyprland 0.55 textual dispatch failures as errors despite exit code zero"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "packages/shared/src/hyprnav.test.ts",
+      "currentPath": "packages/shared/src/hyprnav.test.ts",
+      "addedCases": ["finds duplicate slots only within the same scope"],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "scripts/build-desktop-artifact.test.ts",
+      "currentPath": "scripts/build-desktop-artifact.test.ts",
+      "addedCases": [],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "scripts/ghostty-worktree.test.ts",
+      "currentPath": "scripts/ghostty-worktree.test.ts",
+      "addedCases": [
+        "ghostty-worktree",
+        "creates a stable, worktree-specific class",
+        "recovers an unregistered live window by deterministic class",
+        "resolves state under XDG_STATE_HOME",
+        "builds a Wayland Ghostty command with an exec payload",
+        "does not leak Electron Node mode into user terminals",
+        "accepts only open, list, and exec modes",
+        "serializes concurrent registry transactions",
+        "quarantines malformed state and starts from an empty registry",
+        "quarantines syntactically valid registries with malformed assignments",
+        "propagates registry read errors without quarantining state",
+        "atomically replaces state and ignores an interrupted temporary file",
+        "prunes confirmed missing worktrees but propagates transient Git failures"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "scripts/patch-effect-tsgo.test.ts",
+      "currentPath": "scripts/patch-effect-tsgo.test.ts",
+      "addedCases": [
+        "ensureEffectTsgoPatched",
+        "reuses a current patch and removes stale numbered backups",
+        "preserves the original binary on the first patch",
+        "updates a stale patch without replacing the original backup",
+        "preserves one original backup when patches run concurrently"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "scripts/repo-config.test.ts",
+      "currentPath": "scripts/repo-config.test.ts",
+      "addedCases": [
+        "repo configuration and branch metadata",
+        "parses btca.config.jsonc and declares named resources",
+        "keeps AGENTS.md aligned with test, BTCA, and rebase workflow requirements",
+        "installs the project rebase skill with persistence and orchestration guidance",
+        "has a commit spec file for each commit currently above canonical upstream/main"
+      ],
+      "status": "passed"
+    },
+    {
+      "sourcePath": "scripts/workflow-config.test.ts",
+      "currentPath": "scripts/workflow-config.test.ts",
+      "addedCases": [
+        "workflow configuration",
+        "keeps release workflow wired for desktop artifact publishing",
+        "uses the upstream Vite+ and pnpm workspace architecture"
+      ],
+      "status": "passed"
+    }
+  ],
+  "verification": {
+    "preservationRun": {
+      "passed": 1921,
+      "failed": 0,
+      "files": 84,
+      "skipped": 1,
+      "skippedCase": "bootstraps a fresh copy of real fork state without losing history",
+      "skippedCaseExplicitSnapshotRun": "passed"
+    },
+    "requiredChecks": {
+      "format": "passed",
+      "lint": "passed",
+      "typecheck": "passed"
+    },
+    "review": {
+      "status": "completed",
+      "findings": 3,
+      "resolved": 3
+    },
+    "browserTestFilesPendingPermission": 11,
+    "desktopSmoke": "pending UI permission"
+  }
+}

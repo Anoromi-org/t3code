@@ -305,6 +305,26 @@ const correlateRuntimeEventWithInstance = (
       `ProviderService.streamEvents: provider instance '${source.instanceId}' emitted event for instance '${event.providerInstanceId}'.`,
     );
   }
+  if (event.type === "thread.history.reconciled") {
+    return {
+      ...event,
+      providerInstanceId: source.instanceId,
+      payload: {
+        events: event.payload.events.map((entry) => {
+          if (
+            entry.provider !== source.provider ||
+            (entry.providerInstanceId !== undefined &&
+              entry.providerInstanceId !== source.instanceId)
+          ) {
+            throw new Error(
+              "ProviderService.streamEvents: history entry belongs to a different provider instance.",
+            );
+          }
+          return { ...entry, providerInstanceId: source.instanceId };
+        }),
+      },
+    };
+  }
   return { ...event, providerInstanceId: source.instanceId };
 };
 

@@ -1,5 +1,19 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ServerConfig } from "../../config.ts";
+import { OrchestrationProjectionPipelineLive } from "../../orchestration/Layers/ProjectionPipeline.ts";
+import { OrchestrationProjectionPipeline } from "../../orchestration/Services/ProjectionPipeline.ts";
+import { OrchestrationProjectionSnapshotQueryLive } from "../../orchestration/Layers/ProjectionSnapshotQuery.ts";
+import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { OrchestrationEventStoreLive } from "../Layers/OrchestrationEventStore.ts";
+import { makeSqlitePersistenceLive } from "../Layers/Sqlite.ts";
+import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
+import * as ThreadBackgroundLiveness from "../../orchestration/ThreadBackgroundLiveness.ts";
+import * as ThreadPlanProgress from "../../orchestration/ThreadPlanProgress.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
@@ -72,3 +86,51 @@ it.effect("migrates an explicitly supplied real database copy", () => {
     assert.deepEqual(quickCheck, [["ok"]]);
   }).pipe(Effect.provide(SqliteClient.layer({ filename: databasePath })));
 });
+
+const sourceSnapshotPath = process.env.T3CODE_REBASE_SNAPSHOT;
+it.effect.skipIf(!sourceSnapshotPath)(
+  "bootstraps a fresh copy of real fork state without losing history",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-rebase-real-state-" });
+      const filename = path.join(directory, "state.sqlite");
+      yield* fs.copyFile(sourceSnapshotPath!, filename);
+      const stateLayer = Layer.mergeAll(
+        OrchestrationProjectionPipelineLive,
+        OrchestrationProjectionSnapshotQueryLive.pipe(
+          Layer.provide(ThreadBackgroundLiveness.layer),
+          Layer.provide(ThreadPlanProgress.layer),
+        ),
+      ).pipe(
+        Layer.provideMerge(OrchestrationEventStoreLive),
+        Layer.provideMerge(RepositoryIdentityResolver.layer),
+        Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-rebase-startup-" })),
+        Layer.provideMerge(makeSqlitePersistenceLive(filename)),
+      );
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const pipeline = yield* OrchestrationProjectionPipeline;
+        const query = yield* ProjectionSnapshotQuery;
+        const before =
+          yield* sql`SELECT COUNT(*) AS count, MAX(sequence) AS sequence FROM orchestration_events`;
+        const messagesBefore = yield* sql`SELECT COUNT(*) AS count FROM projection_thread_messages`;
+        yield* pipeline.bootstrap;
+        const first = yield* query.getSnapshot();
+        yield* pipeline.bootstrap;
+        const second = yield* query.getSnapshot();
+        assert.deepEqual(second, first);
+        assert.deepEqual(
+          yield* sql`SELECT COUNT(*) AS count, MAX(sequence) AS sequence FROM orchestration_events`,
+          before,
+        );
+        assert.deepEqual(
+          yield* sql`SELECT COUNT(*) AS count FROM projection_thread_messages`,
+          messagesBefore,
+        );
+        assert.isAbove(first.threads.length, 0);
+        assert.deepEqual(yield* sql`PRAGMA quick_check`.values, [["ok"]]);
+      }).pipe(Effect.provide(stateLayer));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);

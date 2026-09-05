@@ -1293,6 +1293,60 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("recovers plan-only turns in a single resumed-history batch", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      yield* runtime.emit({
+        id: asEventId("evt-history-plan"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-02T00:00:00.000Z",
+        method: "thread/history",
+        threadId: asThreadId("thread-1"),
+        payload: [
+          {
+            id: "turn-plan",
+            status: "completed",
+            startedAt: 1_767_225_600,
+            completedAt: 1_767_225_605,
+            items: [
+              { type: "plan", id: "plan-item", text: "# Recovered plan\n\n- Implement this" },
+            ],
+          },
+        ],
+      });
+      const event = yield* Fiber.join(eventFiber);
+      NodeAssert.equal(event._tag, "Some");
+      if (event._tag !== "Some" || event.value.type !== "thread.history.reconciled") {
+        NodeAssert.fail("Expected a history batch");
+      }
+      NodeAssert.equal(event.value.payload.events.length, 2);
+      NodeAssert.equal(event.value.payload.events[0]?.type, "turn.reconciled");
+      const plan = event.value.payload.events[1]!;
+      NodeAssert.deepStrictEqual(
+        {
+          eventId: plan.eventId,
+          type: plan.type,
+          provider: plan.provider,
+          threadId: plan.threadId,
+          turnId: plan.turnId,
+          createdAt: plan.createdAt,
+          payload: plan.payload,
+        },
+        {
+          eventId: "evt-history-plan:turn-plan:plan:plan-item",
+          type: "turn.proposed.completed",
+          provider: "codex",
+          threadId: "thread-1",
+          turnId: "turn-plan",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          payload: { planMarkdown: "# Recovered plan\n\n- Implement this" },
+        },
+      );
+    }),
+  );
+
   it.effect("labels MCP lifecycle entries with server and tool names", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();

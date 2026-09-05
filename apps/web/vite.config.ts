@@ -229,8 +229,6 @@ export default defineConfig(() => {
         "@pierre/diffs/utils/parsePatchFiles",
         "@pierre/diffs/worker/worker.js",
         "@pierre/trees",
-        "@xterm/addon-fit",
-        "@xterm/xterm",
         "effect/Array",
         "effect/Order",
         "effect/SchemaGetter",

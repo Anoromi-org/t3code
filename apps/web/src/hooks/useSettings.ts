@@ -673,17 +673,21 @@ function usePersistSettingsTarget(environmentId: EnvironmentId | null) {
                   }
                   const targets = new Map<EnvironmentId, ServerSettingsPatch>();
                   if (Object.keys(sharedPatch).length > 0) {
-                    for (const target of environments) {
-                      if (
-                        !supportsSharedSettingsSync(target) &&
-                        target.environmentId !== environmentId
-                      )
-                        continue;
+                    const sharedTargets = new Set(
+                      environments
+                        .filter(supportsSharedSettingsSync)
+                        .map((target) => target.environmentId),
+                    );
+                    if (environmentId) sharedTargets.add(environmentId);
+                    for (const targetId of sharedTargets) {
+                      const target = environments.find(
+                        (candidate) => candidate.environmentId === targetId,
+                      );
                       const patch = filterSharedServerPatch(
                         sharedPatch,
-                        target.serverConfig?.environment.capabilities,
+                        target?.serverConfig?.environment.capabilities,
                       );
-                      if (Object.keys(patch).length > 0) targets.set(target.environmentId, patch);
+                      if (Object.keys(patch).length > 0) targets.set(targetId, patch);
                     }
                   }
                   if (environmentId && Object.keys(localPatch).length > 0) {

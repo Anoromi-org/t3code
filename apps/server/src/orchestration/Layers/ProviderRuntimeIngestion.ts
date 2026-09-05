@@ -1562,7 +1562,7 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
+  const processSingleRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
       if (event.type === "content.delta" && event.payload.streamKind !== "assistant_text") {
         return;
@@ -2279,6 +2279,44 @@ const make = Effect.gen(function* () {
           ),
         ),
       ).pipe(Effect.asVoid);
+    });
+
+  const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
+    Effect.gen(function* () {
+      if (event.type !== "thread.history.reconciled") {
+        return yield* processSingleRuntimeEvent(event);
+      }
+      const turns = yield* projectionTurnRepository.listByThreadId({ threadId: event.threadId });
+      const terminalTurns = new Set(
+        turns
+          .filter(
+            (turn) =>
+              turn.state === "completed" || turn.state === "error" || turn.state === "interrupted",
+          )
+          .map((turn) => turn.turnId),
+      );
+      const plans = event.payload.events.some((entry) => entry.type === "turn.proposed.completed")
+        ? ((yield* resolveThreadDetail(event.threadId))?.proposedPlans ?? [])
+        : [];
+      const planMarkdownById = new Map(plans.map((plan) => [plan.id, plan.planMarkdown]));
+      for (const entry of event.payload.events) {
+        if (entry.threadId !== event.threadId) continue;
+        if (entry.type === "turn.reconciled" && entry.turnId && terminalTurns.has(entry.turnId))
+          continue;
+        if (
+          entry.type === "turn.proposed.completed" &&
+          planMarkdownById.get(proposedPlanIdFromEvent(entry, event.threadId)) ===
+            normalizeProposedPlanMarkdown(entry.payload.planMarkdown)
+        )
+          continue;
+        yield* processSingleRuntimeEvent(entry);
+        if (entry.type === "turn.reconciled" && entry.turnId) terminalTurns.add(entry.turnId);
+        if (entry.type === "turn.proposed.completed") {
+          const markdown = normalizeProposedPlanMarkdown(entry.payload.planMarkdown);
+          if (markdown)
+            planMarkdownById.set(proposedPlanIdFromEvent(entry, event.threadId), markdown);
+        }
+      }
     });
 
   const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;

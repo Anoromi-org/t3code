@@ -1745,6 +1745,40 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
     }),
   );
 
+  it.effect("does not reuse an incomplete or unregistered remembered worktree", () =>
+    Effect.gen(function* () {
+      const cwd = yield* makeTmpDir();
+      const { initialBranch } = yield* initRepoWithCommit(cwd);
+      const driver = yield* GitVcsDriver.GitVcsDriver;
+      const fs = yield* FileSystem.FileSystem;
+      const input = {
+        cwd,
+        path: null,
+        refName: initialBranch,
+        newRefName: "t3code/partial",
+        ensureUniqueRefName: true,
+        idempotencyKey: "partial-retry",
+      } as const;
+      const first = yield* driver.createWorktree(input);
+      const marker = yield* git(cwd, [
+        "config",
+        "--name-only",
+        "--get-regexp",
+        "^t3code-bootstrap\\..*\\.completed$",
+      ]);
+      yield* git(cwd, ["config", marker, "false"]);
+      const second = yield* driver.createWorktree(input);
+      assert.notEqual(second.worktree.path, first.worktree.path);
+      yield* git(cwd, ["worktree", "remove", "--force", second.worktree.path]);
+      yield* fs.makeDirectory(second.worktree.path, { recursive: true });
+      const third = yield* driver.createWorktree(input);
+      assert.notEqual(third.worktree.path, second.worktree.path);
+      yield* git(third.worktree.path, ["checkout", "--detach"]);
+      const fourth = yield* driver.createWorktree(input);
+      assert.notEqual(fourth.worktree.path, third.worktree.path);
+    }),
+  );
+
   describe("remote operations", () => {
     it.effect("ensureRemote reuses an existing remote across ssh/https transport variants", () =>
       Effect.gen(function* () {

@@ -392,7 +392,7 @@ describe("ProviderRuntimeIngestion", () => {
       sqlCount: sqlCounter.count,
       setProviderSession: provider.setSession,
       readTurn: (turnId: TurnId) =>
-        Effect.runPromise(turns.getByTurnId({ threadId: ThreadId.make("thread-1"), turnId })),
+        testRuntime.runPromise(turns.getByTurnId({ threadId: ThreadId.make("thread-1"), turnId })),
       drain,
     };
   }
@@ -660,31 +660,28 @@ describe("ProviderRuntimeIngestion", () => {
       },
     };
 
-    harness.emit(reconciledEvent);
-    const thread = await waitForThread(
-      harness.readModel,
-      (entry) =>
-        entry.latestTurn?.turnId === "turn-reconciled" &&
-        entry.messages.some((message) => message.id === "assistant:assistant-reconciled"),
-    );
+    await harness.emitAndDrain([reconciledEvent]);
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === "thread-1")!;
+    expect(thread.latestTurn?.turnId).toBe("turn-reconciled");
     expect(thread.latestTurn?.state).toBe("completed");
     expect(thread.messages.map((message) => [message.id, message.role, message.text])).toEqual([
       ["user:user-reconciled", "user", "continue"],
       ["assistant:assistant-reconciled", "assistant", "finished"],
     ]);
 
-    harness.emit({
-      ...reconciledEvent,
-      eventId: asEventId("evt-turn-reconciled-duplicate"),
-      payload: {
-        ...reconciledEvent.payload,
-        messages: reconciledEvent.payload.messages.map((message) => ({
-          ...message,
-          text: "duplicate should be ignored",
-        })),
+    await harness.emitAndDrain([
+      {
+        ...reconciledEvent,
+        eventId: asEventId("evt-turn-reconciled-duplicate"),
+        payload: {
+          ...reconciledEvent.payload,
+          messages: reconciledEvent.payload.messages.map((message) => ({
+            ...message,
+            text: "duplicate should be ignored",
+          })),
+        },
       },
-    });
-    await harness.drain();
+    ]);
 
     const afterDuplicate = await harness.readModel();
     const reconciledThread = afterDuplicate.threads.find((entry) => entry.id === "thread-1");
@@ -692,6 +689,97 @@ describe("ProviderRuntimeIngestion", () => {
       ["user:user-reconciled", "continue"],
       ["assistant:assistant-reconciled", "finished"],
     ]);
+  });
+
+  it("batch-checks settled history and restores a missing actionable plan only once", async () => {
+    const harness = await createHarness();
+    const turn: Extract<ProviderRuntimeEvent, { type: "turn.reconciled" }> = {
+      type: "turn.reconciled",
+      eventId: asEventId("history-existing"),
+      provider: ProviderDriverKind.make("codex"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-history-plan"),
+      createdAt: "2026-01-02T00:00:00.000Z",
+      payload: {
+        state: "completed",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: null,
+        completedAt: "2026-01-01T00:00:05.000Z",
+        messages: [],
+      },
+    };
+    await harness.emitAndDrain([turn]);
+    const history = Array.from({ length: 100 }, (_, index) => ({
+      ...turn,
+      eventId: asEventId(`history-duplicate-${index}`),
+    }));
+    const before = harness.sqlCount();
+    await harness.emitAndDrain([
+      {
+        ...turn,
+        type: "thread.history.reconciled",
+        eventId: asEventId("history-batch"),
+        payload: { events: history },
+      },
+    ]);
+    expect(harness.sqlCount() - before).toBe(1);
+    const plan: Extract<ProviderRuntimeEvent, { type: "turn.proposed.completed" }> = {
+      ...turn,
+      type: "turn.proposed.completed",
+      eventId: asEventId("history-missing-plan"),
+      payload: { planMarkdown: "# Plan\n\n- Ship it" },
+    };
+    const batch = {
+      ...turn,
+      type: "thread.history.reconciled" as const,
+      eventId: asEventId("history-plan-batch"),
+      payload: { events: [turn, plan] },
+    };
+    await harness.emitAndDrain([batch]);
+    const first = await harness.readModel();
+    expect(first.threads[0]?.proposedPlans).toMatchObject([
+      {
+        id: "plan:thread-1:turn:turn-history-plan",
+        implementedAt: null,
+        planMarkdown: "# Plan\n\n- Ship it",
+      },
+    ]);
+    await harness.emitAndDrain([{ ...batch, eventId: asEventId("history-plan-batch-repeat") }]);
+    expect(await harness.readModel()).toEqual(first);
+    const implementedAt = "2026-01-02T01:00:00.000Z";
+    await harness.dispatch({
+      type: "thread.proposed-plan.upsert",
+      commandId: CommandId.make("mark-history-plan-implemented"),
+      threadId: asThreadId("thread-1"),
+      proposedPlan: {
+        ...first.threads[0]!.proposedPlans[0]!,
+        implementedAt,
+        implementationThreadId: asThreadId("thread-1"),
+        updatedAt: implementedAt,
+      },
+      createdAt: implementedAt,
+    });
+    await harness.emitAndDrain([
+      {
+        ...batch,
+        eventId: asEventId("history-plan-update"),
+        payload: {
+          events: [
+            {
+              ...plan,
+              eventId: asEventId("history-plan-updated"),
+              payload: { planMarkdown: "# Updated plan" },
+            },
+          ],
+        },
+      },
+    ]);
+    expect((await harness.readModel()).threads[0]?.proposedPlans[0]).toMatchObject({
+      planMarkdown: "# Updated plan",
+      implementedAt,
+      implementationThreadId: "thread-1",
+    });
   });
 
   it("preserves a T3-started turn's pending user message during reconciliation", async () => {
@@ -711,48 +799,49 @@ describe("ProviderRuntimeIngestion", () => {
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       createdAt: requestedAt,
     });
-    harness.emit({
-      type: "turn.started",
-      eventId: asEventId("evt-existing-turn-started"),
-      provider: ProviderDriverKind.make("codex"),
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-existing"),
-      createdAt: requestedAt,
-    });
-    await waitForThread(
-      harness.readModel,
-      (thread) => thread.latestTurn?.turnId === "turn-existing",
-    );
-
-    harness.emit({
-      type: "turn.reconciled",
-      eventId: asEventId("evt-existing-turn-reconciled"),
-      provider: ProviderDriverKind.make("codex"),
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-existing"),
-      createdAt: "2026-01-02T00:00:06.000Z",
-      payload: {
-        state: "completed",
-        requestedAt,
-        startedAt: requestedAt,
-        completedAt: "2026-01-02T00:00:05.000Z",
-        messages: [
-          {
-            messageId: "user:provider-copy",
-            role: "user",
-            text: "original prompt",
-            createdAt: requestedAt,
-          },
-          {
-            messageId: "assistant:provider-copy",
-            role: "assistant",
-            text: "completed externally",
-            createdAt: "2026-01-02T00:00:00.001Z",
-          },
-        ],
+    await harness.emitAndDrain([
+      {
+        type: "turn.started",
+        eventId: asEventId("evt-existing-turn-started"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-existing"),
+        createdAt: requestedAt,
       },
-    });
-    await waitForThread(harness.readModel, (thread) => thread.latestTurn?.state === "completed");
+    ]);
+    expect((await harness.readThreadShell()).latestTurn?.turnId).toBe("turn-existing");
+
+    await harness.emitAndDrain([
+      {
+        type: "turn.reconciled",
+        eventId: asEventId("evt-existing-turn-reconciled"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-existing"),
+        createdAt: "2026-01-02T00:00:06.000Z",
+        payload: {
+          state: "completed",
+          requestedAt,
+          startedAt: requestedAt,
+          completedAt: "2026-01-02T00:00:05.000Z",
+          messages: [
+            {
+              messageId: "user:provider-copy",
+              role: "user",
+              text: "original prompt",
+              createdAt: requestedAt,
+            },
+            {
+              messageId: "assistant:provider-copy",
+              role: "assistant",
+              text: "completed externally",
+              createdAt: "2026-01-02T00:00:00.001Z",
+            },
+          ],
+        },
+      },
+    ]);
+    expect((await harness.readThreadShell()).latestTurn?.state).toBe("completed");
 
     const turn = await harness.readTurn(asTurnId("turn-existing"));
     expect(turn._tag).toBe("Some");

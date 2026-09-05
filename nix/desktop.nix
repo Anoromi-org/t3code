@@ -30,8 +30,8 @@ stdenv.mkDerivation (finalAttrs: {
   pnpmDeps = fetchPnpmDeps {
     inherit (finalAttrs) pname version src;
     inherit pnpm;
-    fetcherVersion = 3;
-    hash = "sha256-BhX191Hp1hz4zMyH5myK6vbqNnHz7FpiKR7AihYLvMQ=";
+    fetcherVersion = 4;
+    hash = "sha256-qB36ncfCM08Ja/9UOpmGw2DApv7VMnnR+Adr+gZglC4=";
   };
 
   nativeBuildInputs = [
@@ -131,7 +131,7 @@ stdenv.mkDerivation (finalAttrs: {
       "$app_root/node_modules/.package-map.json" \
       "$app_root/node_modules/.pnpm-workspace-state-v1.json" \
       "$app_root/node_modules/.pnpm/lock.yaml"
-    find "$app_root/node_modules" -type f -name '*.musl.node' -delete
+    find "$app_root/node_modules" -type f \( -name '*.musl.node' -o -name '*-musl.node' \) -delete
     find "$app_root/node_modules" -path '*/node-pty/prebuilds' -type d -prune -exec rm -rf {} +
     find "$app_root/node_modules" -xtype l -delete
 
@@ -145,7 +145,9 @@ stdenv.mkDerivation (finalAttrs: {
     find "$node_pty_dir/../.." -maxdepth 1 -type d -name 'node-addon-api@*' -exec rm -rf {} +
     install -Dm755 "$TMPDIR/pty.node" "$node_pty_dir/build/Release/pty.node"
 
-    install -Dm644 apps/desktop/resources/icon.png \
+    install -Dm644 assets/prod/black-universal-1024.png \
+      "$app_root/apps/desktop/resources/icon.png"
+    install -Dm644 assets/prod/black-universal-1024.png \
       "$out/share/icons/hicolor/1024x1024/apps/t3-code.png"
 
     cat > "$out/bin/t3-code" <<EOF

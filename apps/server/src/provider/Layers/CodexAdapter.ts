@@ -31,6 +31,7 @@ import {
   type TurnTokenUsage,
   ProviderApprovalDecision,
   ThreadId,
+  TurnId,
   ProviderSendTurnInput,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -684,10 +685,6 @@ function mapCodexHistoryTurn(
       }
     }
   });
-  if (messages.length === 0) {
-    return undefined;
-  }
-
   return {
     ...runtimeEventBase(event, canonicalThreadId),
     type: "turn.reconciled",
@@ -1368,6 +1365,31 @@ function mapCollabAgentEvent(
   }
 }
 
+function mapCodexHistoryEvents(
+  event: ProviderEvent,
+  canonicalThreadId: ThreadId,
+): Extract<ProviderRuntimeEvent, { type: "thread.history.reconciled" }>["payload"]["events"] {
+  const reconciled = mapCodexHistoryTurn(event, canonicalThreadId);
+  const turn = readPayload(EffectCodexSchema.V2ThreadResumeResponse__Turn, event.payload);
+  const events: Array<
+    Extract<ProviderRuntimeEvent, { type: "turn.reconciled" | "turn.proposed.completed" }>
+  > = [];
+  if (reconciled?.type === "turn.reconciled") events.push(reconciled);
+  if (turn && turn.status !== "inProgress" && event.turnId) {
+    for (const item of turn.items) {
+      if (item.type !== "plan" || !trimText(item.text)) continue;
+      events.push({
+        ...runtimeEventBase(event, canonicalThreadId),
+        eventId: EventId.make(`${event.id}:plan:${item.id}`),
+        createdAt: codexEpochSecondsToIso(turn.completedAt) ?? event.createdAt,
+        type: "turn.proposed.completed",
+        payload: { planMarkdown: item.text },
+      });
+    }
+  }
+  return events;
+}
+
 function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
@@ -1376,8 +1398,33 @@ function mapToRuntimeEvents(
     return mapCollabAgentEvent(event, canonicalThreadId);
   }
   if (event.method === "thread/historyTurn") {
-    const reconciled = mapCodexHistoryTurn(event, canonicalThreadId);
-    return reconciled ? [reconciled] : [];
+    return mapCodexHistoryEvents(event, canonicalThreadId);
+  }
+  if (event.method === "thread/history") {
+    const turns = readPayload(
+      Schema.Array(EffectCodexSchema.V2ThreadResumeResponse__Turn),
+      event.payload,
+    );
+    if (!turns) return [];
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "thread.history.reconciled",
+        payload: {
+          events: turns.flatMap((turn) =>
+            mapCodexHistoryEvents(
+              {
+                ...event,
+                id: EventId.make(`${event.id}:${turn.id}`),
+                turnId: TurnId.make(turn.id),
+                payload: turn,
+              },
+              canonicalThreadId,
+            ),
+          ),
+        },
+      },
+    ];
   }
   if (event.kind === "error") {
     if (!event.message) {
