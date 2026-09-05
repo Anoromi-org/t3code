@@ -21,7 +21,7 @@ const threadSwitcherBridge = vi.hoisted(() => ({
 
 vi.mock("@effect/atom-react", async () => {
   const actual = await vi.importActual<typeof import("@effect/atom-react")>("@effect/atom-react");
-  return { ...actual, useAtomValue: vi.fn(() => ({})) };
+  return { ...actual, useAtomValue: vi.fn(() => ({ environment: { capabilities: {} } })) };
 });
 
 vi.mock("@tanstack/react-router", async () => {
@@ -30,6 +30,8 @@ vi.mock("@tanstack/react-router", async () => {
   return {
     ...actual,
     useNavigate: () => navigateSpy,
+    useLocation: ({ select }: { select: (location: { pathname: string }) => unknown }) =>
+      select({ pathname: "/" }),
     useParams: () => ({}),
   };
 });
@@ -154,13 +156,15 @@ vi.mock("../hooks/useHandleNewThread", () => ({
   }),
 }));
 
-vi.mock("../hooks/useSettings", async () => {
+vi.mock("../hooks/useSettings", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../hooks/useSettings")>();
   const { DEFAULT_CLIENT_SETTINGS, DEFAULT_UNIFIED_SETTINGS } =
     await import("@t3tools/contracts/settings");
   const select = <T,>(settings: unknown, selector?: (value: never) => T) =>
     selector ? selector(settings as never) : settings;
   const update = () => undefined;
   return {
+    ...actual,
     getClientSettings: () => DEFAULT_CLIENT_SETTINGS,
     useClientSettingsHydrated: () => true,
     mergeEnvironmentSettings: (serverSettings: object, clientSettings: object) => ({
@@ -198,7 +202,8 @@ vi.mock("../state/environments", () => ({
 vi.mock("../state/terminalSessions", () => ({
   useThreadRunningTerminalIds: () => ["terminal-status-test"],
 }));
-vi.mock("../state/query", () => ({
+vi.mock("../state/query", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../state/query")>()),
   useEnvironmentQuery: () => ({ data: null, error: null, isPending: false }),
 }));
 vi.mock("../state/queries", () => ({

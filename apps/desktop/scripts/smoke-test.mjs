@@ -63,12 +63,64 @@ async function readProcEnvironment(pid) {
   );
 }
 
+// Chromium can clear /proc's initial environment; inspect Node's runtime values instead.
+async function readElectronEnvironment(inspectorUrl) {
+  const socket = new WebSocket(inspectorUrl);
+  let timeout;
+  try {
+    return await new Promise((resolve, reject) => {
+      timeout = setTimeout(
+        () => reject(new Error("Electron environment inspection timed out")),
+        10_000,
+      );
+      socket.addEventListener("error", () =>
+        reject(new Error("Electron inspector connection failed")),
+      );
+      socket.addEventListener("close", () =>
+        reject(new Error("Electron inspector closed before replying")),
+      );
+      socket.addEventListener("open", () => {
+        const keys = [
+          "HOME",
+          "SHELL",
+          "PATH",
+          "T3CODE_SMOKE_USER_ENV",
+          "NIX_BUILD_TOP",
+          "IN_NIX_SHELL",
+          "name",
+          "PS1",
+          "OPENSSL_DIR",
+          "PKG_CONFIG_PATH",
+        ];
+        socket.send(
+          JSON.stringify({
+            id: 1,
+            method: "Runtime.evaluate",
+            params: {
+              expression: `Object.fromEntries(${JSON.stringify(keys)}.map(key => [key, process.env[key]]))`,
+              returnByValue: true,
+            },
+          }),
+        );
+      });
+      socket.addEventListener("message", (message) => {
+        const response = JSON.parse(String(message.data));
+        if (response.id !== 1) return;
+        if (response.error || response.result?.exceptionDetails)
+          reject(new Error("Unable to inspect Electron environment"));
+        else resolve(response.result.result.value);
+      });
+    });
+  } finally {
+    clearTimeout(timeout);
+    socket.close();
+  }
+}
+
 async function waitForDesktopProcesses(launcherPid, timeoutMs = 12_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const directChildren = await readProcChildren(launcherPid);
     const descendants = await listDescendants(launcherPid);
-    const electronPid = directChildren[0] ?? null;
     let backendPid = null;
     for (const pid of descendants) {
       let commandLine = "";
@@ -82,7 +134,7 @@ async function waitForDesktopProcesses(launcherPid, timeoutMs = 12_000) {
       }
       if (commandLine.includes("apps/server/dist/bin.mjs")) backendPid = pid;
     }
-    if (electronPid !== null && backendPid !== null) return { electronPid, backendPid };
+    if (backendPid !== null) return { backendPid };
     await delay(100);
   }
   throw new Error("Timed out waiting for the Electron application and primary backend.");
@@ -91,7 +143,8 @@ async function waitForDesktopProcesses(launcherPid, timeoutMs = 12_000) {
 function assertCleanRuntimeEnvironment(label, environment, expected) {
   const failures = [];
   for (const [key, value] of Object.entries(expected)) {
-    if (environment[key] !== value) failures.push(`${label}: expected ${key}=${value}`);
+    if (environment[key] !== value)
+      failures.push(`${label}: expected ${key}=${value}; received ${environment[key]}`);
   }
   for (const key of [
     "NIX_BUILD_TOP",
@@ -139,6 +192,8 @@ async function runLinuxEnvironmentSmoke() {
   const snapshotPath = NodePath.join(tempRoot, "launch-environment");
   const userBin = NodePath.join(tempRoot, "user-bin");
   const home = NodePath.join(tempRoot, "home");
+  const shell =
+    process.env.SHELL && NodeFS.existsSync(process.env.SHELL) ? process.env.SHELL : "/bin/sh";
   await NodeFSP.mkdir(userBin, { recursive: true });
   await NodeFSP.mkdir(home, { recursive: true });
 
@@ -162,7 +217,7 @@ async function runLinuxEnvironmentSmoke() {
   Object.assign(capturedEnvironment, {
     HOME: home,
     PATH: [userBin, capturedEnvironment.PATH].filter(Boolean).join(NodePath.delimiter),
-    SHELL: "/bin/bash",
+    SHELL: shell,
     T3CODE_HOME: NodePath.join(tempRoot, "t3-home"),
     T3CODE_SMOKE_USER_ENV: "captured-before-nix",
     XDG_CACHE_HOME: NodePath.join(tempRoot, "cache"),
@@ -174,7 +229,7 @@ async function runLinuxEnvironmentSmoke() {
     .join("\0")}\0`;
   await NodeFSP.writeFile(snapshotPath, serialized, { mode: 0o600 });
 
-  const child = NodeChildProcess.spawn(process.execPath, [startElectron], {
+  const child = NodeChildProcess.spawn(process.execPath, [startElectron, "--inspect=0"], {
     cwd: desktopDir,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -196,13 +251,15 @@ async function runLinuxEnvironmentSmoke() {
   child.stderr.on("data", (chunk) => (output += chunk.toString()));
 
   try {
-    const { electronPid, backendPid } = await waitForDesktopProcesses(child.pid);
+    const { backendPid } = await waitForDesktopProcesses(child.pid);
     const expected = {
       HOME: home,
-      SHELL: "/bin/bash",
+      SHELL: shell,
       T3CODE_SMOKE_USER_ENV: "captured-before-nix",
     };
-    const electronEnvironment = await readProcEnvironment(electronPid);
+    const inspectorUrl = output.match(/Debugger listening on (ws:\/\/[^\s]+)/)?.[1];
+    if (!inspectorUrl) throw new Error("Electron inspector did not start");
+    const electronEnvironment = await readElectronEnvironment(inspectorUrl);
     assertCleanRuntimeEnvironment("Electron", electronEnvironment, expected);
     const backendEnvironment = await readProcEnvironment(backendPid);
     assertCleanRuntimeEnvironment("backend", backendEnvironment, expected);

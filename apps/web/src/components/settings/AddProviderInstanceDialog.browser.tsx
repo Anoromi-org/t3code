@@ -9,11 +9,13 @@ const { persistSettings } = vi.hoisted(() => ({
   persistSettings: vi.fn(),
 }));
 
-vi.mock("../../hooks/useSettings", async () => {
+vi.mock("../../hooks/useSettings", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../hooks/useSettings")>();
   const { DEFAULT_UNIFIED_SETTINGS } = await vi.importActual<
     typeof import("@t3tools/contracts/settings")
   >("@t3tools/contracts/settings");
   return {
+    ...actual,
     usePersistEnvironmentSettings: () => persistSettings,
     useEnvironmentSettings: () => DEFAULT_UNIFIED_SETTINGS,
   };

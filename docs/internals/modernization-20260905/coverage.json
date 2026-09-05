@@ -172,7 +172,7 @@
       "sourcePath": "apps/desktop/scripts/smoke-test.mjs",
       "currentPath": "apps/desktop/scripts/smoke-test.mjs",
       "addedCases": [],
-      "status": "pending desktop UI permission"
+      "status": "passed desktop smoke"
     },
     {
       "sourcePath": "apps/desktop/src/app/DesktopAppIdentity.test.ts",
@@ -600,7 +600,7 @@
         "routes the context menu to the integrated browser when available",
         "opens file preview and copies relative and full paths from the context menu"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/ChatView.logic.test.ts",
@@ -638,7 +638,7 @@
         "does not stack the command palette over open navigation",
         "isolates keyboard events from global handlers while navigation is open"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/HyprnavRuntimeOrchestrator.browser.tsx",
@@ -647,7 +647,7 @@
         "HyprnavRuntimeOrchestrator",
         "publishes and locks the final UUID-scoped thread after rerendering"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/NavigationCommandMenu.logic.test.ts",
@@ -676,7 +676,7 @@
         "does not stack over another command surface",
         "blocks unrelated global shortcuts while the panel is open"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/ProjectActionsPanel.logic.test.ts",
@@ -704,7 +704,7 @@
         "ProjectScriptsControl browser",
         "submits a cleared shortcut when editing a project action"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/RecentThreadSwitcher.browser.tsx",
@@ -714,7 +714,7 @@
         "renders the Ctrl+E-style list without search and updates its highlight",
         "commits clicked targets and cancels on Escape"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/RecentThreadSwitcher.logic.test.ts",
@@ -754,7 +754,7 @@
         "keeps the slash command when a context change does not apply",
         "does not keep the removed /r alias open"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/chat/composerSlashActions.test.ts",
@@ -804,7 +804,7 @@
         "AddProviderInstanceDialog",
         "keeps the dialog open when provider persistence fails"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/settings/KeybindingsSettings.logic.test.ts",
@@ -822,7 +822,7 @@
         "preserves unsaved drafts across projection and settings-source refreshes",
         "blocks grouped editing mode changes while a save is pending"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/settings/ProjectHyprnavSettingsPanel.logic.test.ts",
@@ -866,7 +866,7 @@
         "routes sidebar-v2 project settings to the scoped project",
         "routes the legacy context action without losing environment identity"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/components/settings/settingsSearch.test.ts",
@@ -912,7 +912,7 @@
         "honors custom preview-scoped bindings with live preview context",
         "does not fire a custom non-preview binding while preview owns focus"
       ],
-      "status": "pending browser permission"
+      "status": "passed browser"
     },
     {
       "sourcePath": "apps/web/src/hooks/useSettings.test.ts",
@@ -1199,12 +1199,10 @@
   ],
   "verification": {
     "preservationRun": {
-      "passed": 1921,
+      "passed": 1922,
       "failed": 0,
       "files": 84,
-      "skipped": 1,
-      "skippedCase": "bootstraps a fresh copy of real fork state without losing history",
-      "skippedCaseExplicitSnapshotRun": "passed"
+      "skipped": 0
     },
     "requiredChecks": {
       "format": "passed",
@@ -1216,7 +1214,13 @@
       "findings": 3,
       "resolved": 3
     },
-    "browserTestFilesPendingPermission": 11,
-    "desktopSmoke": "pending UI permission"
+    "desktopSmoke": "passed",
+    "browserTests": {
+      "passed": 60,
+      "files": 11,
+      "failed": 0
+    },
+    "integratedWeb": "passed pairing, project creation, slash menu, reasoning selection, project actions and navigation shortcuts, composer focus, Hyprnav settings persistence",
+    "uiFixReview": "completed; no actionable defects"
   }
 }

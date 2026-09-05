@@ -199,108 +199,110 @@ async function mountComposer(
     options.onSelectRunContext ?? vi.fn<ChatComposerProps["onSelectRunContext"]>(async () => true);
   const handleInteractionModeChange = vi.fn();
   const screen = await render(
-    <ChatComposer
-      composerRef={composerRef}
-      composerDraftTarget={DRAFT_ID}
-      environmentId={ENVIRONMENT_ID}
-      routeKind="draft"
-      routeThreadRef={scopeThreadRef(ENVIRONMENT_ID, THREAD_ID)}
-      draftId={DRAFT_ID}
-      activeThreadId={THREAD_ID}
-      activeThreadEnvironmentId={ENVIRONMENT_ID}
-      activeThread={activeThread}
-      isServerThread={false}
-      isLocalDraftThread
-      forceExpandedOnMobile={false}
-      projectSelectionRequired={false}
-      phase="ready"
-      isConnecting={false}
-      isSendBusy={false}
-      sendDisabledReason={null}
-      isPreparingWorktree={false}
-      environmentUnavailable={null}
-      activePendingApproval={null}
-      pendingApprovals={[]}
-      pendingUserInputs={[]}
-      activePendingProgress={null}
-      activePendingResolvedAnswers={null}
-      activePendingIsResponding={false}
-      activePendingDraftAnswers={{}}
-      activePendingQuestionIndex={0}
-      respondingRequestIds={[]}
-      showPlanFollowUpPrompt={false}
-      activeProposedPlan={null}
-      runtimeMode="full-access"
-      interactionMode="default"
-      lockedProvider={null}
-      providerStatuses={[...(options.providerStatuses ?? [provider])]}
-      activeProjectDefaultModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
-      activeThreadModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
-      attachmentUploadsCapabilityKnown
-      supportsAttachmentUploads={false}
-      maxFileAttachmentBytes={null}
-      promptHistoryMessages={[]}
-      bannerItems={[]}
-      activeTasksProgress={null}
-      activeTaskSteps={null}
-      threadSyncPhase={null}
-      activeContextWindow={null}
-      compactThreadUnavailable
-      compactDisabled
-      compactDisabledReason={null}
-      restingControlsHost={null}
-      restingControlsHaveLeadingContext={false}
-      onRestingControlsVisibilityChange={vi.fn()}
-      getTimelineScrollableNode={() => null}
-      isTimelineAtLogicalEnd={() => true}
-      onComposerOverlayHeightChange={vi.fn()}
-      onRestingChange={vi.fn()}
-      composerFilesRef={{ current: [] }}
-      onPageScrollKeyDown={vi.fn()}
-      onPageScrollKeyUp={vi.fn()}
-      onPageScrollRelease={vi.fn()}
-      onOpenProviderSetup={vi.fn()}
-      onFileOpen={vi.fn()}
-      resolvedTheme="dark"
-      settings={{
-        ...DEFAULT_UNIFIED_SETTINGS,
-        planModeEnabled: options.planModeEnabled ?? DEFAULT_UNIFIED_SETTINGS.planModeEnabled,
-      }}
-      keybindings={[] as ResolvedKeybindingsConfig}
-      terminalOpen={false}
-      gitCwd="/repo"
-      activeProjectCwd="/repo"
-      hasVcsRepository={options.hasVcsRepository ?? true}
-      canChangeWorktreeContext={options.hasVcsRepository ?? true}
-      runContextEnvMode="local"
-      activeRunContextBranch={
-        options.activeRunContextBranch === undefined ? "main" : options.activeRunContextBranch
-      }
-      isRunContextBranchPending={options.isRunContextBranchPending ?? false}
-      activeRunContextWorktreePath={null}
-      promptRef={promptRef}
-      composerImagesRef={{ current: [] }}
-      composerTerminalContextsRef={{ current: [] }}
-      composerElementContextsRef={{ current: [] }}
-      onSend={onSend}
-      onInterrupt={vi.fn()}
-      onImplementPlanInNewThread={vi.fn()}
-      onRespondToApproval={vi.fn(async () => undefined)}
-      onSelectActivePendingUserInputOption={vi.fn()}
-      onAdvanceActivePendingUserInput={vi.fn()}
-      onPreviousActivePendingUserInputQuestion={vi.fn()}
-      onChangeActivePendingUserInputCustomAnswer={vi.fn()}
-      onProviderModelSelect={vi.fn()}
-      onSelectRunContext={onSelectRunContext}
-      getModelDisabledReason={() => null}
-      toggleInteractionMode={vi.fn()}
-      handleRuntimeModeChange={vi.fn()}
-      handleInteractionModeChange={handleInteractionModeChange}
-      focusComposer={vi.fn()}
-      scheduleComposerFocus={vi.fn()}
-      setThreadError={vi.fn()}
-      onExpandImage={vi.fn()}
-    />,
+    <div style={{ paddingTop: 360 }}>
+      <ChatComposer
+        composerRef={composerRef}
+        composerDraftTarget={DRAFT_ID}
+        environmentId={ENVIRONMENT_ID}
+        routeKind="draft"
+        routeThreadRef={scopeThreadRef(ENVIRONMENT_ID, THREAD_ID)}
+        draftId={DRAFT_ID}
+        activeThreadId={THREAD_ID}
+        activeThreadEnvironmentId={ENVIRONMENT_ID}
+        activeThread={activeThread}
+        isServerThread={false}
+        isLocalDraftThread
+        forceExpandedOnMobile={false}
+        projectSelectionRequired={false}
+        phase="ready"
+        isConnecting={false}
+        isSendBusy={false}
+        sendDisabledReason={null}
+        isPreparingWorktree={false}
+        environmentUnavailable={null}
+        activePendingApproval={null}
+        pendingApprovals={[]}
+        pendingUserInputs={[]}
+        activePendingProgress={null}
+        activePendingResolvedAnswers={null}
+        activePendingIsResponding={false}
+        activePendingDraftAnswers={{}}
+        activePendingQuestionIndex={0}
+        respondingRequestIds={[]}
+        showPlanFollowUpPrompt={false}
+        activeProposedPlan={null}
+        runtimeMode="full-access"
+        interactionMode="default"
+        lockedProvider={null}
+        providerStatuses={[...(options.providerStatuses ?? [provider])]}
+        activeProjectDefaultModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
+        activeThreadModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
+        attachmentUploadsCapabilityKnown
+        supportsAttachmentUploads={false}
+        maxFileAttachmentBytes={null}
+        promptHistoryMessages={[]}
+        bannerItems={[]}
+        activeTasksProgress={null}
+        activeTaskSteps={null}
+        threadSyncPhase={null}
+        activeContextWindow={null}
+        compactThreadUnavailable
+        compactDisabled
+        compactDisabledReason={null}
+        restingControlsHost={null}
+        restingControlsHaveLeadingContext={false}
+        onRestingControlsVisibilityChange={vi.fn()}
+        getTimelineScrollableNode={() => null}
+        isTimelineAtLogicalEnd={() => true}
+        onComposerOverlayHeightChange={vi.fn()}
+        onRestingChange={vi.fn()}
+        composerFilesRef={{ current: [] }}
+        onPageScrollKeyDown={vi.fn()}
+        onPageScrollKeyUp={vi.fn()}
+        onPageScrollRelease={vi.fn()}
+        onOpenProviderSetup={vi.fn()}
+        onFileOpen={vi.fn()}
+        resolvedTheme="dark"
+        settings={{
+          ...DEFAULT_UNIFIED_SETTINGS,
+          planModeEnabled: options.planModeEnabled ?? DEFAULT_UNIFIED_SETTINGS.planModeEnabled,
+        }}
+        keybindings={[] as ResolvedKeybindingsConfig}
+        terminalOpen={false}
+        gitCwd="/repo"
+        activeProjectCwd="/repo"
+        hasVcsRepository={options.hasVcsRepository ?? true}
+        canChangeWorktreeContext={options.hasVcsRepository ?? true}
+        runContextEnvMode="local"
+        activeRunContextBranch={
+          options.activeRunContextBranch === undefined ? "main" : options.activeRunContextBranch
+        }
+        isRunContextBranchPending={options.isRunContextBranchPending ?? false}
+        activeRunContextWorktreePath={null}
+        promptRef={promptRef}
+        composerImagesRef={{ current: [] }}
+        composerTerminalContextsRef={{ current: [] }}
+        composerElementContextsRef={{ current: [] }}
+        onSend={onSend}
+        onInterrupt={vi.fn()}
+        onImplementPlanInNewThread={vi.fn()}
+        onRespondToApproval={vi.fn(async () => undefined)}
+        onSelectActivePendingUserInputOption={vi.fn()}
+        onAdvanceActivePendingUserInput={vi.fn()}
+        onPreviousActivePendingUserInputQuestion={vi.fn()}
+        onChangeActivePendingUserInputCustomAnswer={vi.fn()}
+        onProviderModelSelect={vi.fn()}
+        onSelectRunContext={onSelectRunContext}
+        getModelDisabledReason={() => null}
+        toggleInteractionMode={vi.fn()}
+        handleRuntimeModeChange={vi.fn()}
+        handleInteractionModeChange={handleInteractionModeChange}
+        focusComposer={vi.fn()}
+        scheduleComposerFocus={vi.fn()}
+        setThreadError={vi.fn()}
+        onExpandImage={vi.fn()}
+      />
+    </div>,
   );
   return { screen, onSelectRunContext, onSend, handleInteractionModeChange };
 }
@@ -651,7 +653,7 @@ describe("composer slash commands", () => {
 
       await editor.fill("/worktree main-old");
       await expect
-        .element(page.getByRole("option", { name: "main-old", exact: true }))
+        .element(page.getByRole("option", { name: /^main-old(?:\s|$)/ }))
         .toBeInTheDocument();
       await userEvent.keyboard("{Enter}");
       expect(onSelectRunContext).toHaveBeenLastCalledWith({

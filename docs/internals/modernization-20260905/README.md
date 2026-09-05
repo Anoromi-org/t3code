@@ -42,13 +42,16 @@ Upstream is pinned to `4631000f5a7666c88402ce11a9ebb8cdef7a7dad`. The source is 
 
 ## Verification
 
-- Preservation run: **1,921 passed**, 84 files, no failures. The optional real-state bootstrap fixture is skipped without its environment variable and passed separately with the snapshot. Browser files are tracked separately below.
+- Preservation run: **1,922 passed**, 84 files, no failures or skips with the real-state fixture enabled.
 - Real persisted-state copy: migration and projection bootstrap pass twice; event and message counts remain unchanged; SQLite integrity passes.
 - Required `bun fmt`, `bun lint`, and `bun typecheck` pass after the final audit changes.
 - Desktop build and full Nix package build pass. Packaged server, preload, Ghostty helper, native browser-secret helper, and icons exist.
 - Isolated development startup passes; the web entry point returns HTTP 200. Live server and client settings decode with the current schemas without writing to live state.
 - `codex review` completed. All three findings were fixed: recover proposed plans from resumed history, batch-check settled history before ingestion, and validate worktree completion and registration before retry reuse. Focused regressions pass, including one SQL query for 100 already-settled history entries and preservation of implemented-plan metadata.
-- Eleven browser test files, integrated web validation, and desktop smoke validation await the explicit permission required by `AGENTS.md`. They remain present and are not counted as passing.
+- Browser preservation suite: **60 passed across all 11 files**. Updated mocks for current upstream imports, router location, and environment capabilities. Composer fixtures now leave room for the upward-opening drawer and match the current branch description. No test cases were removed.
+- Review of the UI verification fixes found no actionable defects.
+- Desktop smoke passes. It reads Electron runtime environment values through a bounded local inspector connection because Chromium can clear `/proc` environment data. The backend environment, launcher cleanup, and fatal-output checks remain intact. The fixture uses an available shell on NixOS.
+- Integrated web checks pass for pairing, project creation, slash command availability, reasoning selection, project actions, navigation, composer focus, and Hyprnav settings persistence.
 - Tunnel setup has shell syntax validation. No tunnel, credential, DNS, or running service was changed.
 
-Browser and desktop UI checks remain pending; build and package checks have passed.
+Browser tests and desktop smoke are complete. External Hyprnav/Corkdiff window-manager actions retain automated regression coverage; this web pass did not exercise those host actions.
