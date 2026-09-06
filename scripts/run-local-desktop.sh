@@ -29,21 +29,6 @@ export T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME="${T3CODE_DESKTOP_LINUX_DESKTOP_E
 
 CI=true pnpm install --frozen-lockfile
 
-if [[ $(uname -s) == Linux ]]; then
-  claude_binary=$(node -p \
-    "require('node:module').createRequire(require.resolve('@anthropic-ai/claude-agent-sdk', { paths: ['apps/server'] })).resolve('@anthropic-ai/claude-agent-sdk-linux-' + process.arch + '/claude')")
-  dynamic_linker=$(<"$NIX_CC/nix-support/dynamic-linker")
-  if [[ $(patchelf --print-interpreter "$claude_binary") != "$dynamic_linker" ]]; then
-    claude_copy=$(mktemp "$claude_binary.t3code-nix.XXXXXX")
-    if ! cp --reflink=auto --preserve=mode "$claude_binary" "$claude_copy" || \
-      ! patchelf --set-interpreter "$dynamic_linker" "$claude_copy" || \
-      ! mv -f "$claude_copy" "$claude_binary"; then
-      rm -f "$claude_copy"
-      exit 1
-    fi
-  fi
-fi
-
 node_pty_dir=$(dirname "$(node -p "require.resolve('node-pty/package.json', { paths: ['apps/server'] })")")
 pnpm_exe=$(readlink -f "$(command -v pnpm)")
 pnpm_root=$(dirname "$(dirname "$pnpm_exe")")

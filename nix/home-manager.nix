@@ -21,6 +21,7 @@ let
         exit 1
       fi
 
+      # shellcheck disable=SC1091
       source ${lib.escapeShellArg "${self.outPath}/nix/local-launch-environment.sh"}
       t3code_capture_local_launch_environment
       export PATH=${
