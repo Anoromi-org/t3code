@@ -1,0 +1,72 @@
+{
+  "name": "@anoromi/t3code-sdk",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Typed SDK and React connection component for running T3 Code servers",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Anoromi/t3code.git",
+    "directory": "packages/sdk"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./style.css": "./dist/style.css",
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "directory": "dist"
+  },
+  "scripts": {
+    "build": "vp pack && node scripts/build-types.ts",
+    "typecheck": "tsgo --noEmit",
+    "test": "vp test run",
+    "example:browser": "vp dev",
+    "pack:npm": "npm run build && npm pack ./dist",
+    "publish:npm": "npm run build && npm publish ./dist --access public"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@t3tools/client-runtime": "workspace:*",
+    "@t3tools/contracts": "workspace:*",
+    "@t3tools/shared": "workspace:*",
+    "@types/react": "~19.2.14",
+    "@types/react-dom": "~19.2.3",
+    "@types/react-test-renderer": "19.1.0",
+    "@types/ws": "^8.18.1",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-test-renderer": "19.2.6",
+    "vite-plus": "catalog:",
+    "ws": "^8.18.3"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

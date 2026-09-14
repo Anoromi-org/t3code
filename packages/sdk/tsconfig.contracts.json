@@ -1,0 +1,11 @@
+{
+  "extends": "../contracts/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "../contracts/src",
+    "outDir": "dist/contracts"
+  },
+  "include": ["../contracts/src/index.ts"]
+}
