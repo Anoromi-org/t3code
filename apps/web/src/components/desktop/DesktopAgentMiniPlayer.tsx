@@ -4,11 +4,13 @@
  * A floating live view of the window a desktop (computer-use) agent is working
  * on, opened by DesktopAgentMiniPlayerHost without the user clicking anything.
  *
- * The frames arrive as a `multipart/x-mixed-replace` JPEG stream the browser
- * decodes for free in an `<img>`; hyprnav captures them, the server only pipes
- * them (see apps/server/src/hyprnavFrames.ts). Nothing here holds a MediaStream
- * or a portal session, so the view costs no share-picker round trip and works
- * the same in Electron and in a browser on the same machine.
+ * The frames arrive over one loopback HTTP stream: a damage-driven video
+ * stream decoded with WebCodecs where the browser and the daemon agree on a
+ * codec, and the old `multipart/x-mixed-replace` JPEG stream where they do not
+ * (see HyprnavVideoView). hyprnav captures and encodes; the server only pipes
+ * (apps/server/src/hyprnavFrames.ts). Nothing here holds a MediaStream or a
+ * portal session, so the view costs no share-picker round trip and works the
+ * same in Electron and in a browser on the same machine.
  */
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { MoveRight, XIcon } from "lucide-react";
@@ -27,6 +29,20 @@ import { PREVIEW_MINI_PLAYER_DEFAULT_SIZE } from "~/components/preview/previewMi
 import type { PreviewMiniPlayerPosition, PreviewMiniPlayerSize } from "~/previewMiniPlayerStore";
 import { resolvePrimaryEnvironmentHttpUrl } from "~/environments/primary/target";
 
+import { HyprnavVideoView } from "./HyprnavVideoView";
+
+/**
+ * Capture width tiers the daemon knows (FRAMES-VIDEO-PLAN §2). Asking for an
+ * arbitrary width would give every player its own encoder.
+ */
+const CAPTURE_WIDTH_TIERS = [320, 640, 960] as const;
+
+const captureWidthTier = (wanted: number): number =>
+  CAPTURE_WIDTH_TIERS.find((tier) => tier >= wanted) ?? CAPTURE_WIDTH_TIERS.at(-1)!;
+
+/** Frames per second asked of the daemon; a still window sends none of them. */
+const FRAMES_FPS = 8;
+
 interface Props {
   readonly threadRef: ScopedThreadRef;
   readonly bottomInset: number;
@@ -42,15 +58,26 @@ export function DesktopAgentMiniPlayer({ threadRef, bottomInset, topOffset }: Pr
   const agentId = miniPlayer?.agentId ?? null;
   const agent = agents?.find((candidate) => candidate.agent_id === agentId) ?? null;
   const address = miniPlayer?.address ?? null;
+  const playerWidth = (miniPlayer?.size ?? PREVIEW_MINI_PLAYER_DEFAULT_SIZE).width;
 
   const framesUrl = useMemo(() => {
     if (!address) return null;
     try {
-      return resolvePrimaryEnvironmentHttpUrl("/api/hyprnav/frames", { address });
+      return resolvePrimaryEnvironmentHttpUrl("/api/hyprnav/frames", {
+        address,
+        // Twice the CSS width, so a HiDPI screen and a little resizing are
+        // covered without re-negotiating; the daemon keys its pipelines by
+        // width, so asking for a tier is what lets two players share one.
+        max_width: String(captureWidthTier(playerWidth * 2)),
+        max_fps: String(FRAMES_FPS),
+        // The agent is looking at its dialog when it has one, so that is what
+        // the view should show (FRAMES-VIDEO-PLAN §6).
+        follow: "transient",
+      });
     } catch {
       return null;
     }
-  }, [address]);
+  }, [address, playerWidth]);
 
   const onMove = useCallback(
     (next: PreviewMiniPlayerPosition) => {
@@ -127,10 +154,10 @@ export function DesktopAgentMiniPlayer({ threadRef, bottomInset, topOffset }: Pr
       }
     >
       <div className="absolute inset-0 z-[47] overflow-hidden rounded-xl bg-black shadow-2xl/35">
-        <img
-          src={framesUrl}
-          alt=""
-          className="absolute inset-0 size-full object-contain bg-black"
+        <HyprnavVideoView
+          url={framesUrl}
+          label={`Live view of ${agent.label}`}
+          showStats={import.meta.env.DEV}
         />
       </div>
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[49] flex items-center gap-1.5 rounded-t-xl bg-gradient-to-b from-black/70 to-transparent px-2 py-1.5 pr-12 text-xs text-white">
