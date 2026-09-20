@@ -15,6 +15,7 @@ import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createHyprnavRecordParser,
+  hyprnavCodecFamily,
   HYPRNAV_RECORD_CONFIG,
   HYPRNAV_RECORD_KEEPALIVE,
   hyprnavRecordIsKeyframe,
@@ -179,10 +180,17 @@ export function useHyprnavFrames(
                   controller?.abort();
                 },
               });
+              // AV1 takes no out-of-band description: the sequence header
+              // lives in the bitstream. Some daemons still put one in the
+              // CONFIG record, and Firefox then configures happily and fails
+              // the first chunk with "The given encoding is not supported",
+              // which reads as an endless reconnect. Drop it.
+              const description =
+                hyprnavCodecFamily(config.codec) === "av1" ? null : config.description;
               next.configure({
                 codec: config.codec,
                 optimizeForLatency: true,
-                ...(config.description === null ? {} : { description: config.description }),
+                ...(description === null ? {} : { description }),
               });
               decoder = next;
               statsRef.current = { ...statsRef.current, codec: config.codec };
