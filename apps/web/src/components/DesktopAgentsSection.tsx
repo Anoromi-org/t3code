@@ -159,9 +159,9 @@ function AgentRow({ agent }: { agent: DesktopHyprnavAgent }) {
    * time this handler calls getDisplayMedia in the same task as the click.
    */
   const preAnswer = useCallback(() => {
-    if (!target) return;
+    if (!target || watching) return;
     void hyprnavClient?.screencast(target);
-  }, [target]);
+  }, [target, watching]);
 
   const toggleWatch = useCallback(() => {
     if (watching) {
@@ -242,7 +242,10 @@ function AgentRow({ agent }: { agent: DesktopHyprnavAgent }) {
 
 /** Returns null when the bridge is absent (browser build, other platforms) or nothing is registered. */
 export function DesktopAgentsSection() {
-  const agents = useDesktopAgents();
+  const all = useDesktopAgents();
+  // Finished agents stay in hyprnav's registry until the daemon restarts; the
+  // dashboard shows only live ones, like the badge count does.
+  const agents = all?.filter((agent) => agent.state !== "finished");
   if (!agents || agents.length === 0) {
     return null;
   }
