@@ -11,6 +11,46 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
+import { resolvePrimaryEnvironmentHttpUrl } from "../environments/primary/target";
+
+/**
+ * Electron exposes hyprnav through the preload bridge. In a browser on the
+ * same machine the server's loopback-only /api/hyprnav routes stand in.
+ */
+interface HyprnavClient {
+  readonly list: () => Promise<ReadonlyArray<DesktopHyprnavAgent>>;
+  readonly screencast: (address: string) => Promise<unknown>;
+  readonly goto: (env: string, slot: number) => Promise<unknown>;
+}
+
+function resolveHyprnavClient(): HyprnavClient | null {
+  const bridge = typeof window !== "undefined" ? window.desktopBridge : undefined;
+  if (bridge?.listHyprnavAgents) {
+    return {
+      list: () => bridge.listHyprnavAgents!(),
+      screencast: (address) => bridge.requestHyprnavScreencast?.({ address }) ?? Promise.resolve(null),
+      goto: (env, slot) => bridge.gotoHyprnavAgent?.({ env, slot }) ?? Promise.resolve(null),
+    };
+  }
+  if (typeof window === "undefined") return null;
+  const post = (path: string, body: unknown) =>
+    fetch(resolvePrimaryEnvironmentHttpUrl(path), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  return {
+    list: async () => {
+      const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/hyprnav/agents"));
+      if (!response.ok) return [];
+      return (await response.json()) as ReadonlyArray<DesktopHyprnavAgent>;
+    },
+    screencast: (address) => post("/api/hyprnav/screencast", { address }),
+    goto: (env, slot) => post("/api/hyprnav/goto", { env, slot }),
+  };
+}
+
+const hyprnavClient = resolveHyprnavClient();
 
 const STATE_VISUALS: Record<string, { dotClass: string; label: string; pulse?: boolean }> = {
   working: { dotClass: "bg-info", label: "Working", pulse: true },
@@ -22,13 +62,14 @@ const STATE_VISUALS: Record<string, { dotClass: string; label: string; pulse?: b
 function useDesktopAgents(intervalMs = 1500): ReadonlyArray<DesktopHyprnavAgent> | null {
   const [agents, setAgents] = useState<ReadonlyArray<DesktopHyprnavAgent> | null>(null);
   useEffect(() => {
-    const list = window.desktopBridge?.listHyprnavAgents;
-    if (typeof list !== "function") {
+    const client = hyprnavClient;
+    if (!client) {
       return;
     }
     let cancelled = false;
     const tick = () => {
-      list()
+      client
+        .list()
         .then((next) => {
           if (!cancelled) setAgents(next);
         })
@@ -46,52 +87,23 @@ function useDesktopAgents(intervalMs = 1500): ReadonlyArray<DesktopHyprnavAgent>
   return agents;
 }
 
-function AgentPortal({ agent, onClose }: { agent: DesktopHyprnavAgent; onClose: () => void }) {
+function AgentPortal({
+  stream,
+  error,
+  onClose,
+}: {
+  stream: MediaStream | null;
+  error: string | null;
+  onClose: () => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [shownTarget, setShownTarget] = useState<string | null>(null);
-  const target = agent.current_target;
 
   useEffect(() => {
-    if (!target || target === shownTarget) {
-      return;
-    }
-    let cancelled = false;
-    const open = async () => {
-      try {
-        await window.desktopBridge?.requestHyprnavScreencast?.({ address: target });
-        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-        if (cancelled) {
-          for (const track of stream.getTracks()) track.stop();
-          return;
-        }
-        const previous = streamRef.current;
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {});
-        }
-        if (previous) for (const track of previous.getTracks()) track.stop();
-        setShownTarget(target);
-        setError(null);
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
-      }
-    };
-    void open();
-    return () => {
-      cancelled = true;
-    };
-  }, [target, shownTarget]);
-
-  useEffect(
-    () => () => {
-      const stream = streamRef.current;
-      if (stream) for (const track of stream.getTracks()) track.stop();
-    },
-    [],
-  );
+    const video = videoRef.current;
+    if (!video || !stream) return;
+    video.srcObject = stream;
+    void video.play().catch(() => {});
+  }, [stream]);
 
   return (
     <div className="relative overflow-hidden rounded-md border border-border bg-black">
@@ -120,14 +132,59 @@ function AgentPortal({ agent, onClose }: { agent: DesktopHyprnavAgent; onClose: 
 
 function AgentRow({ agent }: { agent: DesktopHyprnavAgent }) {
   const [watching, setWatching] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const visual = STATE_VISUALS[agent.state] ?? STATE_VISUALS.idle!;
+  const target = agent.current_target;
   const goThere = useCallback(() => {
-    void window.desktopBridge?.gotoHyprnavAgent?.({
-      env: agent.environment_id,
-      slot: agent.slot_index,
-    });
+    void hyprnavClient?.goto(agent.environment_id, agent.slot_index);
   }, [agent.environment_id, agent.slot_index]);
-  const canWatch = Boolean(agent.current_target) && agent.state !== "finished";
+  const canWatch = Boolean(target) && agent.state !== "finished";
+
+  const stopStream = useCallback(() => {
+    const current = streamRef.current;
+    streamRef.current = null;
+    setStream(null);
+    if (current) for (const track of current.getTracks()) track.stop();
+  }, []);
+
+  useEffect(() => stopStream, [stopStream]);
+
+  /**
+   * The portal is pre-answered before the picker ever runs, but the pre-answer
+   * must not be awaited here: awaiting spends the click's transient user
+   * activation and getDisplayMedia then fails with NotAllowedError. The request
+   * is posted on pointer-down, so it is already on disk (valid for 15 s) by the
+   * time this handler calls getDisplayMedia in the same task as the click.
+   */
+  const preAnswer = useCallback(() => {
+    if (!target) return;
+    void hyprnavClient?.screencast(target);
+  }, [target]);
+
+  const toggleWatch = useCallback(() => {
+    if (watching) {
+      setWatching(false);
+      setError(null);
+      stopStream();
+      return;
+    }
+    if (!target) return;
+    setWatching(true);
+    setError(null);
+    void hyprnavClient?.screencast(target);
+    navigator.mediaDevices
+      .getDisplayMedia({ video: true, audio: false })
+      .then((next) => {
+        streamRef.current = next;
+        setStream(next);
+      })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      });
+  }, [watching, target, stopStream]);
+
   return (
     <div className="rounded-md border border-border/60 bg-card/40 p-2">
       <div className="flex items-center gap-2">
@@ -155,7 +212,8 @@ function AgentRow({ agent }: { agent: DesktopHyprnavAgent }) {
           size="xs"
           variant={watching ? "secondary" : "outline"}
           disabled={!canWatch}
-          onClick={() => setWatching((value) => !value)}
+          onPointerDown={preAnswer}
+          onClick={toggleWatch}
         >
           <Eye className="size-3" />
           {watching ? "Watching" : "Watch"}
@@ -165,9 +223,17 @@ function AgentRow({ agent }: { agent: DesktopHyprnavAgent }) {
           Go there
         </Button>
       </div>
-      {watching && agent.current_target ? (
+      {watching ? (
         <div className="mt-2">
-          <AgentPortal agent={agent} onClose={() => setWatching(false)} />
+          <AgentPortal
+            stream={stream}
+            error={error}
+            onClose={() => {
+              setWatching(false);
+              setError(null);
+              stopStream();
+            }}
+          />
         </div>
       ) : null}
     </div>

@@ -21,6 +21,7 @@ import {
   browserApiCorsLayer,
   httpCompressionLayer,
 } from "./http.ts";
+import { hyprnavRoutesLayer } from "./hyprnavRoutes.ts";
 import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
 import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
@@ -541,6 +542,7 @@ export const makeRoutesLayer = Layer.mergeAll(
       Layer.provide(environmentAuthenticatedAuthLayer),
     ),
     otlpTracesProxyRouteLayer,
+    hyprnavRoutesLayer,
     assetRouteLayer,
     attachmentUploadRouteLayer,
     staticAndDevRouteLayer,
