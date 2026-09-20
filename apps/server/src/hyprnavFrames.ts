@@ -11,12 +11,19 @@
  *
  * and answers one request line
  *
- *   {"address":"0x…","fps":8,"quality":60}\n
+ *   {"address":"0x…","codecs":["av1","h264","mjpeg"],"max_width":640,
+ *    "max_fps":8,"follow":"transient","fps":8,"quality":60}\n
  *
  * with either a JSON error line (`{"error":"unknown_window"}`) or a ready-made
- * `multipart/x-mixed-replace; boundary=frame` body, which this module forwards
- * byte for byte. The daemon closes the socket when the window goes away, which
- * ends the HTTP response.
+ * body, which this module forwards byte for byte. Which body it is depends on
+ * the codec the daemon picked out of `codecs`: the legacy
+ * `multipart/x-mixed-replace; boundary=frame` JPEG stream, or the record
+ * stream of FRAMES-VIDEO-PLAN §4 (`HNVF` magic) for a real video codec. The
+ * first bytes say which, so this module never has to ask twice. The daemon
+ * closes the socket when the window goes away, which ends the HTTP response.
+ *
+ * `fps`/`quality` stay on the request line for daemons that predate the codec
+ * negotiation: they parse the fields they know and ignore the rest.
  *
  * `T3CODE_HYPRNAV_FRAMES_SOCKET` overrides the derived path, like the events
  * one, so tests can point at a fake daemon.
@@ -39,10 +46,38 @@ export const HYPRNAV_FRAMES_BOUNDARY = "frame";
 export const HYPRNAV_FRAMES_CONTENT_TYPE =
   `multipart/x-mixed-replace; boundary=${HYPRNAV_FRAMES_BOUNDARY}` as const;
 
+/** The record stream of FRAMES-VIDEO-PLAN §4, whatever video codec is inside. */
+export const HYPRNAV_VIDEO_CONTENT_TYPE = "application/vnd.hyprnav.frames" as const;
+
+/** Magic of the first record, and the only way to tell the two bodies apart. */
+const HNVF_MAGIC = [0x48, 0x4e, 0x56, 0x46] as const; // "HNVF"
+
+/**
+ * Names the body the daemon chose, from as much of it as has arrived. A short
+ * first chunk that is still a prefix of the magic counts as video; anything
+ * else is the multipart stream, which opens with `--frame`.
+ */
+export function hyprnavFramesContentType(
+  firstChunk: Uint8Array,
+): typeof HYPRNAV_FRAMES_CONTENT_TYPE | typeof HYPRNAV_VIDEO_CONTENT_TYPE {
+  if (firstChunk.length === 0) return HYPRNAV_FRAMES_CONTENT_TYPE;
+  const shared = Math.min(firstChunk.length, HNVF_MAGIC.length);
+  for (let index = 0; index < shared; index += 1) {
+    if (firstChunk[index] !== HNVF_MAGIC[index]) return HYPRNAV_FRAMES_CONTENT_TYPE;
+  }
+  return HYPRNAV_VIDEO_CONTENT_TYPE;
+}
+
 export interface HyprnavFramesRequest {
   readonly address: string;
   readonly fps: number;
   readonly quality: number;
+  /** Decoder preference order; the daemon picks the first one it can encode. */
+  readonly codecs: ReadonlyArray<string>;
+  readonly maxWidth: number;
+  readonly maxFps: number;
+  /** `transient` captures a mapped dialog of the target instead of the target. */
+  readonly follow: "target" | "transient";
 }
 
 /** The socket is live; `firstChunk` is the head of the body already read. */
@@ -139,6 +174,11 @@ export const openHyprnavFrames = (
       socket.write(
         `${JSON.stringify({
           address: request.address,
+          codecs: request.codecs,
+          max_width: request.maxWidth,
+          max_fps: request.maxFps,
+          follow: request.follow,
+          // Read by daemons that predate codec negotiation; harmless after it.
           fps: request.fps,
           quality: request.quality,
         })}\n`,

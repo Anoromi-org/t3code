@@ -6,7 +6,7 @@
  *
  *   GET  /api/hyprnav/agents               -> agents_list
  *   GET  /api/hyprnav/events                -> Server-Sent Events, live
- *   GET  /api/hyprnav/frames?address=0x…   -> multipart JPEG stream of a window
+ *   GET  /api/hyprnav/frames?address=0x…   -> live frames of a window, video or JPEG
  *   POST /api/hyprnav/screencast {address} -> pre-answer the next share picker
  *   POST /api/hyprnav/goto {env, slot}     -> hyprnav goto
  *
@@ -27,7 +27,8 @@ import * as Stream from "effect/Stream";
 
 import { type HyprnavEventsBroker, hyprnavEventsBroker } from "./hyprnavEvents.ts";
 import {
-  HYPRNAV_FRAMES_CONTENT_TYPE,
+  type HyprnavFramesRequest,
+  hyprnavFramesContentType,
   hyprnavFramesSocketPath,
   openHyprnavFrames,
 } from "./hyprnavFrames.ts";
@@ -221,6 +222,56 @@ const framesAddressAllowed = (agents: unknown, address: string): boolean => {
 const FRAMES_FPS = 8;
 const FRAMES_QUALITY = 60;
 
+/**
+ * Codecs the daemon is allowed to be asked for. The client sends what its
+ * `VideoDecoder` says it can play, in preference order; this list keeps a
+ * crafted query from turning into arbitrary text on the daemon's request line,
+ * and keeps the order the client asked for.
+ */
+const FRAMES_KNOWN_CODECS = new Set(["av1", "h264", "hevc", "vp9", "vp8", "mjpeg"]);
+
+/** Width tiers of FRAMES-VIDEO-PLAN §2; anything else is rounded up to one. */
+const FRAMES_WIDTH_TIERS = [320, 640, 960, 1280] as const;
+
+const parseFramesCodecs = (raw: string | null): ReadonlyArray<string> => {
+  const asked = (raw ?? "")
+    .split(",")
+    .map((codec) => codec.trim().toLowerCase())
+    .filter((codec) => FRAMES_KNOWN_CODECS.has(codec));
+  // Deduplicate but keep first occurrence, and always leave a fallback in.
+  const unique = [...new Set(asked)];
+  return unique.includes("mjpeg") ? unique : [...unique, "mjpeg"];
+};
+
+const parseFramesWidth = (raw: string | null): number => {
+  const asked = Number(raw ?? "");
+  if (!Number.isFinite(asked) || asked <= 0) return 640;
+  return FRAMES_WIDTH_TIERS.find((tier) => tier >= asked) ?? FRAMES_WIDTH_TIERS.at(-1)!;
+};
+
+const parseFramesFps = (raw: string | null): number => {
+  const asked = Number(raw ?? "");
+  if (raw === null || raw.trim() === "" || !Number.isFinite(asked)) return FRAMES_FPS;
+  return Math.min(15, Math.max(1, Math.round(asked)));
+};
+
+/** The negotiated request line, from the query the mini player sent. */
+export const hyprnavFramesRequestFromQuery = (
+  address: string,
+  params: URLSearchParams,
+): HyprnavFramesRequest => {
+  const maxFps = parseFramesFps(params.get("max_fps"));
+  return {
+    address,
+    fps: maxFps,
+    quality: FRAMES_QUALITY,
+    codecs: parseFramesCodecs(params.get("codecs")),
+    maxWidth: parseFramesWidth(params.get("max_width")),
+    maxFps,
+    follow: params.get("follow") === "transient" ? "transient" : "target",
+  };
+};
+
 const frameChunks = (socket: NodeNet.Socket, firstChunk: Uint8Array): Stream.Stream<Uint8Array> =>
   Stream.callback<Uint8Array>((queue) =>
     Effect.acquireRelease(
@@ -254,20 +305,22 @@ export const hyprnavFramesRouteLayer = HttpRouter.add(
     if (!(yield* requestIsLoopback)) return notFound;
     const request = yield* HttpServerRequest.HttpServerRequest;
     const url = HttpServerRequest.toURL(request);
-    const address = url._tag === "Some" ? (url.value.searchParams.get("address") ?? "") : "";
+    const params = url._tag === "Some" ? url.value.searchParams : new URLSearchParams();
+    const address = params.get("address") ?? "";
     if (!ADDRESS_PATTERN.test(address)) return HttpServerResponse.empty({ status: 400 });
     const agents = yield* runHyprnavJson(["agents"]).pipe(Effect.orElseSucceed(() => []));
     if (!framesAddressAllowed(agents, address)) return notFound;
     const socketPath = yield* hyprnavFramesSocketPath;
-    const opened = yield* openHyprnavFrames(socketPath, {
-      address,
-      fps: FRAMES_FPS,
-      quality: FRAMES_QUALITY,
-    });
+    const opened = yield* openHyprnavFrames(
+      socketPath,
+      hyprnavFramesRequestFromQuery(address, params),
+    );
     if (opened._tag !== "stream") return notFound;
+    // The daemon answered with the codec it picked, not the one we ranked
+    // first, so the body itself decides the content type.
     return HttpServerResponse.stream(frameChunks(opened.socket, opened.firstChunk), {
       headers: {
-        "Content-Type": HYPRNAV_FRAMES_CONTENT_TYPE,
+        "Content-Type": hyprnavFramesContentType(opened.firstChunk),
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
         // Same reasoning as the SSE route: no compression middleware, no proxy
