@@ -139,6 +139,11 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         lockHyprnavEnvironment: (
           input: Parameters<NonNullable<DesktopBridge["lockHyprnavEnvironment"]>>[0],
         ) => ipcRenderer.invoke(IpcChannels.LOCK_HYPRNAV_ENVIRONMENT_CHANNEL, input),
+        listHyprnavAgents: () => ipcRenderer.invoke(IpcChannels.LIST_HYPRNAV_AGENTS_CHANNEL),
+        requestHyprnavScreencast: (input: { readonly address: string }) =>
+          ipcRenderer.invoke(IpcChannels.REQUEST_HYPRNAV_SCREENCAST_CHANNEL, input),
+        gotoHyprnavAgent: (input: { readonly env: string; readonly slot: number }) =>
+          ipcRenderer.invoke(IpcChannels.GOTO_HYPRNAV_AGENT_CHANNEL, input),
       }
     : {}),
   onMenuAction: (listener) => {

@@ -70,6 +70,8 @@ import { playwrightInjectedRuntimeInstallExpression } from "./PlaywrightInjected
 import { makePreviewAutomationKeySequence } from "./PreviewKeyboard.ts";
 import { captureFavicon, safeHttpOrigin, selectFaviconCandidates } from "./FaviconCapture.ts";
 
+import { handleHyprnavDisplayMediaRequest } from "../hyprnav/HyprnavScreencast.ts";
+
 export type PreviewNavStatus =
   | { kind: "Idle" }
   | { kind: "Loading"; url: string; title: string }
@@ -3359,7 +3361,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     session.setDisplayMediaRequestHandler((request, callback) => {
       const armed = pendingRecording;
       if (!armed) {
-        callback({});
+        // Not a tab recording: hand the request to the system portal so a
+        // main-window getDisplayMedia (desktop agent portal) still works.
+        handleHyprnavDisplayMediaRequest(request, callback);
         return;
       }
       if (armed.webContents.isDestroyed()) {

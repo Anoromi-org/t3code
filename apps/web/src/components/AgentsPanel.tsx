@@ -29,6 +29,7 @@ import { cn } from "~/lib/utils";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Button } from "~/components/ui/button";
+import { DesktopAgentsSection, useDesktopAgentCount } from "./DesktopAgentsSection";
 
 /**
  * In-flight states all present as Working (one steady state, per the
@@ -531,6 +532,16 @@ export function AgentsPanel({
   environmentId?: EnvironmentId | null;
   threadId?: ThreadId | null;
 }) {
+  const desktopAgentCount = useDesktopAgentCount();
+  if (!model.hasAgents && desktopAgentCount > 0) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <ScrollArea className="min-h-0 flex-1">
+          <DesktopAgentsSection />
+        </ScrollArea>
+      </div>
+    );
+  }
   if (!model.hasAgents) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
@@ -547,6 +558,7 @@ export function AgentsPanel({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ScrollArea className="min-h-0 flex-1">
+        <DesktopAgentsSection />
         <div className="flex flex-col gap-2 p-2">
           {model.workflows.map((group) => (
             <WorkflowSection

@@ -42,6 +42,8 @@ export const DesktopConfig = Config.all({
   linuxDesktopEntryNameOverride: trimmedString("T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME"),
   linuxUrlHandlerExecTarget: trimmedString("T3CODE_DESKTOP_LINUX_URL_HANDLER_EXEC"),
   devRemoteT3ServerEntryPath: trimmedString("T3CODE_DEV_REMOTE_T3_SERVER_ENTRY_PATH"),
+  /** Dev only: working directory for the embedded backend, e.g. a project to auto-bootstrap. */
+  backendCwdOverride: trimmedString("T3CODE_DESKTOP_BACKEND_CWD"),
   configuredBackendPort: Config.port("T3CODE_PORT").pipe(Config.option),
   commitHashOverride: trimmedString("T3CODE_COMMIT_HASH"),
   desktopLanHostOverride: trimmedString("T3CODE_DESKTOP_LAN_HOST"),

@@ -37,8 +37,11 @@ import {
   getLocalEnvironmentBearerToken,
   getSystemLocale,
   getWindowFullscreenState,
+  listHyprnavAgents,
   listOpenWorktreeTerminals,
   lockHyprnavEnvironment,
+  requestHyprnavScreencast,
+  gotoHyprnavAgent,
   openExternal,
   openSystemSettings,
   probeRemoteEditors,
@@ -107,6 +110,9 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(listOpenWorktreeTerminals);
   yield* ipc.handle(syncHyprnavEnvironment);
   yield* ipc.handle(lockHyprnavEnvironment);
+  yield* ipc.handle(listHyprnavAgents);
+  yield* ipc.handle(requestHyprnavScreencast);
+  yield* ipc.handle(gotoHyprnavAgent);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
   yield* ipc.handle(downloadUpdate);
