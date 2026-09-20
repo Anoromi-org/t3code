@@ -17,11 +17,11 @@ const record = (payload: Uint8Array, flags: number, timestampUs = 0, width = 640
   const bytes = new Uint8Array(24 + payload.length);
   bytes.set([0x48, 0x4e, 0x56, 0x46]);
   const view = new DataView(bytes.buffer);
-  view.setUint32(4, payload.length, true);
-  view.setUint32(8, flags, true);
-  view.setBigUint64(12, BigInt(timestampUs), true);
-  view.setUint16(20, width, true);
-  view.setUint16(22, height, true);
+  view.setUint32(4, payload.length);
+  view.setUint32(8, flags);
+  view.setBigUint64(12, BigInt(timestampUs));
+  view.setUint16(20, width);
+  view.setUint16(22, height);
   bytes.set(payload, 24);
   return bytes;
 };

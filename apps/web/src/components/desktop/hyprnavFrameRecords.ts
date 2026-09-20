@@ -70,15 +70,15 @@ export function createHyprnavRecordParser(): HyprnavRecordParser {
           }
         }
         const view = new DataView(buffered.buffer, buffered.byteOffset, buffered.length);
-        const length = view.getUint32(4, true);
+        const length = view.getUint32(4);
         if (buffered.length < HYPRNAV_RECORD_HEADER_BYTES + length) break;
         records.push({
-          flags: view.getUint32(8, true),
+          flags: view.getUint32(8),
           // Microseconds since the epoch fit in a double for another 200 000
           // years; `EncodedVideoChunk` wants a number anyway.
-          timestampUs: Number(view.getBigUint64(12, true)),
-          width: view.getUint16(20, true),
-          height: view.getUint16(22, true),
+          timestampUs: Number(view.getBigUint64(12)),
+          width: view.getUint16(20),
+          height: view.getUint16(22),
           payload: buffered.slice(
             HYPRNAV_RECORD_HEADER_BYTES,
             HYPRNAV_RECORD_HEADER_BYTES + length,
