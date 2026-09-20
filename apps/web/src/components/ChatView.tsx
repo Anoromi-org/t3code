@@ -172,6 +172,11 @@ import {
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { closePreviewSession } from "./preview/closePreviewSession";
+import { DesktopAgentMiniPlayer } from "./desktop/DesktopAgentMiniPlayer";
+import {
+  PREVIEW_MINI_PLAYER_DEFAULT_SIZE,
+  PREVIEW_MINI_PLAYER_EDGE_GAP,
+} from "./preview/previewMiniPlayerLayout";
 import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
 import { subscribePreviewAction } from "./preview/previewActionBus";
 import { getConfiguredPreviewUrls } from "./preview/previewEmptyStateLogic";
@@ -1939,6 +1944,13 @@ export default function ChatView(props: ChatViewProps) {
     activePreviewMiniPlayer?.tabId ?? null,
     renderedRightPanelSurface,
   );
+  // Both floating players default to the top-right corner; stack the desktop
+  // agent's view under the browser preview rather than on top of it.
+  const desktopAgentMiniPlayerTopOffset =
+    previewMiniPlayerVisible && activePreviewMiniPlayer
+      ? (activePreviewMiniPlayer.size?.height ?? PREVIEW_MINI_PLAYER_DEFAULT_SIZE.height) +
+        PREVIEW_MINI_PLAYER_EDGE_GAP
+      : 0;
   const canMaximizeRightPanel = rightPanelOpen && !shouldUseRightPanelSheet;
   const rightPanelMaximized =
     canMaximizeRightPanel && maximizedRightPanelThreadKey === routeThreadKey;
@@ -8482,6 +8494,14 @@ export default function ChatView(props: ChatViewProps) {
                 threadRef={activeThreadRef}
                 tabId={activePreviewMiniPlayer.tabId}
                 bottomInset={isDraftHeroState ? 0 : composerOverlayHeight}
+              />
+            ) : null}
+
+            {activeThreadRef ? (
+              <DesktopAgentMiniPlayer
+                threadRef={activeThreadRef}
+                bottomInset={isDraftHeroState ? 0 : composerOverlayHeight}
+                topOffset={desktopAgentMiniPlayerTopOffset}
               />
             ) : null}
 
