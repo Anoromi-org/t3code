@@ -60,18 +60,31 @@ export function fnv1a64Hex(input: string): string {
 }
 
 /**
- * Resolves the events socket, or `null` when this process is not running under
- * a Hyprland session (no signature or no runtime dir) — then there is nothing
- * to connect to and clients simply see `connected: false`.
+ * Resolves one of the daemon's per-compositor sockets, or `null` when this
+ * process is not running under a Hyprland session (no signature or no runtime
+ * dir) — then there is nothing to connect to and callers degrade gracefully.
+ *
+ * `overrideKey` names an env var that replaces the derived path outright; it
+ * exists for tests that point the server at a fake daemon.
  */
-export const hyprnavEventsSocketPath: Effect.Effect<string | null> = Effect.gen(function* () {
-  const override = yield* Config.string("T3CODE_HYPRNAV_EVENTS_SOCKET").pipe(Config.option);
-  if (Option.isSome(override) && override.value.length > 0) return override.value;
-  const runtimeDir = yield* Config.string("XDG_RUNTIME_DIR").pipe(Config.option);
-  const signature = yield* Config.string("HYPRLAND_INSTANCE_SIGNATURE").pipe(Config.option);
-  if (Option.isNone(runtimeDir) || Option.isNone(signature)) return null;
-  return NodePath.join(runtimeDir.value, "hx", fnv1a64Hex(signature.value), "events.sock");
-}).pipe(Effect.orElseSucceed(() => null));
+export const hyprnavRuntimeSocketPath = (
+  fileName: string,
+  overrideKey: string,
+): Effect.Effect<string | null> =>
+  Effect.gen(function* () {
+    const override = yield* Config.string(overrideKey).pipe(Config.option);
+    if (Option.isSome(override) && override.value.length > 0) return override.value;
+    const runtimeDir = yield* Config.string("XDG_RUNTIME_DIR").pipe(Config.option);
+    const signature = yield* Config.string("HYPRLAND_INSTANCE_SIGNATURE").pipe(Config.option);
+    if (Option.isNone(runtimeDir) || Option.isNone(signature)) return null;
+    return NodePath.join(runtimeDir.value, "hx", fnv1a64Hex(signature.value), fileName);
+  }).pipe(Effect.orElseSucceed(() => null));
+
+/** @see hyprnavRuntimeSocketPath */
+export const hyprnavEventsSocketPath: Effect.Effect<string | null> = hyprnavRuntimeSocketPath(
+  "events.sock",
+  "T3CODE_HYPRNAV_EVENTS_SOCKET",
+);
 
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 10_000;

@@ -6,6 +6,7 @@
  *
  *   GET  /api/hyprnav/agents               -> agents_list
  *   GET  /api/hyprnav/events                -> Server-Sent Events, live
+ *   GET  /api/hyprnav/frames?address=0x…   -> multipart JPEG stream of a window
  *   POST /api/hyprnav/screencast {address} -> pre-answer the next share picker
  *   POST /api/hyprnav/goto {env, slot}     -> hyprnav goto
  *
@@ -13,6 +14,7 @@
  * 404 so the routes are invisible over LAN or Tailscale.
  */
 import * as NodeChildProcess from "node:child_process";
+import type * as NodeNet from "node:net";
 
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
@@ -24,6 +26,11 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { type HyprnavEventsBroker, hyprnavEventsBroker } from "./hyprnavEvents.ts";
+import {
+  HYPRNAV_FRAMES_CONTENT_TYPE,
+  hyprnavFramesSocketPath,
+  openHyprnavFrames,
+} from "./hyprnavFrames.ts";
 
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost", "[::1]"]);
 
@@ -65,6 +72,9 @@ const requestIsLoopback = Effect.gen(function* () {
 
 const notFound = HttpServerResponse.empty({ status: 404 });
 
+/** hyprland window handles, with or without the `address:` prefix hyprnav accepts. */
+const ADDRESS_PATTERN = /^(address:)?0x[0-9a-fA-F]+$/u;
+
 const ScreencastBody = Schema.Struct({ address: Schema.String });
 const GotoBody = Schema.Struct({ env: Schema.String, slot: Schema.Number });
 
@@ -86,7 +96,7 @@ export const hyprnavScreencastRouteLayer = HttpRouter.add(
     const request = yield* HttpServerRequest.HttpServerRequest;
     const body = yield* request.json;
     const decoded = Schema.decodeUnknownOption(ScreencastBody)(body);
-    if (decoded._tag === "None" || !/^(address:)?0x[0-9a-fA-F]+$/u.test(decoded.value.address)) {
+    if (decoded._tag === "None" || !ADDRESS_PATTERN.test(decoded.value.address)) {
       return HttpServerResponse.empty({ status: 400 });
     }
     yield* runHyprnavJson(["screencast", "request", decoded.value.address]).pipe(
@@ -181,9 +191,98 @@ export const hyprnavEventsRouteLayer = HttpRouter.add(
   }),
 );
 
+/**
+ * A live view of one window an agent is working on.
+ *
+ * The bytes come ready-made from hyprnav (see hyprnavFrames.ts) and are piped
+ * through untouched. Two gates stand in front: the loopback check every route
+ * here shares, and an allowlist of the windows currently registered agents say
+ * they are acting on. The allowlist matters because the loopback check alone is
+ * satisfied by anything the dev Vite proxy forwards, and a window's pixels are
+ * a lot more than a list of agent labels.
+ */
+const framesAddressAllowed = (agents: unknown, address: string): boolean => {
+  const list = Array.isArray(agents)
+    ? agents
+    : ((agents as { agents?: unknown } | null)?.agents ?? null);
+  if (!Array.isArray(list)) return false;
+  const wanted = address.replace(/^address:/u, "");
+  const matches = (value: unknown) =>
+    typeof value === "string" && value.replace(/^address:/u, "") === wanted;
+  return list.some((entry) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const agent = entry as { current_target?: unknown; attached_windows?: unknown };
+    if (matches(agent.current_target)) return true;
+    return Array.isArray(agent.attached_windows) && agent.attached_windows.some(matches);
+  });
+};
+
+/** Frame rate and JPEG quality asked of the daemon; it may serve less. */
+const FRAMES_FPS = 8;
+const FRAMES_QUALITY = 60;
+
+const frameChunks = (socket: NodeNet.Socket, firstChunk: Uint8Array): Stream.Stream<Uint8Array> =>
+  Stream.callback<Uint8Array>((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        Queue.offerUnsafe(queue, firstChunk);
+        const onData = (chunk: Buffer) => {
+          Queue.offerUnsafe(queue, new Uint8Array(chunk));
+        };
+        // The daemon closing the socket is how a vanished window ends the body.
+        const onDone = () => {
+          Queue.endUnsafe(queue);
+        };
+        socket.on("data", onData);
+        socket.on("close", onDone);
+        socket.on("error", onDone);
+        socket.resume();
+        return { socket } as const;
+      }),
+      ({ socket: open }) =>
+        Effect.sync(() => {
+          open.removeAllListeners();
+          open.destroy();
+        }),
+    ),
+  );
+
+export const hyprnavFramesRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/hyprnav/frames",
+  Effect.gen(function* () {
+    if (!(yield* requestIsLoopback)) return notFound;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    const address = url._tag === "Some" ? (url.value.searchParams.get("address") ?? "") : "";
+    if (!ADDRESS_PATTERN.test(address)) return HttpServerResponse.empty({ status: 400 });
+    const agents = yield* runHyprnavJson(["agents"]).pipe(Effect.orElseSucceed(() => []));
+    if (!framesAddressAllowed(agents, address)) return notFound;
+    const socketPath = yield* hyprnavFramesSocketPath;
+    const opened = yield* openHyprnavFrames(socketPath, {
+      address,
+      fps: FRAMES_FPS,
+      quality: FRAMES_QUALITY,
+    });
+    if (opened._tag !== "stream") return notFound;
+    return HttpServerResponse.stream(frameChunks(opened.socket, opened.firstChunk), {
+      headers: {
+        "Content-Type": HYPRNAV_FRAMES_CONTENT_TYPE,
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        // Same reasoning as the SSE route: no compression middleware, no proxy
+        // buffering, or the client sees a frame only once the buffer fills.
+        "Content-Encoding": "identity",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }),
+);
+
 export const hyprnavRoutesLayer = Layer.mergeAll(
   hyprnavAgentsRouteLayer,
   hyprnavScreencastRouteLayer,
   hyprnavGotoRouteLayer,
   hyprnavEventsRouteLayer,
+  hyprnavFramesRouteLayer,
 );
