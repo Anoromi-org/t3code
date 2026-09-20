@@ -4681,7 +4681,14 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         canUseTool,
         onUserDialog,
         supportedDialogKinds: ["resume_return"],
-        env: claudeEnvironment,
+        // Desktop (computer-use) agents the model starts inherit this env and
+        // report it back to hyprnav, which is how a floating window view can
+        // find the thread that owns it.
+        env: {
+          ...claudeEnvironment,
+          T3CODE_THREAD_ID: threadId,
+          ...(mcpSession ? { T3CODE_ENVIRONMENT_ID: mcpSession.environmentId } : {}),
+        },
         additionalDirectories,
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
         ...(mcpSession

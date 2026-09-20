@@ -1076,6 +1076,14 @@ export interface DesktopHyprnavAgent {
   readonly current_target: string | null;
   readonly attached_windows: ReadonlyArray<string>;
   readonly created_at_ms: number;
+  /**
+   * The T3 thread this agent works for, exported into the agent process by the
+   * provider adapter (`T3CODE_THREAD_ID`) and echoed back by hyprnav. Optional
+   * so a daemon predating the field still parses.
+   */
+  readonly thread_id?: string | null;
+  /** The T3 environment that thread belongs to (`T3CODE_ENVIRONMENT_ID`). */
+  readonly thread_environment_id?: string | null;
 }
 
 export interface DesktopBridge {
