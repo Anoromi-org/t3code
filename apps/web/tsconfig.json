@@ -4,6 +4,7 @@
     "composite": true,
     "module": "Preserve",
     "moduleResolution": "Bundler",
+    "isolatedModules": true,
     "erasableSyntaxOnly": false,
     "verbatimModuleSyntax": false,
     "jsx": "react-jsx",
