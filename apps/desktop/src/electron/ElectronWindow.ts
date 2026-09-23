@@ -196,7 +196,7 @@ export const make = Effect.gen(function* () {
           // Main-window screen shares go to the system portal; preview tabs
           // install their own handler on their partitioned session.
           if (!webPreferences?.partition) {
-            installHyprnavDisplayMediaHandler(window);
+            installHyprnavDisplayMediaHandler(window, platform);
           }
           return window;
         },

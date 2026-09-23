@@ -27,8 +27,11 @@ export function handleHyprnavDisplayMediaRequest(
     .catch(() => callback({}));
 }
 
-export function installHyprnavDisplayMediaHandler(window: Electron.BrowserWindow): void {
-  if (process.platform !== "linux") return;
+export function installHyprnavDisplayMediaHandler(
+  window: Electron.BrowserWindow,
+  platform: NodeJS.Platform,
+): void {
+  if (platform !== "linux") return;
   window.webContents.session.setDisplayMediaRequestHandler(
     (request, callback) => handleHyprnavDisplayMediaRequest(request, callback),
     { useSystemPicker: false },
