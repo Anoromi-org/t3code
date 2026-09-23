@@ -74,7 +74,11 @@ import {
   type CodexSessionRuntimeShape,
 } from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
-import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
+import {
+  codexThreadMcpArgs,
+  resolveCodexLaunchArgs,
+  T3CODE_CODEX_THREAD_MCP_SERVER_ENV,
+} from "./codexLaunchArgs.ts";
 import { codexRateLimitsToUpdate } from "./codexUsageLimits.ts";
 const isCodexAppServerProcessExitedError = Schema.is(CodexErrors.CodexAppServerProcessExitedError);
 const isCodexAppServerTransportError = Schema.is(CodexErrors.CodexAppServerTransportError);
@@ -2385,6 +2389,11 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           T3CODE_THREAD_ID: input.threadId,
           ...(mcpSession ? { T3CODE_ENVIRONMENT_ID: mcpSession.environmentId } : {}),
         };
+        const threadMcpArgs = codexThreadMcpArgs(
+          (options?.environment ?? process.env)[T3CODE_CODEX_THREAD_MCP_SERVER_ENV],
+          input.threadId,
+          mcpSession?.environmentId,
+        );
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           providerInstanceId: boundInstanceId,
@@ -2401,6 +2410,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? { model: input.modelSelection.model }
             : {}),
           ...(serviceTier ? { serviceTier } : {}),
+          ...(threadMcpArgs.length ? { appServerArgs: threadMcpArgs } : {}),
           ...(mcpSession
             ? {
                 environment: {
@@ -2408,6 +2418,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                   T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
                 },
                 appServerArgs: [
+                  ...threadMcpArgs,
                   "-c",
                   `mcp_servers.t3-code.url=${mcpSession.endpoint}`,
                   "-c",

@@ -1,6 +1,24 @@
 import { tokenizeCliArgs } from "@t3tools/shared/cliArgs";
 
 export const T3CODE_CODEX_LAUNCH_ARGS_ENV = "T3CODE_CODEX_LAUNCH_ARGS";
+export const T3CODE_CODEX_THREAD_MCP_SERVER_ENV = "T3CODE_CODEX_THREAD_MCP_SERVER";
+
+export const codexThreadMcpArgs = (
+  server: string | undefined,
+  threadId: string,
+  environmentId?: string,
+): ReadonlyArray<string> => {
+  // Only a named, configured MCP server should receive thread attribution.
+  if (!server || !/^[A-Za-z0-9_-]+$/.test(server)) return [];
+  const values = {
+    T3CODE_THREAD_ID: threadId,
+    ...(environmentId ? { T3CODE_ENVIRONMENT_ID: environmentId } : {}),
+  };
+  return Object.entries(values).flatMap(([key, value]) => [
+    "-c",
+    `mcp_servers.${server}.env.${key}=${JSON.stringify(value)}`,
+  ]);
+};
 
 export const resolveCodexLaunchArgs = (
   launchArgs?: string,

@@ -288,6 +288,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
       NodeAssert.deepStrictEqual(validationRuntimeFactory.factory.mock.calls[0]?.[0], {
         binaryPath: "codex",
         cwd: process.cwd(),
+        environment: { ...process.env, T3CODE_THREAD_ID: asThreadId("thread-1") },
         launchArgs: "",
         model: "gpt-5.3-codex",
         providerInstanceId: ProviderInstanceId.make("codex"),
@@ -484,7 +485,10 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       Effect.gen(function* () {
         const codexConfig = decodeCodexSettings({ launchArgs: "--enable settings-feature" });
         return yield* makeCodexAdapter(codexConfig, {
-          environment: { T3CODE_CODEX_LAUNCH_ARGS: " --strict-config --enable env-feature " },
+          environment: {
+            T3CODE_CODEX_LAUNCH_ARGS: " --strict-config --enable env-feature ",
+            T3CODE_CODEX_THREAD_MCP_SERVER: "cua_repl",
+          },
           makeRuntime: runtimeFactory.factory,
         });
       }),
@@ -506,6 +510,10 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       const runtime = runtimeFactory.lastRuntime;
       NodeAssert.ok(runtime);
       NodeAssert.equal(runtime.options.launchArgs, "--strict-config --enable env-feature");
+      NodeAssert.deepStrictEqual(runtime.options.appServerArgs, [
+        "-c",
+        'mcp_servers.cua_repl.env.T3CODE_THREAD_ID="sess-launch-args-env"',
+      ]);
     }).pipe(Effect.provide(layer));
   });
 
