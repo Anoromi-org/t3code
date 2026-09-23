@@ -3,6 +3,7 @@
   cacert,
   copyDesktopItems,
   electron_43,
+  fetchurl,
   fetchPnpmDeps,
   lib,
   libsecret,
@@ -21,6 +22,20 @@
 
 let
   serverPackage = builtins.fromJSON (builtins.readFile ../apps/server/package.json);
+  vitePlusBindingInfo = {
+    x86_64-linux = {
+      package = "vite-plus-linux-x64-gnu";
+      hash = "sha512-9A+dFScPfwcrzF/rRR0zH8++2hOf6xtFmN/5LyzyfUywtw9MILXcC72IMcOeL6QRJwKUMsudi1rFeDE59azNvw==";
+    };
+    aarch64-linux = {
+      package = "vite-plus-linux-arm64-gnu";
+      hash = "sha512-nYI3KNYXkXjRPsSdR4Lr7J2xMxfR1+TplWlG/dV37qVXWAjbyHpoAlbULjZBAVJMyXRNlcADhBrEwXe4g6s48A==";
+    };
+  }.${stdenv.hostPlatform.system};
+  vitePlusLinuxBinding = fetchurl {
+    url = "https://registry.npmjs.org/@voidzero-dev/${vitePlusBindingInfo.package}/-/${vitePlusBindingInfo.package}-0.3.0.tgz";
+    inherit (vitePlusBindingInfo) hash;
+  };
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "t3-code";
@@ -76,6 +91,12 @@ stdenv.mkDerivation (finalAttrs: {
 
   buildPhase = ''
     runHook preBuild
+
+    # The pnpm FOD can omit an optional native package after a registry fetch error.
+    mkdir -p node_modules/@voidzero-dev/${vitePlusBindingInfo.package}
+    tar -xzf ${vitePlusLinuxBinding} \
+      -C node_modules/@voidzero-dev/${vitePlusBindingInfo.package} \
+      --strip-components=1
 
     pnpm exec vp run build:desktop
 
