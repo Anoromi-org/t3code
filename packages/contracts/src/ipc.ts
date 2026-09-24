@@ -1118,6 +1118,32 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export interface DesktopHyprnavAgent {
+  readonly agent_id: string;
+  readonly label: string;
+  readonly client: string;
+  readonly pid: number;
+  readonly environment_id: string;
+  readonly slot_index: number;
+  readonly workspace_id: number;
+  /** working | waiting_for_user | idle | finished */
+  readonly state: string;
+  readonly last_beat_ms: number;
+  readonly action_count: number;
+  readonly last_action: string | null;
+  readonly current_target: string | null;
+  readonly attached_windows: ReadonlyArray<string>;
+  readonly created_at_ms: number;
+  /**
+   * The T3 thread this agent works for, exported into the agent process by the
+   * provider adapter (`T3CODE_THREAD_ID`) and echoed back by hyprnav. Optional
+   * so a daemon predating the field still parses.
+   */
+  readonly thread_id?: string | null;
+  /** The T3 environment that thread belongs to (`T3CODE_ENVIRONMENT_ID`). */
+  readonly thread_environment_id?: string | null;
+}
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
@@ -1229,6 +1255,16 @@ export interface DesktopBridge {
   /** Hyprland-only, primary local environment navigation integration. */
   syncHyprnavEnvironment?: (input: DesktopHyprnavSyncInput) => Promise<DesktopHyprnavSyncResult>;
   lockHyprnavEnvironment?: (input: DesktopHyprnavLockInput) => Promise<DesktopHyprnavSyncResult>;
+  /** Hyprland-only: desktop agents (cua MCP processes) tracked by hyprnav. */
+  listHyprnavAgents?: () => Promise<ReadonlyArray<DesktopHyprnavAgent>>;
+  /** Pre-answer the next screen-share picker so getDisplayMedia shows this window without a dialog. */
+  requestHyprnavScreencast?: (input: {
+    readonly address: string;
+  }) => Promise<{ readonly ok: boolean }>;
+  gotoHyprnavAgent?: (input: {
+    readonly env: string;
+    readonly slot: number;
+  }) => Promise<{ readonly ok: boolean }>;
   /** Hyprland-only, primary local environment Corkdiff integration. */
   openExternalCorkdiff?: (input: { readonly cwd: string; readonly threadId: string }) => Promise<{
     readonly workspaceId: number;

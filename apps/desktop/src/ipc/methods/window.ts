@@ -22,6 +22,7 @@ import * as HostProcess from "@t3tools/shared/hostProcess";
 import * as NodeOS from "node:os";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -34,6 +35,8 @@ import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
 import * as ElectronApp from "../../electron/ElectronApp.ts";
 import * as ExternalCorkdiff from "../../corkdiff/ExternalCorkdiff.ts";
+import * as HyprnavAgents from "../../hyprnav/HyprnavAgents.ts";
+import * as HyprnavScreencast from "../../hyprnav/HyprnavScreencast.ts";
 import * as HyprnavEnvironment from "../../hyprnav/HyprnavEnvironment.ts";
 import * as WorktreeTerminal from "../../hyprnav/WorktreeTerminal.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
@@ -504,6 +507,39 @@ export const listOpenWorktreeTerminals = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.listOpenWorktreeTerminals")(function* () {
     const terminal = yield* WorktreeTerminal.WorktreeTerminal;
     return yield* terminal.list;
+  }),
+});
+
+export const listHyprnavAgents = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.LIST_HYPRNAV_AGENTS_CHANNEL,
+  payload: Schema.Void,
+  result: Schema.Array(HyprnavAgents.HyprnavAgentSchema),
+  handler: Effect.fn("desktop.ipc.window.listHyprnavAgents")(function* () {
+    return yield* HyprnavAgents.listHyprnavAgentsEffect();
+  }),
+});
+
+/** Pre-answer the next screen-share picker with a window, then the renderer calls getDisplayMedia. */
+export const requestHyprnavScreencast = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.REQUEST_HYPRNAV_SCREENCAST_CHANNEL,
+  payload: Schema.Struct({ address: TrimmedNonEmptyString }),
+  result: Schema.Struct({ ok: Schema.Boolean }),
+  handler: Effect.fn("desktop.ipc.window.requestHyprnavScreencast")(function* (input) {
+    // Armed first: the renderer's getDisplayMedia can arrive before the CLI returns.
+    const now = yield* Clock.currentTimeMillis;
+    HyprnavScreencast.armHyprnavDisplayMedia(now);
+    yield* HyprnavAgents.runHyprnavJson(["screencast", "request", input.address]);
+    return { ok: true };
+  }),
+});
+
+export const gotoHyprnavAgent = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.GOTO_HYPRNAV_AGENT_CHANNEL,
+  payload: Schema.Struct({ env: TrimmedNonEmptyString, slot: Schema.Int }),
+  result: Schema.Struct({ ok: Schema.Boolean }),
+  handler: Effect.fn("desktop.ipc.window.gotoHyprnavAgent")(function* (input) {
+    yield* HyprnavAgents.runHyprnavJson(["goto", "--env", input.env, "--slot", String(input.slot)]);
+    return { ok: true };
   }),
 });
 

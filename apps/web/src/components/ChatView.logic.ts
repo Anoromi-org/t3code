@@ -101,6 +101,8 @@ export function shouldRenderPreviewMiniPlayer(
       renderedRightPanelSurface.resourceId === source.tabId
     );
   }
+  // No panel shows the agent's window itself; the Agents panel only lists agents.
+  if (source.kind === "desktop-agent") return true;
   return !(
     renderedRightPanelSurface?.kind === "device" &&
     renderedRightPanelSurface.target?.hostId === source.hostId &&

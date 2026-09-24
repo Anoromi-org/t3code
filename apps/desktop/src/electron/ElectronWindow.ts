@@ -20,6 +20,7 @@ import {
   loadWindowsForegroundApi,
 } from "./WindowsForeground.ts";
 import { startWindowsForegroundFocusThread } from "./WindowsForegroundFocusThread.ts";
+import { installHyprnavDisplayMediaHandler } from "../hyprnav/HyprnavScreencast.ts";
 
 function windowsForegroundFocusTarget(window: Electron.BrowserWindow) {
   return {
@@ -234,7 +235,15 @@ export const make = Effect.gen(function* () {
       } satisfies typeof ElectronWindowCreateOptions.Type;
 
       return Effect.try({
-        try: () => new Electron.BrowserWindow(options),
+        try: () => {
+          const window = new Electron.BrowserWindow(options);
+          // Main-window screen shares go to the system portal; preview tabs
+          // install their own handler on their partitioned session.
+          if (!webPreferences?.partition) {
+            installHyprnavDisplayMediaHandler(window, platform);
+          }
+          return window;
+        },
         catch: (cause) => new ElectronWindowCreateError({ options: diagnosticOptions, cause }),
       });
     },

@@ -220,6 +220,19 @@ describe("floating browser preview", () => {
       }),
     ).toBe(true);
   });
+
+  it("keeps a desktop agent's window floating whatever the panel shows", () => {
+    const agentWindow = { kind: "desktop-agent", agentId: "agent-1", address: "0xabc" } as const;
+    expect(shouldRenderPreviewMiniPlayer(agentWindow, null)).toBe(true);
+    expect(shouldRenderPreviewMiniPlayer(agentWindow, { id: "agents", kind: "agents" })).toBe(true);
+    expect(
+      shouldRenderPreviewMiniPlayer(agentWindow, {
+        id: "browser:one",
+        kind: "preview",
+        resourceId: "0xabc",
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("proactive panels", () => {

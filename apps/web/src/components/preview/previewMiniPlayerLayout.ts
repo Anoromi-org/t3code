@@ -38,6 +38,19 @@ export function resolvePreviewMiniPlayerSourceSize(
 }
 
 /**
+ * A desktop agent's window at the aspect of the frames decoded so far, 16:9
+ * until the first one arrives. The stream is a downscaled capture tier, so the
+ * size is nominal: it sets the shape without capping the player at the tier.
+ */
+export function resolveDesktopAgentMiniPlayerSourceSize(
+  frame: PreviewMiniPlayerSize | null,
+): PreviewMiniPlayerSize {
+  const width = 1_920;
+  if (!frame || !(frame.width > 0) || !(frame.height > 0)) return { width, height: 1_080 };
+  return { width, height: Math.round((width * frame.height) / frame.width) };
+}
+
+/**
  * The device screen as the user sees it, so a rotated phone floats as a
  * landscape box. Before the stream reports its size the platform's usual phone
  * shape stands in, matching the stream view's own placeholder aspect; the
