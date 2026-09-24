@@ -5,6 +5,7 @@ import {
   type ChatFileAttachment,
   type EnvironmentId,
   isProviderDriverKind,
+  type KeybindingCommand,
   ProjectId,
   type MessageId,
   type ModelSelection,
@@ -654,6 +655,43 @@ export function buildRunningThreadTurnInterruptInput(
     return null;
   }
   return buildThreadTurnInterruptInput(thread);
+}
+
+export type ChatScopedShortcutAction = "focus-composer" | "interrupt-turn";
+
+/**
+ * Chat-scoped shortcuts act only when their target exists; otherwise the keys
+ * pass through (e.g. to a dialog or the model picker).
+ */
+export function resolveChatScopedShortcutAction(input: {
+  command: KeybindingCommand | null;
+  hasComposer: boolean;
+  canInterrupt: boolean;
+  modelPickerOpen: boolean;
+}): ChatScopedShortcutAction | null {
+  if (input.modelPickerOpen) return null;
+  if (input.command === "chat.composer.focus") {
+    return input.hasComposer ? "focus-composer" : null;
+  }
+  if (input.command === "thread.stop") {
+    return input.canInterrupt ? "interrupt-turn" : null;
+  }
+  return null;
+}
+
+/** Claims `scope` until the returned release runs; null while it is already claimed. */
+export function acquireScopedActionLock(
+  inFlightScopes: Set<string>,
+  scope: string,
+): (() => void) | null {
+  if (inFlightScopes.has(scope)) return null;
+  inFlightScopes.add(scope);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    inFlightScopes.delete(scope);
+  };
 }
 
 export function reconcileMountedTerminalThreadIds(input: {

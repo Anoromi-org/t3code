@@ -73,6 +73,7 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
+  canRunStandaloneComposerSlashCommand,
   clampCollapsedComposerCursor,
   type ComposerSubmissionIntent,
   type ComposerTrigger,
@@ -278,7 +279,12 @@ import {
   searchSlashCommandItems,
   slashCommandItemsForPromptPosition,
 } from "./composerSlashCommandSearch";
-import { replaceProviderOptionSelection, resolveReasoningDescriptor } from "./composerSlashActions";
+import {
+  replaceProviderOptionSelection,
+  resolveFastModeDescriptor,
+  resolveReasoningDescriptor,
+  toggleFastModeOptionSelection,
+} from "./composerSlashActions";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
@@ -2095,25 +2101,42 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const selectedPromptEffort = composerProviderState.promptEffort;
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
+  const selectedModelCapabilities = useMemo(
+    () =>
+      getProviderModelCapabilities(
+        selectedProviderModels,
+        selectedModel,
+        selectedProvider,
+        settings.planModeEnabled,
+      ),
+    [selectedModel, selectedProvider, selectedProviderModels, settings.planModeEnabled],
+  );
   const reasoningDescriptor = useMemo(
     () =>
       resolveReasoningDescriptor({
-        capabilities: getProviderModelCapabilities(
-          selectedProviderModels,
-          selectedModel,
-          selectedProvider,
-          settings.planModeEnabled,
-        ),
+        capabilities: selectedModelCapabilities,
         selections: selectedModelOptionsForDispatch,
       }),
-    [
-      selectedModel,
-      selectedModelOptionsForDispatch,
-      selectedProvider,
-      selectedProviderModels,
-      settings.planModeEnabled,
-    ],
+    [selectedModelCapabilities, selectedModelOptionsForDispatch],
   );
+  const fastModeDescriptor = useMemo(
+    () =>
+      resolveFastModeDescriptor({
+        capabilities: selectedModelCapabilities,
+        selections: selectedModelOptionsForDispatch,
+      }),
+    [selectedModelCapabilities, selectedModelOptionsForDispatch],
+  );
+  // Matches ChatView's send path: multi-model sends keep slash text as a message.
+  const canRunStandaloneSlashCommand =
+    multipleModelSelections === null &&
+    canRunStandaloneComposerSlashCommand({
+      imageCount: composerImages.length,
+      fileCount: composerFiles.length,
+      terminalContextCount: composerTerminalContexts.length,
+      previewAnnotationCount: composerPreviewAnnotations.length,
+      reviewCommentCount: composerReviewComments.length,
+    });
   const { enabled: planModeUiEnabled, interactionMode } = resolveComposerInteractionMode({
     planModeEnabled: settings.planModeEnabled,
     provider: selectedProviderStatus,
@@ -2607,6 +2630,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               },
             ]
           : []),
+        ...(fastModeDescriptor && canRunStandaloneSlashCommand
+          ? [
+              {
+                id: "slash:fast",
+                type: "slash-command" as const,
+                command: "fast" as const,
+                label: "/fast",
+                description: fastModeDescriptor.currentValue
+                  ? "Turn off fast mode"
+                  : "Turn on fast mode",
+              },
+            ]
+          : []),
         ...(reasoningDescriptor
           ? [
               {
@@ -2728,6 +2764,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     areBranchRefsExhausted,
     gitBranches,
     isVcsSlashQueryDebounced,
+    canRunStandaloneSlashCommand,
+    fastModeDescriptor,
     planModeUiEnabled,
     reasoningDescriptor,
     runContext,
@@ -3916,8 +3954,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           }
           return;
         }
-        if (!planModeUiEnabled) return;
-        void handleInteractionModeChange(item.command);
+        if (item.command === "fast") {
+          const nextOptions = toggleFastModeOptionSelection({
+            capabilities: selectedModelCapabilities,
+            selections: selectedModelOptionsForDispatch,
+          });
+          if (!nextOptions) return;
+          setComposerDraftProviderModelOptions(composerDraftTarget, selectedProvider, nextOptions, {
+            instanceId: selectedInstanceId,
+            model: selectedModel,
+            persistSticky: true,
+          });
+        } else {
+          if (!planModeUiEnabled) return;
+          void handleInteractionModeChange(item.command);
+        }
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
         });
@@ -4090,6 +4141,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       runContext,
       selectedInstanceId,
       selectedModel,
+      selectedModelCapabilities,
       selectedModelOptionsForDispatch,
       selectedProvider,
       setComposerDraftProviderModelOptions,

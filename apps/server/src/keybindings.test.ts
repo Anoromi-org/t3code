@@ -398,7 +398,148 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("projectActions.toggle"), "mod+p");
       assert.equal(defaultsByCommand.get("filePicker.toggle"), "mod+shift+p");
       assert.equal(defaultsByCommand.get("thread.pin"), "mod+alt+shift+p");
+      assert.equal(defaultsByCommand.get("thread.copyReference"), "mod+alt+shift+c");
+      assert.equal(defaultsByCommand.get("thread.settle"), "mod+alt+shift+s");
+      assert.equal(defaultsByCommand.get("chat.composer.focus"), "mod+shift+s");
+      assert.equal(defaultsByCommand.get("thread.stop"), "mod+shift+c");
     }),
+  );
+
+  it.effect("preserves customized chat-scoped shortcuts", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+alt+s", command: "chat.composer.focus", when: "!terminalFocus" },
+        { key: "mod+alt+c", command: "thread.stop", when: "!terminalFocus" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(
+        persisted
+          .filter(
+            (rule) => rule.command === "chat.composer.focus" || rule.command === "thread.stop",
+          )
+          .map((rule) => [rule.command, rule.key]),
+        [
+          ["chat.composer.focus", "mod+alt+s"],
+          ["thread.stop", "mod+alt+c"],
+        ],
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("renames the fork interrupt binding to thread.stop and keeps its key", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      yield* fileSystem.makeDirectory(path.dirname(keybindingsConfigPath), { recursive: true });
+      // A fork file: its own chat shortcuts plus the already-moved upstream defaults.
+      yield* fileSystem.writeFileString(
+        keybindingsConfigPath,
+        `[
+  { "key": "ctrl+s", "command": "chat.composer.focus", "when": "!terminalFocus" },
+  { "key": "ctrl+shift+c", "command": "thread.interrupt", "when": "!terminalFocus" },
+  { "key": "mod+alt+shift+c", "command": "thread.copyReference", "when": "!terminalFocus" },
+  { "key": "mod+alt+shift+s", "command": "thread.settle", "when": "!terminalFocus" }
+]
+`,
+      );
+
+      const keybindings = yield* Keybindings.Keybindings;
+      const runtime = yield* keybindings.loadConfigState;
+      assert.deepEqual(runtime.issues, []);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(
+        persisted.filter((rule) => rule.command === "thread.stop"),
+        [{ key: "ctrl+shift+c", command: "thread.stop", when: "!terminalFocus" }],
+      );
+      assert.isFalse(persisted.some((rule) => String(rule.command) === "thread.interrupt"));
+      for (const [command, key] of [
+        ["chat.composer.focus", "ctrl+s"],
+        ["thread.copyReference", "mod+alt+shift+c"],
+        ["thread.settle", "mod+alt+shift+s"],
+      ] as const) {
+        assert.deepEqual(
+          persisted.filter((rule) => rule.command === command).map((rule) => rule.key),
+          [key],
+        );
+      }
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("moves generated settle and copy-reference defaults off the chat shortcuts", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+shift+c", command: "thread.copyReference", when: "!terminalFocus" },
+        { key: "mod+shift+s", command: "thread.settle", when: "!terminalFocus" },
+        { key: "mod+alt+s", command: "thread.settle" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      const keysFor = (command: string) =>
+        persisted.filter((rule) => rule.command === command).map((rule) => rule.key);
+      assert.deepEqual(keysFor("thread.copyReference"), ["mod+alt+shift+c"]);
+      assert.deepEqual(keysFor("thread.settle"), ["mod+alt+shift+s", "mod+alt+s"]);
+      assert.deepEqual(keysFor("chat.composer.focus"), ["mod+shift+s"]);
+      assert.deepEqual(keysFor("thread.stop"), ["mod+shift+c"]);
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("keeps settle and copy reference set back after the chat shortcuts exist", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+alt+s", command: "chat.composer.focus", when: "!terminalFocus" },
+        { key: "mod+alt+c", command: "thread.stop", when: "!terminalFocus" },
+        { key: "mod+shift+c", command: "thread.copyReference", when: "!terminalFocus" },
+        { key: "mod+shift+s", command: "thread.settle", when: "!terminalFocus" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some(
+          (rule) => rule.command === "thread.copyReference" && rule.key === "mod+shift+c",
+        ),
+      );
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "thread.settle" && rule.key === "mod+shift+s"),
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("backfills composer focus without displacing an existing stash default", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+s", command: "composer.stash", when: "!terminalFocus" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "composer.stash" && rule.key === "mod+s"),
+      );
+      assert.isTrue(
+        persisted.some(
+          (rule) => rule.command === "chat.composer.focus" && rule.key === "mod+shift+s",
+        ),
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
   it.effect("uses defaults in runtime when config is malformed without overriding file", () =>

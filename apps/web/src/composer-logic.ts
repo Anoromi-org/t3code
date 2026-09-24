@@ -14,9 +14,11 @@ export type ComposerSlashCommand =
   | "model"
   | "plan"
   | "default"
+  | "fast"
   | "reasoning"
   | "branch"
   | "worktree";
+type ComposerStandaloneSlashCommand = Extract<ComposerSlashCommand, "plan" | "default" | "fast">;
 export type ComposerMenuSlashCommand = Extract<
   ComposerSlashCommand,
   "reasoning" | "branch" | "worktree"
@@ -326,14 +328,36 @@ export function composerStateAtPromptEnd(text: string): {
 
 export function parseStandaloneComposerSlashCommand(
   text: string,
-): Extract<ComposerSlashCommand, "plan" | "default"> | null {
-  const match = /^\/(plan|default)\s*$/i.exec(text.trim());
+): ComposerStandaloneSlashCommand | null {
+  const match = /^\/(plan|default|fast)\s*$/i.exec(text.trim());
   if (!match) {
     return null;
   }
   const command = match[1]?.toLowerCase();
   if (command === "plan") return "plan";
+  if (command === "fast") return "fast";
   return "default";
+}
+
+/**
+ * Standalone slash actions (`/plan`, `/default`, `/fast`) only run from an
+ * otherwise empty composer; any attached context (including expired terminal
+ * pills) means the text is a message.
+ */
+export function canRunStandaloneComposerSlashCommand(input: {
+  imageCount: number;
+  fileCount: number;
+  terminalContextCount: number;
+  previewAnnotationCount: number;
+  reviewCommentCount: number;
+}): boolean {
+  return (
+    input.imageCount === 0 &&
+    input.fileCount === 0 &&
+    input.terminalContextCount === 0 &&
+    input.previewAnnotationCount === 0 &&
+    input.reviewCommentCount === 0
+  );
 }
 
 export function replaceTextRange(

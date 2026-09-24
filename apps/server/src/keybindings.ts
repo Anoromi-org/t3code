@@ -229,40 +229,65 @@ const decodeRawKeybindingsEntriesExit = Schema.decodeUnknownExit(RawKeybindingsE
 const encodeKeybindingsConfigPrettyJson = Schema.encodeEffect(KeybindingsConfigPrettyJson);
 
 // Generated upstream defaults that the fork moved, keyed by command. Only an
-// exact generated rule moves; any customized binding is left alone.
+// exact generated rule moves, and only while the file predates the fork
+// command that took its key (no rule for any `gate` command yet). The startup
+// backfill then adds that command, so a binding the user later sets back is
+// never moved again. Customized bindings are left alone.
 const MOVED_GENERATED_DEFAULTS: ReadonlyMap<
   string,
-  { readonly from: string; readonly to: string }
+  { readonly from: string; readonly to: string; readonly gate: ReadonlyArray<string> }
 > = new Map([
   // Project actions own Mod+P, so the file picker takes Mod+Shift+P...
-  ["filePicker.toggle", { from: "mod+p", to: "mod+shift+p" }],
+  [
+    "filePicker.toggle",
+    { from: "mod+p", to: "mod+shift+p", gate: ["projectActions.toggle", "commandBar.toggle"] },
+  ],
   // ...which pushes pinning to Mod+Alt+Shift+P.
-  ["thread.pin", { from: "mod+shift+p", to: "mod+alt+shift+p" }],
+  [
+    "thread.pin",
+    {
+      from: "mod+shift+p",
+      to: "mod+alt+shift+p",
+      gate: ["projectActions.toggle", "commandBar.toggle"],
+    },
+  ],
+  // Composer focus owns Mod+Shift+S.
+  ["thread.settle", { from: "mod+shift+s", to: "mod+alt+shift+s", gate: ["chat.composer.focus"] }],
+  // Stopping the running turn owns Mod+Shift+C.
+  [
+    "thread.copyReference",
+    { from: "mod+shift+c", to: "mod+alt+shift+c", gate: ["thread.stop", "thread.interrupt"] },
+  ],
 ]);
 
-function hasCommand(entry: unknown, command: string): entry is { readonly command: string } {
-  return Predicate.hasProperty(entry, "command") && entry.command === command;
-}
+// Fork commands renamed to their upstream equivalents.
+const RENAMED_COMMANDS: ReadonlyMap<string, string> = new Map([
+  ["commandBar.toggle", "projectActions.toggle"],
+  ["thread.interrupt", "thread.stop"],
+]);
 
 /**
- * Fork renames applied while reading the file: the old command bar became
- * project actions, and generated defaults displaced by project actions move.
- * Defaults move only in a file from before project actions (no rule for it
- * yet); the startup backfill then adds one, so a binding the user later sets
- * back is never moved again.
+ * Fork migrations applied while reading the file: renamed fork commands take
+ * their upstream names, and generated defaults displaced by fork shortcuts
+ * move (see MOVED_GENERATED_DEFAULTS).
  */
-function migrateLegacyProjectActionsEntries(entries: ReadonlyArray<unknown>): {
+function migrateLegacyForkEntries(entries: ReadonlyArray<unknown>): {
   readonly entries: ReadonlyArray<unknown>;
   readonly migrated: boolean;
 } {
-  const movesDefaults = !entries.some(
-    (entry) => hasCommand(entry, "projectActions.toggle") || hasCommand(entry, "commandBar.toggle"),
+  const presentCommands = new Set(
+    entries.flatMap((entry) =>
+      Predicate.hasProperty(entry, "command") && typeof entry.command === "string"
+        ? [entry.command]
+        : [],
+    ),
   );
   const moveFor = (entry: unknown) => {
-    if (!movesDefaults || !Predicate.hasProperty(entry, "command")) return undefined;
+    if (!Predicate.hasProperty(entry, "command")) return undefined;
     const moved =
       typeof entry.command === "string" ? MOVED_GENERATED_DEFAULTS.get(entry.command) : undefined;
     return moved &&
+      !moved.gate.some((command) => presentCommands.has(command)) &&
       Predicate.hasProperty(entry, "key") &&
       entry.key === moved.from &&
       Predicate.hasProperty(entry, "when") &&
@@ -289,9 +314,13 @@ function migrateLegacyProjectActionsEntries(entries: ReadonlyArray<unknown>): {
   }
   let migrated = false;
   const next = entries.map((entry) => {
-    if (hasCommand(entry, "commandBar.toggle")) {
+    const renamed =
+      Predicate.hasProperty(entry, "command") && typeof entry.command === "string"
+        ? RENAMED_COMMANDS.get(entry.command)
+        : undefined;
+    if (renamed !== undefined) {
       migrated = true;
-      return { ...entry, command: "projectActions.toggle" };
+      return { ...(entry as object), command: renamed };
     }
     const to = moving.has(entry) ? moveFor(entry)?.to : undefined;
     if (to === undefined) return entry;
@@ -449,7 +478,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-    return yield* Effect.forEach(migrateLegacyProjectActionsEntries(rawConfig).entries, (entry) =>
+    return yield* Effect.forEach(migrateLegacyForkEntries(rawConfig).entries, (entry) =>
       Effect.gen(function* () {
         const decodedRule = decodeKeybindingRuleExit(entry);
         if (decodedRule._tag === "Failure") {
@@ -499,7 +528,7 @@ const make = Effect.gen(function* () {
 
     const keybindings: KeybindingRule[] = [];
     const issues: ServerConfigIssue[] = [];
-    const { entries, migrated: migratedLegacyEntries } = migrateLegacyProjectActionsEntries(
+    const { entries, migrated: migratedLegacyEntries } = migrateLegacyForkEntries(
       decodedEntries.value,
     );
     for (const [index, entry] of entries.entries()) {

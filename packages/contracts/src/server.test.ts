@@ -137,6 +137,28 @@ describe("server config forward compatibility", () => {
     ]);
   });
 
+  // Servers can ship keybinding commands an installed client predates (e.g.
+  // chat.composer.focus); the element drops instead of failing the config.
+  it("drops keybinding commands this build does not know", () => {
+    const shortcut = {
+      key: "s",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: true,
+      altKey: false,
+      modKey: true,
+    };
+    const parsed = decodeUpsertKeybindingResult({
+      keybindings: [
+        { command: "some.future.command", shortcut },
+        { command: "chat.composer.focus", shortcut },
+      ],
+      issues: [],
+    });
+
+    expect(parsed.keybindings).toEqual([{ command: "chat.composer.focus", shortcut }]);
+  });
+
   it("drops editor ids this build does not know", () => {
     const parsed = decodeAvailableEditors(["zed", "some-future-editor", "vscode"]);
 

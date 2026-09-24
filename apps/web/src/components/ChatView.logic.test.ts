@@ -34,6 +34,7 @@ import {
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   agentControlledBrowserCloseConfirmation,
+  acquireScopedActionLock,
   branchMismatchKey,
   buildExpiredTerminalContextToastCopy,
   buildLoadingThreadFromShell,
@@ -64,6 +65,7 @@ import {
   resolveProactiveTurnDiffAction,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
+  resolveChatScopedShortcutAction,
   threadShellHasStarted,
   resolveDraftHeroState,
   isPaintOnlyThreadTimeline,
@@ -2428,5 +2430,65 @@ describe("worktree setup visibility", () => {
       ...settledDone,
       sequence: 9,
     });
+  });
+});
+
+describe("resolveChatScopedShortcutAction", () => {
+  const idle = { hasComposer: true, canInterrupt: false, modelPickerOpen: false };
+
+  it("focuses an available composer", () => {
+    expect(resolveChatScopedShortcutAction({ ...idle, command: "chat.composer.focus" })).toBe(
+      "focus-composer",
+    );
+    expect(
+      resolveChatScopedShortcutAction({
+        ...idle,
+        command: "chat.composer.focus",
+        hasComposer: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("interrupts only a running session", () => {
+    expect(
+      resolveChatScopedShortcutAction({ ...idle, command: "thread.stop", canInterrupt: true }),
+    ).toBe("interrupt-turn");
+    expect(resolveChatScopedShortcutAction({ ...idle, command: "thread.stop" })).toBeNull();
+  });
+
+  it("leaves the open model picker in control", () => {
+    for (const command of ["chat.composer.focus", "thread.stop"] as const) {
+      expect(
+        resolveChatScopedShortcutAction({
+          command,
+          hasComposer: true,
+          canInterrupt: true,
+          modelPickerOpen: true,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it("ignores other commands", () => {
+    expect(
+      resolveChatScopedShortcutAction({ ...idle, command: "thread.settle", canInterrupt: true }),
+    ).toBeNull();
+    expect(resolveChatScopedShortcutAction({ ...idle, command: null })).toBeNull();
+  });
+});
+
+describe("acquireScopedActionLock", () => {
+  it("blocks duplicate work per scope without blocking another scope", () => {
+    const inFlightScopes = new Set<string>();
+    const releaseFirst = acquireScopedActionLock(inFlightScopes, "thread-a");
+
+    expect(releaseFirst).not.toBeNull();
+    expect(acquireScopedActionLock(inFlightScopes, "thread-a")).toBeNull();
+    const releaseSecond = acquireScopedActionLock(inFlightScopes, "thread-b");
+    expect(releaseSecond).not.toBeNull();
+
+    releaseFirst?.();
+    expect(acquireScopedActionLock(inFlightScopes, "thread-a")).not.toBeNull();
+    releaseSecond?.();
   });
 });

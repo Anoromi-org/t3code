@@ -42,7 +42,7 @@ describe("KeybindingsSettings.logic", () => {
     (query) => {
       const rows = buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, query);
       expect(rows).toContainEqual(
-        expect.objectContaining({ command: "thread.copyReference", key: "mod+shift+c" }),
+        expect.objectContaining({ command: "thread.copyReference", key: "mod+alt+shift+c" }),
       );
     },
   );
@@ -248,9 +248,11 @@ describe("KeybindingsSettings.logic", () => {
         "script.setup-db.run",
       ]),
     );
-    expect(DEFAULT_RESOLVED_KEYBINDINGS.some((binding) => binding.command === "thread.stop")).toBe(
-      false,
-    );
+    expect(
+      DEFAULT_RESOLVED_KEYBINDINGS.some(
+        (binding) => binding.command === "rightPanel.toggleMaximized",
+      ),
+    ).toBe(false);
   });
 
   it("reports unknown when variables without rejecting parseable expressions", () => {

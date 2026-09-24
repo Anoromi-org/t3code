@@ -527,6 +527,29 @@ describe("shortcutLabelForCommand", () => {
   });
 });
 
+describe("default composer shortcuts", () => {
+  it("keeps stash and focus independently reachable", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "s", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "composer.stash",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "s", metaKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        {
+          platform: "MacIntel",
+          context: { terminalFocus: false },
+        },
+      ),
+      "chat.composer.focus",
+    );
+  });
+});
+
 describe("isProjectActionsShortcut", () => {
   it("matches Mod+P outside terminal focus", () => {
     const input = event({ key: "p", ctrlKey: true });
@@ -1263,14 +1286,14 @@ describe("composer and pull request shortcuts", () => {
         { key: "mod+shift+8", command: "thread.copyReference", when: "!terminalFocus" },
       ]),
     ]);
-    for (const [key, command] of [
-      ["k", "pullRequest.copyNumber"],
-      ["8", "thread.copyReference"],
-      ["c", null],
-      ["y", null],
+    for (const [key, altKey, command] of [
+      ["k", false, "pullRequest.copyNumber"],
+      ["8", false, "thread.copyReference"],
+      ["c", true, null],
+      ["y", false, null],
     ] as const) {
       assert.strictEqual(
-        resolveShortcutCommand(event({ key, metaKey: true, shiftKey: true }), bindings, {
+        resolveShortcutCommand(event({ key, metaKey: true, shiftKey: true, altKey }), bindings, {
           platform: "MacIntel",
         }),
         command,
@@ -1305,7 +1328,7 @@ describe("composer and pull request shortcuts", () => {
     ["x", "composer.workspace"],
     ["g", "composer.branch"],
     ["l", "composer.previousWorktree"],
-    ["c", "thread.copyReference"],
+    ["c", "thread.stop"],
     ["k", "pullRequest.copyNumber"],
     ["Enter", "thread.steerQueuedMessage"],
   ] as const;
@@ -1339,7 +1362,7 @@ describe("composer and pull request shortcuts", () => {
 
   for (const platform of ["MacIntel", "Win32", "Linux"]) {
     it.each([
-      ["s", "thread.settle"],
+      ["s", "chat.composer.focus"],
       ["p", "filePicker.toggle"],
     ])(`preserves the existing %s shortcut on ${platform}`, (key, command) => {
       assert.strictEqual(
@@ -1441,4 +1464,24 @@ describe("composer and pull request shortcuts", () => {
       );
     });
   }
+});
+
+describe("fork and upstream default shortcuts", () => {
+  it.each([
+    ["s", false, "chat.composer.focus"],
+    ["c", false, "thread.stop"],
+    ["p", false, "filePicker.toggle"],
+    ["s", true, "thread.settle"],
+    ["c", true, "thread.copyReference"],
+    ["p", true, "thread.pin"],
+  ] as const)("resolves %s with alt=%s to %s", (key, altKey, command) => {
+    assert.equal(
+      resolveShortcutCommand(
+        event({ key, ctrlKey: true, shiftKey: true, altKey }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux", context: { terminalFocus: false, modelPickerOpen: false } },
+      ),
+      command,
+    );
+  });
 });

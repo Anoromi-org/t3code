@@ -124,6 +124,7 @@ import { readLocalApi } from "../localApi";
 import { routeDiffShortcut } from "./externalCorkdiffRouting";
 import { useDiffPanelStore } from "../diffPanelStore";
 import {
+  canRunStandaloneComposerSlashCommand,
   collapseExpandedComposerCursor,
   type ComposerSubmissionIntent,
   parseStandaloneComposerSlashCommand,
@@ -179,6 +180,7 @@ import {
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { isAnyCommandSurfaceOpen, isCommandSurfaceOpen } from "../commandSurface";
+import { useChatScopedShortcuts } from "../hooks/useChatScopedShortcuts";
 import { subscribeSnapShotComposerFocus } from "../lib/desktopSnapShot";
 import {
   buildTemporaryWorktreeBranchName,
@@ -434,6 +436,7 @@ import {
 } from "./chat/draftHeroTransition";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
+  acquireScopedActionLock,
   agentControlledBrowserCloseConfirmation,
   branchMismatchKey,
   buildExpiredTerminalContextToastCopy,
@@ -513,6 +516,7 @@ import { previewEnvironment } from "../state/preview";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { fileAttachmentCapabilityBlockReason } from "./chat/composerAttachmentFiles";
+import { toggleFastModeOptionSelection } from "./chat/composerSlashActions";
 import { assetEnvironment } from "../state/assets";
 import { readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -1662,6 +1666,9 @@ export default function ChatView(props: ChatViewProps) {
   );
   const setComposerDraftReviewComments = useComposerDraftStore((store) => store.setReviewComments);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const setComposerDraftProviderModelOptions = useComposerDraftStore(
+    (store) => store.setProviderModelOptions,
+  );
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
@@ -4053,25 +4060,30 @@ export default function ChatView(props: ChatViewProps) {
   const restoreQueuedMessagesRef = useRef<(messages: ReadonlyArray<QueuedComposerMessage>) => void>(
     () => {},
   );
+  const interruptInFlightThreadKeysRef = useRef(new Set<string>());
   const onInterrupt = useCallback(async () => {
     const { activeThread, phase, setThreadError } = interruptContextRef.current;
     const input = buildRunningThreadTurnInterruptInput(activeThread, phase);
     if (!input || !activeThread) return;
-    restoreQueuedMessagesRef.current(
-      useQueuedMessageStore
-        .getState()
-        .drain(scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))),
-    );
-    const result = await interruptThreadTurn({
-      environmentId: activeThread.environmentId,
-      input,
-    });
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      const error = squashAtomCommandFailure(result);
-      setThreadError(
-        activeThread.id,
-        error instanceof Error ? error.message : "Failed to interrupt the current turn.",
-      );
+    const threadKey = scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id));
+    // The stop button and shortcut share one in-flight interrupt per thread.
+    const release = acquireScopedActionLock(interruptInFlightThreadKeysRef.current, threadKey);
+    if (!release) return;
+    try {
+      restoreQueuedMessagesRef.current(useQueuedMessageStore.getState().drain(threadKey));
+      const result = await interruptThreadTurn({
+        environmentId: activeThread.environmentId,
+        input,
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to interrupt the current turn.",
+        );
+      }
+    } finally {
+      release();
     }
   }, [interruptThreadTurn]);
   const canInterruptRunningThread =
@@ -7027,16 +7039,6 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "thread.stop") {
-        // An unavailable command should not shadow contextual shortcuts such as Escape to close a dialog.
-        if (!canInterruptRunningThread) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.repeat) return;
-        void onInterrupt();
-        return;
-      }
-
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
       const script = activeProjectScripts.find((entry) => entry.id === scriptId);
@@ -7055,7 +7057,6 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadRef,
     activeThreadPinned,
     activeThreadSettled,
-    canInterruptRunningThread,
     activeThreadKey,
     terminalUiState.terminalOpen,
     terminalUiState.activeTerminalId,
@@ -7071,7 +7072,6 @@ export default function ChatView(props: ChatViewProps) {
     keybindings,
     handleUnsettleActiveThread,
     isServerThread,
-    onInterrupt,
     onToggleDiffShortcut,
     pinThread,
     settleThread,
@@ -7085,6 +7085,17 @@ export default function ChatView(props: ChatViewProps) {
     toggleTerminalVisibility,
     composerRef,
   ]);
+
+  const getHasComposer = useCallback(() => composerRef.current !== null, [composerRef]);
+  useChatScopedShortcuts({
+    enabled: activeThreadId !== null,
+    keybindings,
+    canInterrupt: canInterruptRunningThread,
+    getHasComposer,
+    getShortcutContext,
+    onFocusComposer: focusComposer,
+    onInterruptTurn: onInterrupt,
+  });
 
   // Paste-to-focus: the resting composer blurs on a click into the timeline,
   // so a paste that follows has no editable target and would be dropped.
@@ -7656,6 +7667,47 @@ export default function ChatView(props: ChatViewProps) {
 
       return;
     }
+    const parsedStandaloneSlashCommand =
+      !queuedMessage &&
+      multipleModelSelections === null &&
+      canRunStandaloneComposerSlashCommand({
+        imageCount: composerImages.length,
+        fileCount: composerFiles.length,
+        terminalContextCount: composerTerminalContexts.length,
+        previewAnnotationCount: composerPreviewAnnotations.length,
+        reviewCommentCount: composerReviewComments.length,
+      })
+        ? parseStandaloneComposerSlashCommand(trimmed)
+        : null;
+    // /fast needs a live fast-mode option and runs even while a plan
+    // follow-up is offered; otherwise providers receive it unchanged.
+    if (parsedStandaloneSlashCommand === "fast") {
+      const nextOptions = toggleFastModeOptionSelection({
+        capabilities: getProviderModelCapabilities(
+          ctxSelectedProviderModels,
+          ctxSelectedModel,
+          ctxSelectedProvider,
+          settings.planModeEnabled,
+        ),
+        selections: ctxSelectedModelSelection.options,
+      });
+      if (nextOptions) {
+        setComposerDraftProviderModelOptions(
+          composerDraftTarget,
+          ctxSelectedProvider,
+          nextOptions,
+          {
+            instanceId: ctxSelectedModelSelection.instanceId,
+            model: ctxSelectedModel,
+            persistSticky: true,
+          },
+        );
+        promptRef.current = "";
+        clearComposerDraftContent(composerDraftTarget);
+        composerRef.current?.resetCursorState();
+        return;
+      }
+    }
     if (
       !directAnnotation &&
       !queuedMessage &&
@@ -7720,18 +7772,13 @@ export default function ChatView(props: ChatViewProps) {
       }
       return;
     }
-    // Providers without the legacy toggle receive their native commands unchanged.
-    const standaloneSlashCommand =
-      sendInteractionModeEnabled &&
-      composerImages.length === 0 &&
-      composerFiles.length === 0 &&
-      sendableComposerTerminalContexts.length === 0 &&
-      composerPreviewAnnotations.length === 0 &&
-      composerReviewComments.length === 0
-        ? parseStandaloneComposerSlashCommand(trimmed)
-        : null;
-    if (standaloneSlashCommand && !queuedMessage && multipleModelSelections === null) {
-      handleInteractionModeChange(standaloneSlashCommand);
+    // Plan mode stays behind its setting; otherwise providers receive their
+    // native commands unchanged.
+    if (
+      (parsedStandaloneSlashCommand === "plan" || parsedStandaloneSlashCommand === "default") &&
+      sendInteractionModeEnabled
+    ) {
+      handleInteractionModeChange(parsedStandaloneSlashCommand);
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
       composerRef.current?.resetCursorState();

@@ -6,6 +6,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
+  type ModelSelection,
   type ResolvedKeybindingsConfig,
   type ServerProvider,
   type VcsRef,
@@ -192,6 +193,8 @@ async function mountComposer(
     runContextBranch?: string | null;
     isRunContextBranchPending?: boolean;
     planModeEnabled?: boolean;
+    providerStatuses?: ReadonlyArray<ServerProvider>;
+    multipleModelSelections?: ReadonlyArray<ModelSelection> | null;
   } = {},
 ) {
   const composerRef = createRef<ChatComposerHandle>();
@@ -225,7 +228,7 @@ async function mountComposer(
         routeKind="draft"
         routeThreadRef={scopeThreadRef(ENVIRONMENT_ID, THREAD_ID)}
         draftId={DRAFT_ID}
-        multipleModelSelections={null}
+        multipleModelSelections={options.multipleModelSelections ?? null}
         supportsMultipleModels={false}
         onMultipleModelSelectionsChange={vi.fn()}
         activeThreadId={THREAD_ID}
@@ -261,7 +264,7 @@ async function mountComposer(
         runtimeMode="full-access"
         interactionMode="default"
         lockedProvider={null}
-        providerStatuses={[provider]}
+        providerStatuses={[...(options.providerStatuses ?? [provider])]}
         providerCatalogKnown
         activeProjectDefaultModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
         activeThreadModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
@@ -525,7 +528,7 @@ describe.each([
     const mounted = await mountComposer();
     try {
       await page.getByTestId("composer-editor").fill("/");
-      for (const command of ["/model", "/branch", "/worktree", "/reasoning"]) {
+      for (const command of ["/model", "/branch", "/worktree", "/fast", "/reasoning"]) {
         await expect
           .element(page.getByRole("option", { name: new RegExp(`^${command}`) }))
           .toBeInTheDocument();
@@ -572,11 +575,106 @@ describe.each([
     }
   });
 
-  it("shows the provider's default reasoning level", async () => {
+  it("shows the provider default and toggles fast mode from the keyboard", async () => {
     const mounted = await mountComposer();
     try {
-      await page.getByTestId("composer-editor").fill("/reasoning ");
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/reasoning ");
       await expect.element(page.getByText("Normal (default)", { exact: true })).toBeInTheDocument();
+
+      await editor.fill("/fast");
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(() => {
+        expect(
+          useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.modelSelectionByProvider[
+            INSTANCE_ID
+          ]?.options,
+        ).toContainEqual({ id: "serviceTier", value: "priority" });
+        expect(
+          useComposerDraftStore.getState().stickyModelSelectionByProvider[INSTANCE_ID]?.options,
+        ).toContainEqual({ id: "serviceTier", value: "priority" });
+      });
+
+      await editor.fill("/fast");
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(() => {
+        expect(
+          useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.modelSelectionByProvider[
+            INSTANCE_ID
+          ]?.options,
+        ).toContainEqual({ id: "serviceTier", value: "default" });
+      });
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("leaves unsupported /fast available for normal submission", async () => {
+    const providerWithoutFast: ServerProvider = {
+      ...provider,
+      models: provider.models.map((model) => ({
+        ...model,
+        capabilities: { optionDescriptors: [] },
+      })),
+    };
+    const mounted = await mountComposer({ providerStatuses: [providerWithoutFast] });
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/fast");
+      await page.getByRole("button", { name: "Send message" }).click();
+      expect(mounted.onSend).toHaveBeenCalledTimes(1);
+      expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe("/fast");
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("keeps /fast as message text while sending to multiple models", async () => {
+    const mounted = await mountComposer({
+      multipleModelSelections: [
+        createModelSelection(INSTANCE_ID, MODEL),
+        createModelSelection(INSTANCE_ID, "other-model"),
+      ],
+    });
+    try {
+      await page.getByTestId("composer-editor").fill("/");
+      await expect.element(page.getByRole("option", { name: /^\/model/ })).toBeInTheDocument();
+      await expect.element(page.getByRole("option", { name: /^\/fast/ })).not.toBeInTheDocument();
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("submits /fast normally when composer context is attached", async () => {
+    const mounted = await mountComposer();
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/fast");
+      useComposerDraftStore.getState().setTerminalContexts(DRAFT_ID, [
+        {
+          id: "context-fast-test",
+          threadId: THREAD_ID,
+          terminalId: "default",
+          terminalLabel: "Terminal 1",
+          lineStart: 1,
+          lineEnd: 1,
+          text: "context",
+          createdAt: NOW,
+        },
+      ]);
+      await expect.element(page.getByRole("option", { name: /^\/fast/ })).not.toBeInTheDocument();
+      await editor.click();
+      await userEvent.keyboard("{Enter}");
+
+      expect(mounted.onSend).toHaveBeenCalledTimes(1);
+      expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toContain(
+        "/fast",
+      );
+      expect(
+        useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.modelSelectionByProvider[
+          INSTANCE_ID
+        ]?.options ?? [],
+      ).not.toContainEqual({ id: "serviceTier", value: "priority" });
     } finally {
       await mounted.screen.unmount();
     }
