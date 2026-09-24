@@ -30,6 +30,7 @@ import {
   type PreviewAnnotationPayload,
   ProviderInstanceId,
   type ServerProvider,
+  type ServerSettingsPatch,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
@@ -177,7 +178,7 @@ import {
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
-import { isAnyCommandSurfaceOpen } from "../commandSurface";
+import { isAnyCommandSurfaceOpen, isCommandSurfaceOpen } from "../commandSurface";
 import { subscribeSnapShotComposerFocus } from "../lib/desktopSnapShot";
 import {
   buildTemporaryWorktreeBranchName,
@@ -233,6 +234,12 @@ import {
   foldSubagentActivities,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
+import { ProjectActionsPanel } from "./ProjectActionsPanel";
+import {
+  resolveOpenProjectActionsShortcutDisposition,
+  type GitActionRequest,
+  type GitActionRequestKind,
+} from "./ProjectActionsPanel.logic";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -248,7 +255,7 @@ import {
 } from "lucide-react";
 import { cn, randomHex, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
+import { persistProjectScriptsAndKeybinding } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
   buildProjectScript,
@@ -1506,6 +1513,9 @@ export default function ChatView(props: ChatViewProps) {
     reportFailure: false,
   });
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
+    reportFailure: false,
+  });
+  const removeKeybinding = useAtomCommand(serverEnvironment.removeKeybinding, {
     reportFailure: false,
   });
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
@@ -3680,6 +3690,16 @@ export default function ChatView(props: ChatViewProps) {
     refresh: gitStatusQuery.refresh,
     resourceKey: `git-status:${activeThreadKey ?? ""}:${gitStatusCwd ?? ""}`,
   });
+  const [projectActionsOpen, setProjectActionsOpen] = useState(false);
+  // Git actions chosen in the project actions panel run through the header's
+  // GitActionsControl, which owns their dialogs and toasts.
+  const [requestedGitAction, setRequestedGitAction] = useState<GitActionRequest | null>(null);
+  const requestGitAction = useCallback((action: GitActionRequestKind) => {
+    setRequestedGitAction({ requestId: randomHex(12), action });
+  }, []);
+  const handleRequestedGitAction = useCallback((requestId: string) => {
+    setRequestedGitAction((current) => (current?.requestId === requestId ? null : current));
+  }, []);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
   const manualCompactionProviderAvailable = useMemo(
@@ -4385,52 +4405,55 @@ export default function ChatView(props: ChatViewProps) {
       keybinding?: string | null;
       keybindingCommand: KeybindingCommand | null;
     }): Promise<AtomCommandResult<void, unknown>> => {
-      const updateResult = mapAtomCommandResult(
-        await updateProjectScriptSettings({
-          environmentId,
-          input: {
-            // The canonical key on servers that understand it; the legacy
-            // per-project map is still translated on older ones.
-            patch: supportsProjectSettingsOverrides
-              ? {
-                  projectSettingsOverrides: {
-                    [input.projectId]: {
-                      ...settings.projectSettingsOverrides[input.projectId],
-                      defaultProjectScripts: input.nextScripts,
-                    },
-                  },
-                }
-              : {
-                  projectScriptOverrides: {
-                    [input.projectId]: input.nextScripts,
-                  },
+      const writeSettings = (patch: ServerSettingsPatch) =>
+        updateProjectScriptSettings({ environmentId, input: { patch } }).then((result) =>
+          mapAtomCommandResult(result, () => undefined),
+        );
+      // The canonical key on servers that understand it; the legacy
+      // per-project map is still translated on older ones.
+      const scriptsPatch = (scripts: ReadonlyArray<ProjectScript>): ServerSettingsPatch =>
+        supportsProjectSettingsOverrides
+          ? {
+              projectSettingsOverrides: {
+                [input.projectId]: {
+                  ...settings.projectSettingsOverrides[input.projectId],
+                  defaultProjectScripts: scripts,
                 },
-          },
-        }),
-        () => undefined,
-      );
-      if (updateResult._tag === "Failure") {
-        return updateResult;
-      }
-
-      const keybindingRule = decodeProjectScriptKeybindingRule({
+              },
+            }
+          : { projectScriptOverrides: { [input.projectId]: scripts } };
+      return persistProjectScriptsAndKeybinding({
+        // Shortcuts live on the thread's environment, so diff against its rules.
+        keybindings: environmentById.get(environmentId)?.serverConfig?.keybindings ?? keybindings,
         keybinding: input.keybinding,
         command: input.keybindingCommand,
+        persistKeybindings: isElectron,
+        updateScripts: () => writeSettings(scriptsPatch(input.nextScripts)),
+        rollbackScripts: () =>
+          writeSettings(
+            supportsProjectSettingsOverrides
+              ? {
+                  projectSettingsOverrides: {
+                    [input.projectId]: settings.projectSettingsOverrides[input.projectId] ?? null,
+                  },
+                }
+              : scriptsPatch(input.previousScripts),
+          ),
+        upsertKeybinding: (keybindingInput) =>
+          upsertKeybinding({ environmentId, input: keybindingInput }).then((result) =>
+            mapAtomCommandResult(result, () => undefined),
+          ),
+        removeKeybinding: (keybindingInput) =>
+          removeKeybinding({ environmentId, input: keybindingInput }).then((result) =>
+            mapAtomCommandResult(result, () => undefined),
+          ),
       });
-
-      if (isElectron && keybindingRule) {
-        return mapAtomCommandResult(
-          await upsertKeybinding({
-            environmentId,
-            input: keybindingRule,
-          }),
-          () => undefined,
-        );
-      }
-      return updateResult;
     },
     [
+      environmentById,
       environmentId,
+      keybindings,
+      removeKeybinding,
       settings.projectSettingsOverrides,
       supportsProjectSettingsOverrides,
       updateProjectScriptSettings,
@@ -4508,6 +4531,16 @@ export default function ChatView(props: ChatViewProps) {
       const nextScripts = activeProjectScripts.filter((script) => script.id !== scriptId);
 
       const deletedName = activeProjectScripts.find((s) => s.id === scriptId)?.name;
+      // Shortcuts are environment-wide per action id; keep them while the
+      // environment defaults or another project still has this action.
+      const sharedElsewhere =
+        settings.defaultProjectScripts.some((script) => script.id === scriptId) ||
+        allProjects.some(
+          (project) =>
+            project.environmentId === environmentId &&
+            project.id !== activeProject.id &&
+            resolveProjectScripts(settings, project).some((script) => script.id === scriptId),
+        );
 
       const result = await persistProjectScripts({
         projectId: activeProject.id,
@@ -4515,7 +4548,7 @@ export default function ChatView(props: ChatViewProps) {
         previousScripts: activeProjectScripts,
         nextScripts,
         keybinding: null,
-        keybindingCommand: commandForProjectScript(scriptId),
+        keybindingCommand: sharedElsewhere ? null : commandForProjectScript(scriptId),
       });
       if (result._tag === "Success") {
         toastManager.add({
@@ -4534,7 +4567,14 @@ export default function ChatView(props: ChatViewProps) {
       }
       return result;
     },
-    [activeProject, activeProjectScripts, persistProjectScripts],
+    [
+      activeProject,
+      activeProjectScripts,
+      allProjects,
+      environmentId,
+      persistProjectScripts,
+      settings,
+    ],
   );
 
   const handleRuntimeModeChange = useCallback(
@@ -6752,9 +6792,23 @@ export default function ChatView(props: ChatViewProps) {
         event.stopPropagation();
         return;
       }
-      if (!activeThreadId || isAnyCommandSurfaceOpen()) {
+      if (!activeThreadId) return;
+      if (isCommandSurfaceOpen("project-actions")) {
+        // The panel is modal: its own toggle closes it, and every other
+        // resolved shortcut is swallowed so it cannot act behind the panel.
+        // Unbound keys (typing, arrows, Escape) reach the panel untouched.
+        const command = resolveShortcutCommand(event, keybindings, {
+          context: { ...getShortcutContext(event.target), terminalFocus: false },
+        });
+        const disposition = resolveOpenProjectActionsShortcutDisposition(command);
+        if (disposition !== "ignore") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (disposition === "close") setProjectActionsOpen(false);
+        }
         return;
       }
+      if (isAnyCommandSurfaceOpen()) return;
       const terminalFocusOwner = getTerminalFocusOwner();
       if (event.defaultPrevented && terminalFocusOwner === null) {
         return;
@@ -6805,6 +6859,14 @@ export default function ChatView(props: ChatViewProps) {
             }),
           );
         });
+        return;
+      }
+
+      if (command === "projectActions.toggle") {
+        if (!activeProject) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setProjectActionsOpen(true);
         return;
       }
 
@@ -10096,6 +10158,8 @@ export default function ChatView(props: ChatViewProps) {
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
+            requestedGitAction={requestedGitAction}
+            onRequestedGitActionHandled={handleRequestedGitAction}
           />
         </WorkspacePageHeader>
 
@@ -10734,6 +10798,19 @@ export default function ChatView(props: ChatViewProps) {
           onClose={closeExpandedImage}
         />
       )}
+      {activeProject ? (
+        <ProjectActionsPanel
+          availableEditors={availableEditors}
+          environmentId={activeThread.environmentId}
+          gitCwd={gitCwd}
+          keybindings={keybindings}
+          onOpenChange={setProjectActionsOpen}
+          onRequestGitAction={requestGitAction}
+          onRunProjectScript={runProjectScript}
+          open={projectActionsOpen}
+          scripts={activeProjectScripts}
+        />
+      ) : null}
     </div>
   );
 }

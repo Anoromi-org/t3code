@@ -10,6 +10,7 @@ import {
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ServerSettings,
+  type ServerSettingsPatch,
 } from "@t3tools/contracts";
 import { resolveProjectScripts } from "@t3tools/shared/projectScripts";
 import { clearProjectSettingsOverrides } from "@t3tools/shared/projectSettings";
@@ -19,8 +20,8 @@ import { useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import {
-  decodeProjectScriptKeybindingRule,
-  keybindingValueForCommand,
+  persistProjectScriptsWithKeybindingRollback,
+  projectScriptKeybindingMutation,
 } from "../../lib/projectScriptKeybindings";
 import {
   buildProjectScript,
@@ -89,67 +90,87 @@ export function useProjectScriptSettings(
           : settings.defaultProjectScripts;
         const nextScripts = transform(current);
         const effectiveScripts = nextScripts ?? settings.defaultProjectScripts;
-        const result = await updateSettings({
-          environmentId,
-          input: {
-            patch: project
-              ? {
-                  projectSettingsOverrides: {
-                    [project.id]:
-                      nextScripts === null
-                        ? clearProjectSettingsOverrides(settings, project.id, [
-                            "defaultProjectScripts",
-                          ])
-                        : {
-                            ...settings.projectSettingsOverrides[project.id],
-                            defaultProjectScripts: nextScripts,
-                          },
-                  },
-                }
-              : { defaultProjectScripts: nextScripts ?? [] },
-          },
+        const writeSettings = (patch: ServerSettingsPatch) =>
+          updateSettings({ environmentId, input: { patch } }).then((result) =>
+            mapAtomCommandResult(result, () => undefined),
+          );
+        const changedIds = !isElectron
+          ? []
+          : scriptId
+            ? [scriptId]
+            : current
+                .filter((script) => !effectiveScripts.some((next) => next.id === script.id))
+                .map((script) => script.id);
+        const mutateKeybindings = async (): Promise<AtomCommandResult<void, unknown>> => {
+          for (const id of changedIds) {
+            const retainedElsewhere =
+              !nextScripts?.some((script) => script.id === id) &&
+              ((project && settings.defaultProjectScripts.some((script) => script.id === id)) ||
+                Object.entries(settings.projectSettingsOverrides).some(
+                  ([projectId, entry]) =>
+                    projectId !== project?.id &&
+                    entry.defaultProjectScripts?.some((script) => script.id === id),
+                ) ||
+                projects.some(
+                  (other) =>
+                    other.environmentId === environmentId &&
+                    other.id !== project?.id &&
+                    (project ? resolveProjectScripts(settings, other) : other.scripts).some(
+                      (script) => script.id === id,
+                    ),
+                ));
+            const mutation = projectScriptKeybindingMutation({
+              keybindings,
+              keybinding,
+              command: commandForProjectScript(id),
+            });
+            if (mutation.type === "none" || (mutation.type === "remove" && retainedElsewhere)) {
+              continue;
+            }
+            const bindingResult =
+              mutation.type === "upsert"
+                ? await upsertKeybinding({ environmentId, input: mutation.input })
+                : await removeKeybinding({ environmentId, input: mutation.input });
+            if (bindingResult._tag === "Failure") {
+              return mapAtomCommandResult(bindingResult, () => undefined);
+            }
+          }
+          return AsyncResult.success(undefined);
+        };
+        const result = await persistProjectScriptsWithKeybindingRollback({
+          updateScripts: () =>
+            writeSettings(
+              project
+                ? {
+                    projectSettingsOverrides: {
+                      [project.id]:
+                        nextScripts === null
+                          ? clearProjectSettingsOverrides(settings, project.id, [
+                              "defaultProjectScripts",
+                            ])
+                          : {
+                              ...settings.projectSettingsOverrides[project.id],
+                              defaultProjectScripts: nextScripts,
+                            },
+                    },
+                  }
+                : { defaultProjectScripts: nextScripts ?? [] },
+            ),
+          mutateKeybinding: mutateKeybindings,
+          // A shortcut that failed to save must not leave the action list
+          // claiming it; restore this machine's previous list.
+          rollbackScripts: () =>
+            writeSettings(
+              project
+                ? {
+                    projectSettingsOverrides: {
+                      [project.id]: settings.projectSettingsOverrides[project.id] ?? null,
+                    },
+                  }
+                : { defaultProjectScripts: settings.defaultProjectScripts },
+            ),
         });
         if (result._tag === "Failure") return reportScriptFailure(result);
-        if (!isElectron) continue;
-        const changedIds = scriptId
-          ? [scriptId]
-          : current
-              .filter((script) => !effectiveScripts.some((next) => next.id === script.id))
-              .map((script) => script.id);
-        for (const id of changedIds) {
-          const command = commandForProjectScript(id);
-          const previousValue = keybindingValueForCommand(keybindings, command);
-          const previous = previousValue
-            ? decodeProjectScriptKeybindingRule({ keybinding: previousValue, command })
-            : null;
-          const next = decodeProjectScriptKeybindingRule({ keybinding, command });
-          const retainedElsewhere =
-            !nextScripts?.some((script) => script.id === id) &&
-            ((project && settings.defaultProjectScripts.some((script) => script.id === id)) ||
-              Object.entries(settings.projectSettingsOverrides).some(
-                ([projectId, entry]) =>
-                  projectId !== project?.id &&
-                  entry.defaultProjectScripts?.some((script) => script.id === id),
-              ) ||
-              projects.some(
-                (other) =>
-                  other.environmentId === environmentId &&
-                  other.id !== project?.id &&
-                  (project ? resolveProjectScripts(settings, other) : other.scripts).some(
-                    (script) => script.id === id,
-                  ),
-              ));
-          const bindingResult = next
-            ? await upsertKeybinding({
-                environmentId,
-                input:
-                  previous && previous.key !== next.key ? { ...next, replace: previous } : next,
-              })
-            : previous && !retainedElsewhere
-              ? await removeKeybinding({ environmentId, input: previous })
-              : null;
-          if (bindingResult?._tag === "Failure") return reportScriptFailure(bindingResult);
-        }
       }
       return AsyncResult.success(undefined);
     } finally {

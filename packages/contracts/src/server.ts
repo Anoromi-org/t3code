@@ -637,21 +637,28 @@ export function resolveEnvironmentMachineKind(
   return config?.settings?.environmentIcon ?? config?.environment.platform.machine ?? "server";
 }
 
-const ServerUpsertKeybindingReplaceTarget = Schema.Struct({
+export const ServerKeybindingRuleTarget = Schema.Struct({
   key: KeybindingValue,
   command: KeybindingCommand,
   when: Schema.optional(KeybindingWhen),
 });
+export type ServerKeybindingRuleTarget = typeof ServerKeybindingRuleTarget.Type;
 
 export const ServerUpsertKeybindingInput = Schema.Struct({
   key: KeybindingValue,
   command: KeybindingCommand,
   when: Schema.optional(KeybindingWhen),
-  replace: Schema.optional(ServerUpsertKeybindingReplaceTarget),
+  replace: Schema.optional(ServerKeybindingRuleTarget),
+  /** Drops every existing rule for the command before appending this one. */
+  replaceAllForCommand: Schema.optional(Schema.Literal(true)),
 });
 export type ServerUpsertKeybindingInput = typeof ServerUpsertKeybindingInput.Type;
 
-export const ServerRemoveKeybindingInput = ServerUpsertKeybindingReplaceTarget;
+/** Removes one exact rule, or every rule for a command when `all` is set. */
+export const ServerRemoveKeybindingInput = Schema.Union([
+  ServerKeybindingRuleTarget,
+  Schema.Struct({ command: KeybindingCommand, all: Schema.Literal(true) }),
+]);
 export type ServerRemoveKeybindingInput = typeof ServerRemoveKeybindingInput.Type;
 
 export const ServerUpsertKeybindingResult = Schema.Struct({

@@ -15,6 +15,7 @@ import {
   MAX_KEYBINDINGS_COUNT,
   ResolvedKeybindingRule,
   ResolvedKeybindingsConfig,
+  type ServerKeybindingRuleTarget,
   type ServerRemoveKeybindingInput,
   type ServerUpsertKeybindingInput,
   type ServerConfigIssue,
@@ -188,7 +189,7 @@ function replaceTargetFromUpsertInput(input: ServerUpsertKeybindingInput): Keybi
     : { key: input.replace.key, command: input.replace.command, when: input.replace.when };
 }
 
-function keybindingRuleFromRemoveInput(input: ServerRemoveKeybindingInput): KeybindingRule {
+function keybindingRuleFromRemoveInput(input: ServerKeybindingRuleTarget): KeybindingRule {
   return input.when === undefined
     ? { key: input.key, command: input.command }
     : { key: input.key, command: input.command, when: input.when };
@@ -226,6 +227,79 @@ const decodeKeybindingRuleExit = Schema.decodeUnknownExit(KeybindingRule);
 const decodeResolvedKeybindingFromConfigExit = Schema.decodeExit(ResolvedKeybindingFromConfig);
 const decodeRawKeybindingsEntriesExit = Schema.decodeUnknownExit(RawKeybindingsEntries);
 const encodeKeybindingsConfigPrettyJson = Schema.encodeEffect(KeybindingsConfigPrettyJson);
+
+// Generated upstream defaults that the fork moved, keyed by command. Only an
+// exact generated rule moves; any customized binding is left alone.
+const MOVED_GENERATED_DEFAULTS: ReadonlyMap<
+  string,
+  { readonly from: string; readonly to: string }
+> = new Map([
+  // Project actions own Mod+P, so the file picker takes Mod+Shift+P...
+  ["filePicker.toggle", { from: "mod+p", to: "mod+shift+p" }],
+  // ...which pushes pinning to Mod+Alt+Shift+P.
+  ["thread.pin", { from: "mod+shift+p", to: "mod+alt+shift+p" }],
+]);
+
+function hasCommand(entry: unknown, command: string): entry is { readonly command: string } {
+  return Predicate.hasProperty(entry, "command") && entry.command === command;
+}
+
+/**
+ * Fork renames applied while reading the file: the old command bar became
+ * project actions, and generated defaults displaced by project actions move.
+ * Defaults move only in a file from before project actions (no rule for it
+ * yet); the startup backfill then adds one, so a binding the user later sets
+ * back is never moved again.
+ */
+function migrateLegacyProjectActionsEntries(entries: ReadonlyArray<unknown>): {
+  readonly entries: ReadonlyArray<unknown>;
+  readonly migrated: boolean;
+} {
+  const movesDefaults = !entries.some(
+    (entry) => hasCommand(entry, "projectActions.toggle") || hasCommand(entry, "commandBar.toggle"),
+  );
+  const moveFor = (entry: unknown) => {
+    if (!movesDefaults || !Predicate.hasProperty(entry, "command")) return undefined;
+    const moved =
+      typeof entry.command === "string" ? MOVED_GENERATED_DEFAULTS.get(entry.command) : undefined;
+    return moved &&
+      Predicate.hasProperty(entry, "key") &&
+      entry.key === moved.from &&
+      Predicate.hasProperty(entry, "when") &&
+      entry.when === "!terminalFocus"
+      ? moved
+      : undefined;
+  };
+  // A default only moves onto a free key: drop moves whose destination is
+  // held by a rule that stays put, until no move lands on another rule.
+  const moving = new Set(entries.filter((entry) => moveFor(entry) !== undefined));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const entry of moving) {
+      const to = moveFor(entry)?.to;
+      // Any rule on the destination key blocks, whatever its condition.
+      const blocked = entries.some(
+        (other) => !moving.has(other) && Predicate.hasProperty(other, "key") && other.key === to,
+      );
+      if (blocked) {
+        moving.delete(entry);
+        changed = true;
+      }
+    }
+  }
+  let migrated = false;
+  const next = entries.map((entry) => {
+    if (hasCommand(entry, "commandBar.toggle")) {
+      migrated = true;
+      return { ...entry, command: "projectActions.toggle" };
+    }
+    const to = moving.has(entry) ? moveFor(entry)?.to : undefined;
+    if (to === undefined) return entry;
+    migrated = true;
+    return { ...(entry as object), key: to };
+  });
+  return { entries: next, migrated };
+}
 
 export interface KeybindingsConfigState {
   readonly keybindings: ResolvedKeybindingsConfig;
@@ -375,7 +449,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-    return yield* Effect.forEach(rawConfig, (entry) =>
+    return yield* Effect.forEach(migrateLegacyProjectActionsEntries(rawConfig).entries, (entry) =>
       Effect.gen(function* () {
         const decodedRule = decodeKeybindingRuleExit(entry);
         if (decodedRule._tag === "Failure") {
@@ -404,11 +478,12 @@ const make = Effect.gen(function* () {
     {
       readonly keybindings: readonly KeybindingRule[];
       readonly issues: readonly ServerConfigIssue[];
+      readonly migratedLegacyEntries: boolean;
     },
     KeybindingsConfigError
   > {
     if (!(yield* readConfigExists)) {
-      return { keybindings: [], issues: [] };
+      return { keybindings: [], issues: [], migratedLegacyEntries: false };
     }
 
     const rawConfig = yield* readRawConfig;
@@ -418,12 +493,16 @@ const make = Effect.gen(function* () {
       return {
         keybindings: [],
         issues: [malformedConfigIssue(detail)],
+        migratedLegacyEntries: false,
       };
     }
 
     const keybindings: KeybindingRule[] = [];
     const issues: ServerConfigIssue[] = [];
-    for (const [index, entry] of decodedEntries.value.entries()) {
+    const { entries, migrated: migratedLegacyEntries } = migrateLegacyProjectActionsEntries(
+      decodedEntries.value,
+    );
+    for (const [index, entry] of entries.entries()) {
       const decodedRule = decodeKeybindingRuleExit(entry);
       if (decodedRule._tag === "Failure") {
         const detail = Cause.pretty(decodedRule.cause);
@@ -452,7 +531,7 @@ const make = Effect.gen(function* () {
       keybindings.push(decodedRule.value);
     }
 
-    return { keybindings, issues };
+    return { keybindings, issues, migratedLegacyEntries };
   });
 
   const writeConfigAtomically = (rules: readonly KeybindingRule[]) => {
@@ -526,7 +605,8 @@ const make = Effect.gen(function* () {
         return;
       }
       const customConfig = migrateLegacyGeneratedCommandPaletteRule(runtimeConfig.keybindings);
-      const didMigrateLegacyGeneratedConfig = customConfig !== runtimeConfig.keybindings;
+      const didMigrateLegacyGeneratedConfig =
+        customConfig !== runtimeConfig.keybindings || runtimeConfig.migratedLegacyEntries;
       const existingCommands = new Set(customConfig.map((entry) => entry.command));
       const missingDefaults: KeybindingRule[] = [];
       const shortcutConflictWarnings: Array<{
@@ -684,6 +764,7 @@ const make = Effect.gen(function* () {
           const replaceTarget = replaceTargetFromUpsertInput(input);
           const nextConfig = [
             ...customConfig.filter((entry) => {
+              if (input.replaceAllForCommand === true) return entry.command !== rule.command;
               if (replaceTarget) {
                 return (
                   !isSameKeybindingRule(entry, replaceTarget) && !isSameKeybindingRule(entry, rule)
@@ -722,8 +803,12 @@ const make = Effect.gen(function* () {
       upsertSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const customConfig = yield* loadWritableCustomKeybindingsConfig();
-          const target = keybindingRuleFromRemoveInput(input);
-          const nextConfig = customConfig.filter((entry) => !isSameKeybindingRule(entry, target));
+          const nextConfig =
+            "all" in input
+              ? customConfig.filter((entry) => entry.command !== input.command)
+              : customConfig.filter(
+                  (entry) => !isSameKeybindingRule(entry, keybindingRuleFromRemoveInput(input)),
+                );
           yield* writeConfigAtomically(nextConfig);
           const nextResolved = mergeWithDefaultKeybindings(
             compileResolvedKeybindingsConfig(nextConfig),

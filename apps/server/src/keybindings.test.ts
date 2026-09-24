@@ -237,6 +237,138 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
+  it.effect("migrates the legacy command bar binding to project actions", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      yield* fileSystem.makeDirectory(path.dirname(keybindingsConfigPath), { recursive: true });
+      yield* fileSystem.writeFileString(
+        keybindingsConfigPath,
+        `[
+  {
+    "key": "mod+shift+p",
+    "command": "commandBar.toggle",
+    "when": "!terminalFocus"
+  }
+]
+`,
+      );
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some(
+          (rule) =>
+            rule.command === "projectActions.toggle" &&
+            rule.key === "mod+shift+p" &&
+            rule.when === "!terminalFocus",
+        ),
+      );
+      assert.isFalse(persisted.some((rule) => String(rule.command) === "commandBar.toggle"));
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("moves only the former default file picker shortcut", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+p", command: "filePicker.toggle", when: "!terminalFocus" },
+        { key: "mod+alt+p", command: "filePicker.toggle" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some(
+          (rule) =>
+            rule.command === "filePicker.toggle" &&
+            rule.key === "mod+shift+p" &&
+            rule.when === "!terminalFocus",
+        ),
+      );
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "filePicker.toggle" && rule.key === "mod+alt+p"),
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("moves only the former default pin shortcut out of the file picker's way", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+p", command: "filePicker.toggle", when: "!terminalFocus" },
+        { key: "mod+shift+p", command: "thread.pin", when: "!terminalFocus" },
+        { key: "mod+alt+p", command: "thread.pin" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      const shiftP = persisted.filter((rule) => rule.key === "mod+shift+p");
+      assert.deepEqual(
+        shiftP.map((rule) => rule.command),
+        ["filePicker.toggle"],
+      );
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "thread.pin" && rule.key === "mod+alt+shift+p"),
+      );
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "thread.pin" && rule.key === "mod+alt+p"),
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("does not move a default onto a shortcut another rule already uses", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+p", command: "filePicker.toggle", when: "!terminalFocus" },
+        { key: "mod+shift+p", command: "thread.pin", when: "!terminalFocus" },
+        { key: "mod+alt+shift+p", command: "terminal.toggle" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "thread.pin" && rule.key === "mod+shift+p"),
+      );
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "filePicker.toggle" && rule.key === "mod+p"),
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("keeps a file picker shortcut set back to Mod+P after project actions exist", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+alt+p", command: "projectActions.toggle", when: "!terminalFocus" },
+        { key: "mod+p", command: "filePicker.toggle", when: "!terminalFocus" },
+        { key: "mod+shift+p", command: "thread.pin", when: "!terminalFocus" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      yield* keybindings.upsertKeybindingRule({ key: "mod+g", command: "terminal.toggle" });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "filePicker.toggle" && rule.key === "mod+p"),
+      );
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "thread.pin" && rule.key === "mod+shift+p"),
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
   it.effect("preserves a customized command-palette shortcut", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
@@ -263,6 +395,9 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       );
       assert.equal(defaultsByCommand.get("commandPalette.toggle"), "mod+k");
       assert.equal(defaultsByCommand.get("navigation.commandMenu"), "mod+e");
+      assert.equal(defaultsByCommand.get("projectActions.toggle"), "mod+p");
+      assert.equal(defaultsByCommand.get("filePicker.toggle"), "mod+shift+p");
+      assert.equal(defaultsByCommand.get("thread.pin"), "mod+alt+shift+p");
     }),
   );
 
@@ -511,6 +646,52 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
       const persistedView = persisted.map(({ key, command }) => ({ key, command }));
       assert.deepEqual(persistedView, [{ key: "mod+shift+r", command: "script.run-tests.run" }]);
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("removes every custom keybinding for a command", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "cmd+r", command: "script.run-tests.run" },
+        { key: "mod+shift+r", command: "script.run-tests.run", when: "terminalFocus" },
+        { key: "mod+j", command: "terminal.toggle" },
+      ]);
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings.Keybindings;
+        return yield* keybindings.removeKeybindingRule({
+          command: "script.run-tests.run",
+          all: true,
+        });
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(persisted, [{ key: "mod+j", command: "terminal.toggle" }]);
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("replaces every custom keybinding for a command", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "cmd+r", command: "script.run-tests.run" },
+        { key: "mod+shift+r", command: "script.run-tests.run", when: "terminalFocus" },
+        { key: "mod+j", command: "terminal.toggle" },
+      ]);
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings.Keybindings;
+        return yield* keybindings.upsertKeybindingRule({
+          key: "mod+t",
+          command: "script.run-tests.run",
+          replaceAllForCommand: true,
+        });
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(persisted, [
+        { key: "mod+j", command: "terminal.toggle" },
+        { key: "mod+t", command: "script.run-tests.run" },
+      ]);
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
