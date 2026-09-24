@@ -725,7 +725,14 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   const foregroundResubscriptions = Option.match(wakeups, {
     onNone: () => Stream.never,
     onSome: (service) =>
-      service.changes.pipe(Stream.filter(ConnectionWakeups.shouldResubscribeAfterWakeup)),
+      service.changes.pipe(
+        Stream.filter(ConnectionWakeups.shouldResubscribeAfterWakeup),
+        // A deleted thread has nothing left to catch up on after a wakeup.
+        Stream.mapEffect(() =>
+          SubscriptionRef.get(state).pipe(Effect.map((current) => current.status !== "deleted")),
+        ),
+        Stream.filter((shouldResubscribe) => shouldResubscribe),
+      ),
   });
 
   // Only the first subscription after a warm live resume keeps the retained
@@ -820,7 +827,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         }
 
         const sequence = yield* SubscriptionRef.get(lastSequence);
-        const canResume = Option.isSome(current.data);
+        // A deletion has no data but still carries the cursor it was applied at.
+        const canResume = Option.isSome(current.data) || current.status === "deleted";
         if (!supportsCompletionMarker && canResume) {
           yield* SubscriptionRef.update(state, (value) => ({
             ...value,
