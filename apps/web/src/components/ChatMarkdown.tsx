@@ -1145,6 +1145,8 @@ interface MarkdownFileLinkProps {
   theme: "light" | "dark";
   threadRef?: ScopedThreadRef | undefined;
   onOpen?: ((targetPath: string) => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
+  /** Whether a plain click opens `onOpen`; false when no code editor is available. */
+  preferEditorOnClick?: boolean | undefined;
   onOpenInPanel: (panelPath: string, line: number | undefined) => void;
   openInEditorMenuLabel: string;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
@@ -1884,6 +1886,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   theme,
   threadRef,
   onOpen,
+  preferEditorOnClick = false,
   onOpenInPanel,
   openInEditorMenuLabel,
   onOpenInBrowser,
@@ -2070,6 +2073,9 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
               ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
               : []),
             ...(onReveal && revealLabel ? ([{ id: "reveal", label: revealLabel }] as const) : []),
+            ...(threadRef && panelPath
+              ? ([{ id: "open-in-preview", label: "Open in file preview" }] as const)
+              : []),
             { id: "copy-relative", label: "Copy relative path" },
             { id: "copy-full", label: "Copy full path" },
           ] as const,
@@ -2092,6 +2098,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           handleRevealInFileManager();
           return;
         }
+        if (clicked === "open-in-preview") {
+          handleOpenInFilePreview();
+          return;
+        }
         if (clicked === "copy-relative") {
           handleCopy(displayPath, "Relative path");
           return;
@@ -2111,14 +2121,17 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       handleCopy,
       handleOpenInBrowser,
       handleOpenInEditor,
+      handleOpenInFilePreview,
       handleRevealInFileManager,
       onOpenInBrowser,
       onOpenMedia,
       onOpen,
       onReveal,
       openInEditorMenuLabel,
+      panelPath,
       revealLabel,
       targetPath,
+      threadRef,
     ],
   );
 
@@ -2153,6 +2166,13 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
     canOpenInBrowser,
     canOpenInPanel,
   });
+  // Media previews and folders (the files panel shows their tree) keep their
+  // in-app primary action; every other file opens in the preferred editor.
+  const useEditorPrimaryAction =
+    canOpenInEditor &&
+    preferEditorOnClick &&
+    onOpenMedia === undefined &&
+    !(canOpenInPanel && /[\\/]$/.test(iconPath));
 
   return (
     <Tooltip>
@@ -2173,6 +2193,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
                 }
                 if (useBrowserPrimaryAction) {
                   handleOpenInBrowser();
+                  return;
+                }
+                if (useEditorPrimaryAction) {
+                  handleOpenInEditor();
                   return;
                 }
                 handleOpenInFilePreview();
@@ -2224,6 +2248,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.theme === next.theme &&
     previous.threadRef === next.threadRef &&
     previous.onOpen === next.onOpen &&
+    previous.preferEditorOnClick === next.preferEditorOnClick &&
     previous.onOpenInPanel === next.onOpenInPanel &&
     previous.openInEditorMenuLabel === next.openInEditorMenuLabel &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&
@@ -2556,6 +2581,23 @@ function useChatMarkdownState({
     },
     [cwd, findWorkspaceBasenameMatch, revealFileInFileManager],
   );
+  // Resolves a bare filename through the workspace index first, like the files
+  // panel does, so the editor opens the nested file instead of `<cwd>/<name>`.
+  const openMarkdownFileInEditor = useCallback(
+    async (fileLinkMeta: MarkdownFileLinkMeta) => {
+      const workspaceRelativePath = fileLinkMeta.workspaceRelativePath;
+      const match = workspaceRelativePath
+        ? await findWorkspaceBasenameMatch(workspaceRelativePath)
+        : null;
+      if (!match || !cwd) return openInPreferredEditor(fileLinkMeta.targetPath);
+      const position =
+        fileLinkMeta.line === undefined
+          ? ""
+          : `:${fileLinkMeta.line}${fileLinkMeta.column === undefined ? "" : `:${fileLinkMeta.column}`}`;
+      return openInPreferredEditor(`${resolvePathLinkTarget(match, cwd)}${position}`);
+    },
+    [cwd, findWorkspaceBasenameMatch, openInPreferredEditor],
+  );
   const fileLinkChip = useCallback(
     (fileLinkMeta: MarkdownFileLinkMeta, copyMarkdown: string, mediaSource?: string) => {
       const parentSuffix = fileLinkParentSuffixByPath.get(
@@ -2593,7 +2635,8 @@ function useChatMarkdownState({
           copyMarkdown={copyMarkdown}
           theme={resolvedTheme}
           threadRef={threadRef}
-          {...(canUseShellActions ? { onOpen: openInPreferredEditor } : {})}
+          {...(canUseShellActions ? { onOpen: () => openMarkdownFileInEditor(fileLinkMeta) } : {})}
+          preferEditorOnClick={preferredEditor !== null && preferredEditor !== "file-manager"}
           onOpenInPanel={openFileInPanel}
           onOpenMedia={
             threadRef && canPreviewMedia
@@ -2621,9 +2664,10 @@ function useChatMarkdownState({
       canUseShellActions,
       fileLinkParentSuffixByPath,
       openFileInPanel,
-      openInPreferredEditor,
+      openMarkdownFileInEditor,
       openMarkdownFileInPreview,
       openMarkdownMedia,
+      preferredEditor,
       preferredEditorMenuLabel,
       resolvedTheme,
       revealInFileManagerLabel,
