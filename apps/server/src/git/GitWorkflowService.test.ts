@@ -26,6 +26,28 @@ function makeLayer(input: {
 }
 
 describe("GitWorkflowService", () => {
+  it("uses the common Git directory to coordinate worktrees", () => {
+    const freshness = {
+      source: "live-local" as const,
+      observedAt: DateTime.makeUnsafe("2026-07-31T00:00:00Z"),
+      expiresAt: Option.none(),
+    };
+
+    assert.equal(
+      GitWorkflowService.repositoryCoordinationKey({
+        kind: "git",
+        rootPath: "/repo",
+        metadataPath: "/repo/.git",
+        freshness,
+      }),
+      GitWorkflowService.repositoryCoordinationKey({
+        kind: "git",
+        rootPath: "/repo-worktrees/feature",
+        metadataPath: "/repo/.git",
+        freshness,
+      }),
+    );
+  });
   it.effect("reports a non-Git VCS repository as not a Git repository", () =>
     Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;

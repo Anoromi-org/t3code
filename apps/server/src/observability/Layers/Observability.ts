@@ -16,6 +16,7 @@ import * as ServerConfig from "../../config.ts";
 import * as ResourceAttribution from "../../resourceTelemetry/ResourceAttribution.ts";
 import { ServerLoggerLive } from "../../serverLogger.ts";
 import * as BrowserTraceCollector from "../BrowserTraceCollector.ts";
+import * as EventLoopStallMonitor from "../EventLoopStallMonitor.ts";
 
 export const ObservabilityLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -86,6 +87,11 @@ export const ObservabilityLive = Layer.unwrap(
             resource,
           }).pipe(Layer.provide(otlpSerializationLayer(metrics.protocol)));
 
-    return Layer.mergeAll(ServerLoggerLive, traceReferencesLayer, tracerLayer, metricsLayer);
+    // The stall monitor reports through the tracer and logger built here.
+    return EventLoopStallMonitor.layer.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(ServerLoggerLive, traceReferencesLayer, tracerLayer, metricsLayer),
+      ),
+    );
   }),
 );

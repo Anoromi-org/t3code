@@ -15,6 +15,11 @@ export function hasDelegate(): boolean {
   return delegate !== null;
 }
 
+/** The configured exporter, for spans recorded outside an Effect runtime. */
+export function currentDelegate(): Tracer.Tracer | null {
+  return delegate;
+}
+
 /**
  * Installed once when the client runtime is built, before any exporter exists, so
  * client spans keep flowing to whatever exporter is configured later on.
