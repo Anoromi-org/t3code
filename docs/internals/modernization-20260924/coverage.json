@@ -1,0 +1,184 @@
+{
+  "source": "0a11c0a52f",
+  "upstream": "e4eb9977f0b02b29cb2ee361b0c433c685e87615",
+  "features": [
+    {
+      "subject": "repo add local agent and workflow guidance",
+      "sourceCommits": ["4d56252bc2"],
+      "rebasedCommit": "5de47d029ce5f119d202ee5b08f43a776f2c017d"
+    },
+    {
+      "subject": "server add fork-compatible persistence migrations",
+      "sourceCommits": ["6947b03b5e"],
+      "rebasedCommit": "57232263424a82bd3ea77d00476f060ea2acbb9a"
+    },
+    {
+      "subject": "desktop add Nix packaging and local launch support",
+      "sourceCommits": ["25ddb486db", "aa0228fedc", "84f93ad10f", "4241308556"],
+      "rebasedCommit": "8378ce9ee7dc0d7a7661b175900d80c8e3e0b4b1"
+    },
+    {
+      "subject": "restore Hyprnav settings and shortcut contracts",
+      "sourceCommits": ["31baca265e"],
+      "rebasedCommit": "d71f33c62ea92470749245c49cf9b41579e2278c"
+    },
+    {
+      "subject": "desktop integrate reliable Hyprnav and Corkdiff",
+      "sourceCommits": ["51b40dfcd5"],
+      "rebasedCommit": "9971f0320bfbdb5b451eabb7b19ec0ebdbeae0fa"
+    },
+    {
+      "subject": "desktop restore Hyprnav runtime orchestration",
+      "sourceCommits": ["22fa6175e6"],
+      "rebasedCommit": "bcb6fdac4e8209f7f0ccb76655eb748a1c415549"
+    },
+    {
+      "subject": "web restore Hyprnav settings and runtime sync",
+      "sourceCommits": ["3b795bc5bd"],
+      "rebasedCommit": "a9b8f60da02a2fbefc2b512bc1d6680d8fe4875b"
+    },
+    {
+      "subject": "web restore keyboard composer actions",
+      "sourceCommits": ["4c6227a910"],
+      "rebasedCommit": "78812e6dc9661ce13f9960b7d6f3f74044b7d59c"
+    },
+    {
+      "subject": "web add project actions panel",
+      "sourceCommits": ["ff68ecc6e9"],
+      "rebasedCommit": "6e8271123623173eabc459b66c830ec3c65a38d1"
+    },
+    {
+      "subject": "server preserve latest turn on session settlement",
+      "sourceCommits": ["5ce53209dc"],
+      "rebasedCommit": "4dd14103156e5cd18632e1ca581f5fc122d6bbaa"
+    },
+    {
+      "subject": "mobile configure fork release identity",
+      "sourceCommits": ["7ee84c6f3b"],
+      "rebasedCommit": "8bf2f33a3161174c71ddb5172d24b5e7d6c31caf"
+    },
+    {
+      "subject": "client harden thread resynchronization on app activation",
+      "sourceCommits": ["f8e0fd92ec"],
+      "rebasedCommit": "a435d65bd2863ad8be6df03344e45a7ebf8d3e45"
+    },
+    {
+      "subject": "feat(observability): trace stalls and coordinate VCS polling",
+      "sourceCommits": ["53e12c4f55"],
+      "rebasedCommit": "0169912a61d802f50e5ec4b42a601fd966b8196d"
+    },
+    {
+      "subject": "web add fast mode and chat shortcuts",
+      "sourceCommits": ["0198e373ba"],
+      "rebasedCommit": "b65731a7eb254e24d3fc3fdef29ac48b82a9b8b1"
+    },
+    {
+      "subject": "web open Markdown file links in the preferred editor",
+      "sourceCommits": ["460a1b8bf7"],
+      "rebasedCommit": "cc293376232939d9d9fbfa76dabe93c56c4db4ea"
+    },
+    {
+      "subject": "desktop add Ctrl+Tab thread switcher and stabilize tsgo prepare",
+      "sourceCommits": ["e4f4a0b31b"],
+      "rebasedCommit": "9b262967a5692de3c86344e04d741fb98dd65848"
+    },
+    {
+      "subject": "add cloudflare expose",
+      "sourceCommits": ["d0db9502fe"],
+      "rebasedCommit": "57946ea673a7b607ed566747c47d47e9820b973a"
+    },
+    {
+      "subject": "server reconcile Codex resume and scope MCP thread context",
+      "sourceCommits": ["49fa66dbed", "7a01bd1deb"],
+      "rebasedCommit": "c5d03da9a33c6aa456b16db2cdf2c39267a1516c"
+    },
+    {
+      "subject": "sdk add T3 Code client SDK",
+      "sourceCommits": ["1ccaebca22"],
+      "rebasedCommit": "d2ac5a1ce25fdcbdcb208a6a62fba2b22bf4d8d6"
+    },
+    {
+      "subject": "server generate unique idempotent worktree branches",
+      "sourceCommits": ["cc375596cc", "5c0b447565"],
+      "rebasedCommit": "0ef2aacbe7dec96a2f1487f50e8e79972eb579a0"
+    },
+    {
+      "subject": "desktop show Hyprnav desktop agents with a live window view",
+      "sourceCommits": [
+        "23390d84f7",
+        "c78511f63a",
+        "0611d88a93",
+        "1888983f2a",
+        "0e3a392c1b",
+        "348da3b1d5",
+        "4ac57a8603",
+        "5c05f2bf74",
+        "8fd42f0b9c",
+        "1d51df5689",
+        "521fbcb98b",
+        "988b4584ba",
+        "c6ccd3ac00",
+        "6a73ab1655"
+      ],
+      "rebasedCommit": "e5957c94d0cdb893a45c141e4b1ec8dd78917702"
+    },
+    {
+      "subject": "fix(nix): refresh desktop package for modernized dependencies",
+      "sourceCommits": ["84f93ad10f"],
+      "rebasedCommit": "f7966a14b62486200fb87bc3b73fa2f5c1698c6e"
+    }
+  ],
+  "dropped": [
+    {
+      "commit": "0a11c0a52f",
+      "reason": "Opus 5.5 model already in upstream model manifest"
+    },
+    {
+      "commit": "a6f8bd23c7",
+      "reason": "gpt-6-sol already in upstream model manifest"
+    },
+    {
+      "commit": "78e233d6ba",
+      "reason": "web typecheck passes without isolatedModules"
+    },
+    {
+      "commit": "5c0b447565",
+      "reason": "verification commit; tests folded into owning units"
+    },
+    {
+      "commit": "75e5d0505f",
+      "reason": "verification commit; tests folded into owning units"
+    }
+  ],
+  "tests": {
+    "baselineFiles": 109,
+    "baselineAddedCases": 560,
+    "present": 545,
+    "intentionallyRemoved": [
+      {
+        "cases": "DesktopAppIdentity: re-registers the Linux protocol handler after applying a desktop override",
+        "reason": "desktop entry override now applies before protocol registration; covered by DesktopPreReadyPlatform test"
+      },
+      {
+        "cases": "keybindingsCompatibility.test.ts (3) and server.test mobile keybinding projection (1)",
+        "reason": "mobile keybinding filter dropped; keybinding lists decode forward-compatibly; contracts test covers unknown command drop"
+      },
+      {
+        "cases": "ProjectionRepositories: excludes one-shot repair markers from the projector watermark",
+        "reason": "target removed upstream; replaced by ProjectionPipeline snapshot-sequence/cleanup-cursor test"
+      },
+      {
+        "cases": "useSettings describe persistClientSettingsDurablePatch",
+        "reason": "renamed to functional client settings patches over upstream persistClientSettingsUpdate; all 4 cases kept"
+      },
+      {
+        "cases": "patch-effect-tsgo.test.ts (5)",
+        "reason": "wrapper dropped; upstream @effect/tsgo 0.41 patcher is idempotent"
+      },
+      {
+        "cases": "projectHyprnavNavigation.browser (3)",
+        "reason": "rewritten for upstream search-param project settings routes under new names"
+      }
+    ]
+  }
+}
