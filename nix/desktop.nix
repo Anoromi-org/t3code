@@ -3,6 +3,7 @@
   cacert,
   copyDesktopItems,
   electron_44,
+  fetchFromGitHub,
   fetchurl,
   fetchPnpmDeps,
   hyprlandSnapShot,
@@ -42,6 +43,19 @@ let
     url = "https://registry.npmjs.org/@voidzero-dev/${vitePlusBindingInfo.package}/-/${vitePlusBindingInfo.package}-0.3.3.tgz";
     inherit (vitePlusBindingInfo) hash;
   };
+  # The web build's license plugin reads SPDX texts from this cache before
+  # downloading them, so seed it with the pinned revision for the sandbox.
+  licenseScript = builtins.readFile ../scripts/lib/third-party-licenses.ts;
+  spdxConstant =
+    name: builtins.head (builtins.match ".*const ${name} = \"([^\"]+)\";.*" licenseScript);
+  spdxLicenseListVersion = spdxConstant "SPDX_LICENSE_LIST_VERSION";
+  spdxLicenseDetails = fetchFromGitHub {
+    owner = "spdx";
+    repo = "license-list-data";
+    rev = spdxConstant "SPDX_LICENSE_LIST_REVISION";
+    sparseCheckout = [ "json/details" ];
+    hash = "sha256-DnrdJ13M8Vf8Dq8qKlO7Ad5jXa8L9YU9PBlpp7B9BoI=";
+  };
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "t3-code";
@@ -52,7 +66,7 @@ stdenv.mkDerivation (finalAttrs: {
     inherit (finalAttrs) pname version src;
     inherit pnpm;
     fetcherVersion = 4;
-    hash = "sha256-EubfKBvWzBBi661qMRuiks31MtbzDm10qOynCT6cxiY=";
+    hash = "sha256-vLsXLSezLKGE4lStnFDF9/7BTg4zdBluNyHzDZB6qP8=";
   };
 
   nativeBuildInputs = [
@@ -110,6 +124,10 @@ stdenv.mkDerivation (finalAttrs: {
     tar -xzf ${vitePlusLinuxBinding} \
       -C node_modules/@voidzero-dev/${vitePlusBindingInfo.package} \
       --strip-components=1
+
+    spdx_cache=.generated/third-party-licenses/spdx/${spdxLicenseListVersion}
+    mkdir -p "$spdx_cache"
+    cp ${spdxLicenseDetails}/json/details/*.json "$spdx_cache/"
 
     pnpm exec vp run build:desktop
 
