@@ -1,0 +1,3 @@
+[mcp_servers.btca_local]
+command = "bunx"
+args = ["btca", "mcp"]

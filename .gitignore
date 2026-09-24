@@ -19,6 +19,8 @@ release-mock/
 .idea/
 apps/web/.playwright
 apps/web/playwright-report
+apps/desktop/playwright-results
+apps/web/index.impeccable.html
 apps/web/src/components/__screenshots__
 .vitest-*
 __screenshots__/
@@ -29,6 +31,8 @@ squashfs-root/
 .plans/
 dist-electron/
 .electron-runtime/
+.btca/
+/.btca/resources
 .showcase/
 apps/mobile/.showcase/
 apps/mobile/.generated/

@@ -168,3 +168,44 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## Fork-specific completion requirements
+
+- Keep verification focused while resolving each feature: `vp test run <test-files>`, `vp fmt`
+  and `vp lint` on the touched files, and `vp run --filter <package> typecheck` for the changed
+  packages.
+- NEVER run `bun test`; it bypasses Vite+ and runs Bun's own test runner. Use `vp test run`.
+- Full-repo `vp fmt --check`, `vp lint`, and `vp run typecheck` are fork-final verification only,
+  run when a maintainer explicitly asks for it.
+- Read and apply `.agents/uncodixify/AGENTS.md` before frontend design decisions.
+- Run `codex review` after changes and resolve valid findings. Never invoke `codex review` from
+  inside an active review.
+
+## Fork rebase work
+
+- Use `.codex/skills/t3code-rebase-conflict-resolution` when rebasing onto a long-lived branch.
+- Preserve current upstream architecture and behavior, then reimplement fork-only intent from
+  commit notes and tests.
+- Audit migrations, persisted events, projections, settings, sidebar/routing behavior, and
+  desktop startup against real fork state before declaring a rebase complete.
+
+## Corkdiff
+
+- Browser/web keeps the in-app diff viewer.
+- Electron launches Corkdiff externally through
+  `hyprnav spawn --print-workspace-id rand -- ghostty ...`; do not restore the old embedded
+  terminal path.
+- External Corkdiff ownership is per thread in Electron main. `Ctrl+D` opens or focuses it, and
+  `Ctrl+D` inside Corkdiff returns focus to T3 Code.
+- Inspect both this repository and the local `corkdiff.nvim` checkout when changing the flow.
+
+# btca MCP Usage Instructions
+
+Use btca when a task depends on an external repository or configured documentation resource. Do
+not use it to understand this repository; inspect this repository locally.
+
+## Critical Workflow
+
+1. Call `listResources`.
+2. Use the exact returned resource names.
+3. Call `ask` with the question and those exact names.
