@@ -51,6 +51,7 @@ import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
+import { repairProjectionThreadLatestTurnIds } from "../../persistence/Repairs/ProjectionThreadLatestTurnIds.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
 import { ServerConfig } from "../../config.ts";
 import {
@@ -75,6 +76,13 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
 } as const;
+
+/**
+ * One-shot startup repair marker. It lives in projection_state but is not a
+ * projector cursor, so watermark and replay calculations must ignore it.
+ */
+export const LATEST_TURN_PRESERVATION_REPAIR =
+  "repair.projection-threads.latest-turn-preservation.v1";
 
 type ProjectorName =
   (typeof ORCHESTRATION_PROJECTOR_NAMES)[keyof typeof ORCHESTRATION_PROJECTOR_NAMES];
@@ -2075,6 +2083,38 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           ),
         );
 
+    // Databases whose thread projector checkpointed a settlement that cleared
+    // latest_turn_id need a one-time summary repair; replay would not revisit them.
+    const repairSettledLatestTurnSummaries = projectionStateRepository
+      .getByProjector({ projector: LATEST_TURN_PRESERVATION_REPAIR })
+      .pipe(
+        Effect.flatMap(
+          Option.match({
+            onSome: () => Effect.void,
+            onNone: () =>
+              sql.withTransaction(
+                Effect.gen(function* () {
+                  yield* repairProjectionThreadLatestTurnIds(sql, { backfillMissing: false });
+                  const cursorRows = yield* sql<{
+                    readonly maxSequence: number;
+                    readonly updatedAt: string;
+                  }>`
+                    SELECT
+                      COALESCE(MAX(sequence), 0) AS "maxSequence",
+                      COALESCE(MAX(occurred_at), '1970-01-01T00:00:00.000Z') AS "updatedAt"
+                    FROM orchestration_events
+                  `;
+                  yield* projectionStateRepository.upsert({
+                    projector: LATEST_TURN_PRESERVATION_REPAIR,
+                    lastAppliedSequence: cursorRows[0]?.maxSequence ?? 0,
+                    updatedAt: cursorRows[0]?.updatedAt ?? "1970-01-01T00:00:00.000Z",
+                  });
+                }),
+              ),
+          }),
+        ),
+      );
+
     const projectEventDeferred: OrchestrationProjectionPipelineShape["projectEventDeferred"] =
       Effect.fn("projectEventDeferred")(
         function* (event) {
@@ -2135,6 +2175,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         updatedAt: cleanupState?.updatedAt ?? "1970-01-01T00:00:00.000Z",
       });
       yield* Effect.forEach(projectors, bootstrapProjector, { concurrency: 1, discard: true });
+      yield* repairSettledLatestTurnSummaries;
 
       // Cleanup has its own cursor so retries never have to replay committed text.
       // All message and activity references are current before any files are removed.
