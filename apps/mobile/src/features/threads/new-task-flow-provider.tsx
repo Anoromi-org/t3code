@@ -1020,7 +1020,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
             selectedBranch: workspaceSelection?.branch ?? null,
             currentCheckoutBranch: options?.currentCheckoutBranch ?? null,
           }),
-          worktreePath: mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
+          // A worktree already selected in worktree mode is reused as is.
+          worktreePath: workspaceSelection?.worktreePath ?? null,
           // The draft only carries the flag when the user touched it; fall
           // back to the resolved default (server settings) so queued tasks
           // drain with the same origin mode the composer displayed.

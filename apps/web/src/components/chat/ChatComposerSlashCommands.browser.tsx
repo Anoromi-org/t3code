@@ -693,6 +693,7 @@ describe.each([
       expect(onSelectRunContext).toHaveBeenLastCalledWith({
         branch: refs[1],
         envMode: "worktree",
+        selectionIntent: "branch",
       });
 
       await editor.fill("/branch main");
@@ -703,6 +704,7 @@ describe.each([
       expect(onSelectRunContext).toHaveBeenLastCalledWith({
         branch: refs[0],
         envMode: "local",
+        selectionIntent: "branch",
       });
 
       await editor.fill("/worktree main");
@@ -713,6 +715,19 @@ describe.each([
       expect(onSelectRunContext).toHaveBeenLastCalledWith({
         branch: refs[0],
         envMode: "worktree",
+        selectionIntent: "worktree",
+      });
+
+      await editor.fill("/worktree main-old");
+      await expect
+        .element(page.getByRole("option", { name: "main-old Local branch", exact: true }))
+        .toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).toHaveBeenLastCalledWith({
+        branch: refs[3],
+        envMode: "worktree",
+        selectionIntent: "worktree",
+        worktreeBranchName: "main-old",
       });
 
       await editor.fill("/worktree feature/new-command");
@@ -758,6 +773,7 @@ describe.each([
         expect(onSelectRunContext).toHaveBeenLastCalledWith({
           branch,
           envMode: "local",
+          selectionIntent: "branch",
         });
       }
       expect(onSelectRunContext).toHaveBeenCalledTimes(2);

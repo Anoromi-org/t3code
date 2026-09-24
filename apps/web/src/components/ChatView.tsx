@@ -493,6 +493,8 @@ import {
   resolveProactiveTurnDiffAction,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
+  resolvePendingNamedWorktreeSourceSelection,
+  resolveWorktreeBranchPreparation,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   shouldWriteThreadErrorToCurrentServerThread,
@@ -7854,6 +7856,10 @@ export default function ChatView(props: ChatViewProps) {
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath
         ? activeThreadBranch
         : null;
+    // Read live: the capability may arrive after this callback was created.
+    const readSupportsServerBranchGeneration = () =>
+      appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+        .worktreeBranchGeneration === true;
 
     // In worktree mode, require an explicit base branch so we don't silently
     // fall back to local execution when branch selection is missing.
@@ -8210,11 +8216,17 @@ export default function ChatView(props: ChatViewProps) {
                       worktreePath: null,
                       createdAt: messageCreatedAt,
                     },
+                    // Each sibling gets its own worktree, and a branch can be
+                    // checked out in only one of them, so siblings never take a
+                    // `/worktree <name>` target; the server names each one and
+                    // suffixes collisions.
                     prepareWorktree: {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: activeThreadBranch!,
                       requireWorktree: true,
-                      branch: buildTemporaryWorktreeBranchName(randomHex),
+                      ...(readSupportsServerBranchGeneration()
+                        ? { generateBranch: true }
+                        : { branch: buildTemporaryWorktreeBranchName(randomHex) }),
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
                     runSetupScript: true,
@@ -8532,6 +8544,14 @@ export default function ChatView(props: ChatViewProps) {
     let turnStartSucceeded = false;
     let backgroundDraftOpened = false;
     if (failure === null && turnAttachmentsResult._tag === "Success") {
+      const worktreeBranchPreparation = baseBranchForWorktree
+        ? resolveWorktreeBranchPreparation({
+            baseBranch: baseBranchForWorktree,
+            requestedBranchName: worktreeBranchName,
+            supportsServerBranchGeneration: readSupportsServerBranchGeneration(),
+            legacyBranchName: buildTemporaryWorktreeBranchName(randomHex),
+          })
+        : null;
       const bootstrap =
         isLocalDraftThread || baseBranchForWorktree
           ? {
@@ -8554,8 +8574,16 @@ export default function ChatView(props: ChatViewProps) {
                     prepareWorktree: {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
-                      branch: worktreeBranchName ?? buildTemporaryWorktreeBranchName(randomHex),
-                      ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      ...(worktreeBranchPreparation?.branch !== undefined
+                        ? { branch: worktreeBranchPreparation.branch }
+                        : {}),
+                      ...(worktreeBranchPreparation?.generateBranch
+                        ? { generateBranch: true }
+                        : {}),
+                      // Checking out an existing branch keeps it as it is.
+                      ...(startFromOrigin && !worktreeBranchPreparation?.reuseExistingBranch
+                        ? { startFromOrigin: true }
+                        : {}),
                     },
                     runSetupScript: true,
                   }
@@ -9586,6 +9614,7 @@ export default function ChatView(props: ChatViewProps) {
       branch: VcsRef | string | null;
       envMode: DraftThreadEnvMode;
       worktreeBranchName?: string | null;
+      selectionIntent?: "branch" | "worktree";
     }): Promise<boolean> => {
       if (!activeThread || !activeProject) return false;
 
@@ -9653,6 +9682,14 @@ export default function ChatView(props: ChatViewProps) {
         // Mirrors BranchToolbarBranchSelector's selectBranch, but reports
         // whether the change applied so the composer can keep the command.
         const branch = input.branch;
+        const pendingWorktreeSource = resolvePendingNamedWorktreeSourceSelection({
+          selectionIntent: input.selectionIntent,
+          requestedEnvMode: input.envMode,
+          activeWorktreePath: activeThread.worktreePath,
+          worktreeBranchName,
+          selectedSourceBranch: branch.name,
+        });
+        if (pendingWorktreeSource) return await applyContext(pendingWorktreeSource);
         if (
           shouldSelectRefAsWorktreeBase({
             requestedEnvMode: input.envMode,
@@ -9724,6 +9761,7 @@ export default function ChatView(props: ChatViewProps) {
       stopThreadSession,
       switchGitRef,
       updateThreadMetadata,
+      worktreeBranchName,
     ],
   );
   const runContextBranch = activeThreadBranch ?? gitStatusQuery.data?.refName ?? null;
@@ -9759,7 +9797,6 @@ export default function ChatView(props: ChatViewProps) {
   const onActiveThreadBranchOverrideChange = useCallback((branch: string | null) => {
     const nextOverride = resolveToolbarBranchOverride(branch);
     setPendingServerThreadBranch(nextOverride.branch);
-    setPendingServerWorktreeBranchName(nextOverride.worktreeBranchName);
   }, []);
 
   // "Work locally" on the setup card: cancel the bootstrap and remember the

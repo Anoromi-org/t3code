@@ -3061,42 +3061,154 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  // Branch-name resolution and `git worktree add` are serialized per repository
+  // so two requests for the same generated name cannot both see it as free.
+  const worktreeCreationLocks = new Map<string, Semaphore.Semaphore>();
+  const withWorktreeCreationLock = <A, E>(cwd: string, effect: Effect.Effect<A, E>) =>
+    resolveRepositoryPaths(cwd).pipe(
+      Effect.map((paths) => paths?.gitCommonDir ?? path.resolve(cwd)),
+      Effect.orElseSucceed(() => path.resolve(cwd)),
+      Effect.flatMap((key) => {
+        let lock = worktreeCreationLocks.get(key);
+        if (lock === undefined) {
+          lock = Semaphore.makeUnsafe(1);
+          worktreeCreationLocks.set(key, lock);
+        }
+        return lock.withPermit(effect);
+      }),
+    );
+
+  const worktreeIdempotencyConfigPrefix = (cwd: string, idempotencyKey: string) =>
+    crypto.digest("SHA-256", new TextEncoder().encode(idempotencyKey)).pipe(
+      Effect.map((hash) => `t3code-bootstrap.${Encoding.encodeHex(hash)}`),
+      Effect.mapError(
+        (cause) =>
+          new GitCommandError({
+            ...gitCommandContext({
+              operation: "GitVcsDriver.createWorktree.hashIdempotencyKey",
+              cwd,
+              args: [],
+            }),
+            detail: "Failed to hash the worktree idempotency key.",
+            cause,
+          }),
+      ),
+    );
+
+  /**
+   * The worktree a previous request with the same idempotency key finished
+   * creating, when it is still registered and on its branch. Anything less
+   * (never completed, removed, or switched away) is not reused.
+   */
+  const findRememberedWorktree = Effect.fn("findRememberedWorktree")(function* (
+    cwd: string,
+    configPrefix: string,
+  ) {
+    const [branch, worktreePath, completed] = yield* Effect.all([
+      readConfigValue(cwd, `${configPrefix}.branch`),
+      readConfigValue(cwd, `${configPrefix}.path`),
+      readConfigValue(cwd, `${configPrefix}.completed`),
+    ]);
+    if (completed !== "true" || branch === null || worktreePath === null) return null;
+    if (!(yield* branchExists(cwd, branch))) return null;
+    if (!(yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => false)))) {
+      return null;
+    }
+    const registered = yield* runGitStdout("GitVcsDriver.createWorktree.verifyRegistry", cwd, [
+      "worktree",
+      "list",
+      "--porcelain",
+      "-z",
+    ]);
+    const registeredPath = parseWorktreeBranchPaths(registered).get(branch);
+    if (!registeredPath || path.resolve(registeredPath) !== path.resolve(worktreePath)) {
+      return null;
+    }
+    const checkedOutBranch = yield* runGitStdout(
+      "GitVcsDriver.createWorktree.verifyHead",
+      worktreePath,
+      ["symbolic-ref", "--short", "HEAD"],
+    ).pipe(Effect.orElseSucceed(() => ""));
+    return checkedOutBranch.trim() === branch ? { path: worktreePath, refName: branch } : null;
+  });
+
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input, options) {
-    const targetBranch = input.newRefName ?? input.refName;
-    const sanitizedBranch = targetBranch.replace(/\//g, "-");
-    const repoName = path.basename(input.cwd);
-    const worktreePath = input.path ?? path.join(worktreesDir, repoName, sanitizedBranch);
-    const args = input.newRefName
-      ? ["worktree", "add", "-b", input.newRefName, worktreePath, input.refName]
-      : ["worktree", "add", worktreePath, input.refName];
     const progress = options?.progress;
     const onCheckoutProgress = progress?.onCheckoutProgress;
+    const configPrefix = input.idempotencyKey
+      ? yield* worktreeIdempotencyConfigPrefix(input.cwd, input.idempotencyKey)
+      : null;
 
-    const checkoutWorkers = (yield* readConfigValue(input.cwd, "checkout.workers")) ?? "0";
-    yield* executeGit(
-      "GitVcsDriver.createWorktree",
+    const claimed = yield* withWorktreeCreationLock(
       input.cwd,
-      ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
-      {
-        fallbackErrorDetail: "git worktree add failed",
-        timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-        ...(onCheckoutProgress
-          ? {
-              // Git only prints checkout progress when stderr is a tty or the
-              // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
-              env: { GIT_PROGRESS_DELAY: "0", LC_ALL: "C" },
-              progress: {
-                onStderrLine: (line) => {
-                  const parsed = parseGitCheckoutProgressLine(line);
-                  return parsed ? onCheckoutProgress(parsed) : Effect.void;
-                },
-              },
-            }
-          : {}),
-      },
+      Effect.gen(function* () {
+        if (configPrefix !== null) {
+          const remembered = yield* findRememberedWorktree(input.cwd, configPrefix);
+          if (remembered !== null) return remembered;
+        }
+        const targetBranch =
+          input.newRefName && input.ensureUniqueRefName === true
+            ? yield* resolveAvailableBranchName(input.cwd, input.newRefName)
+            : (input.newRefName ?? input.refName);
+        const sanitizedBranch = targetBranch.replace(/\//g, "-");
+        const repoName = path.basename(input.cwd);
+        const worktreePath = input.path ?? path.join(worktreesDir, repoName, sanitizedBranch);
+        const args = input.newRefName
+          ? ["worktree", "add", "-b", targetBranch, worktreePath, input.refName]
+          : ["worktree", "add", worktreePath, input.refName];
+
+        if (configPrefix !== null) {
+          for (const [field, value] of [
+            ["completed", "false"],
+            ["branch", targetBranch],
+            ["path", worktreePath],
+          ] as const) {
+            yield* runGit("GitVcsDriver.createWorktree.rememberIdempotencyKey", input.cwd, [
+              "config",
+              `${configPrefix}.${field}`,
+              value,
+            ]);
+          }
+        }
+
+        const checkoutWorkers = (yield* readConfigValue(input.cwd, "checkout.workers")) ?? "0";
+        yield* executeGit(
+          "GitVcsDriver.createWorktree",
+          input.cwd,
+          ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
+          {
+            fallbackErrorDetail: "git worktree add failed",
+            timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+            ...(onCheckoutProgress
+              ? {
+                  // Git only prints checkout progress when stderr is a tty or the
+                  // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
+                  env: { GIT_PROGRESS_DELAY: "0", LC_ALL: "C" },
+                  progress: {
+                    onStderrLine: (line) => {
+                      const parsed = parseGitCheckoutProgressLine(line);
+                      return parsed ? onCheckoutProgress(parsed) : Effect.void;
+                    },
+                  },
+                }
+              : {}),
+          },
+        );
+
+        if (configPrefix !== null) {
+          yield* runGit("GitVcsDriver.createWorktree.markIdempotencyKeyCompleted", input.cwd, [
+            "config",
+            `${configPrefix}.completed`,
+            "true",
+          ]);
+        }
+        return { path: worktreePath, refName: targetBranch };
+      }),
     );
+    const worktreePath = claimed.path;
+    const targetBranch = claimed.refName;
 
     if (progress?.onWorktreeClaimed) {
       yield* progress.onWorktreeClaimed(worktreePath);
@@ -3183,7 +3295,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const baseBranch = parsedBaseRef?.branchName ?? input.baseRefName;
       yield* runGit("GitVcsDriver.createWorktree.configureBaseRef", input.cwd, [
         "config",
-        `branch.${input.newRefName}.gh-merge-base`,
+        `branch.${targetBranch}.gh-merge-base`,
         baseBranch,
       ]);
     }

@@ -875,6 +875,64 @@ export function resolveBackgroundDraftWorkspaceOptions(input: {
   };
 }
 
+/**
+ * How a new worktree gets its branch: checked out as is when the chosen name is
+ * the base branch itself, created under an explicit name, or named by the
+ * server (older servers need a temporary branch the first turn renames).
+ */
+export function resolveWorktreeBranchPreparation(input: {
+  baseBranch: string;
+  requestedBranchName: string | null;
+  supportsServerBranchGeneration?: boolean;
+  legacyBranchName?: string;
+}): {
+  branch?: string;
+  generateBranch?: true;
+  reuseExistingBranch: boolean;
+} {
+  if (input.requestedBranchName === null) {
+    return input.supportsServerBranchGeneration === false && input.legacyBranchName !== undefined
+      ? { branch: input.legacyBranchName, reuseExistingBranch: false }
+      : { generateBranch: true, reuseExistingBranch: false };
+  }
+  if (input.requestedBranchName === input.baseBranch) {
+    return { reuseExistingBranch: true };
+  }
+  return { branch: input.requestedBranchName, reuseExistingBranch: false };
+}
+
+/**
+ * `/branch` on a pending named worktree changes only the branch it starts
+ * from; the chosen worktree name stays. Null when the selection means more.
+ */
+export function resolvePendingNamedWorktreeSourceSelection(input: {
+  selectionIntent: "branch" | "worktree" | undefined;
+  requestedEnvMode: DraftThreadEnvMode;
+  activeWorktreePath: string | null;
+  worktreeBranchName: string | null;
+  selectedSourceBranch: string;
+}): {
+  branch: string;
+  worktreePath: null;
+  envMode: "worktree";
+  worktreeBranchName: string;
+} | null {
+  if (
+    input.selectionIntent !== "branch" ||
+    input.requestedEnvMode !== "worktree" ||
+    input.activeWorktreePath !== null ||
+    input.worktreeBranchName === null
+  ) {
+    return null;
+  }
+  return {
+    branch: input.selectedSourceBranch,
+    worktreePath: null,
+    envMode: "worktree",
+    worktreeBranchName: input.worktreeBranchName,
+  };
+}
+
 export function cloneComposerImageForRetry(
   image: ComposerImageAttachment,
 ): ComposerImageAttachment {

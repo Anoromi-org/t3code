@@ -142,6 +142,10 @@ export const VcsCreateWorktreeInput = Schema.Struct({
   refName: TrimmedNonEmptyStringSchema,
   newRefName: Schema.optional(TrimmedNonEmptyStringSchema),
   baseRefName: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** Suffix `newRefName` (`-1`, `-2`, ...) when a branch with that name already exists. */
+  ensureUniqueRefName: Schema.optional(Schema.Boolean),
+  /** Repeating a request with the same key returns the worktree it already created. */
+  idempotencyKey: Schema.optional(TrimmedNonEmptyStringSchema),
   path: Schema.NullOr(TrimmedNonEmptyStringSchema),
 });
 export type VcsCreateWorktreeInput = typeof VcsCreateWorktreeInput.Type;

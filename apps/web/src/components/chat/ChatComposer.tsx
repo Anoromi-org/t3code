@@ -283,6 +283,7 @@ import {
   replaceProviderOptionSelection,
   resolveFastModeDescriptor,
   resolveReasoningDescriptor,
+  resolveWorktreeTargetBranchName,
   toggleFastModeOptionSelection,
 } from "./composerSlashActions";
 import {
@@ -1054,6 +1055,8 @@ export interface ComposerRunContext {
     branch: VcsRef | string | null;
     envMode: "local" | "worktree";
     worktreeBranchName?: string | null;
+    /** `/branch` changes only the source of a pending named worktree. */
+    selectionIntent?: "branch" | "worktree";
   }) => Promise<boolean>;
 }
 
@@ -4022,17 +4025,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (item.type === "branch") {
         if (!runContext) return;
         const selectedWorktreePath = item.branch.worktreePath;
+        const isWorktreeCommand = composerMenuSlashCommand?.command === "worktree";
+        const envMode =
+          isWorktreeCommand ||
+          (selectedWorktreePath && selectedWorktreePath !== runContext.projectCwd)
+            ? "worktree"
+            : selectedWorktreePath === runContext.projectCwd
+              ? runContext.envMode === "worktree" && runContext.worktreePath === null
+                ? "worktree"
+                : "local"
+              : runContext.envMode;
         await selectRunContext({
           branch: item.branch,
-          envMode:
-            composerMenuSlashCommand?.command === "worktree" ||
-            (selectedWorktreePath && selectedWorktreePath !== runContext.projectCwd)
-              ? "worktree"
-              : selectedWorktreePath === runContext.projectCwd
-                ? runContext.envMode === "worktree" && runContext.worktreePath === null
-                  ? "worktree"
-                  : "local"
-                : runContext.envMode,
+          envMode,
+          selectionIntent: composerMenuSlashCommand?.command === "branch" ? "branch" : "worktree",
+          // `/worktree <branch>` on a branch no checkout holds puts the new
+          // worktree on that branch instead of a fresh one based on it.
+          ...(isWorktreeCommand && envMode === "worktree" && selectedWorktreePath === null
+            ? { worktreeBranchName: resolveWorktreeTargetBranchName(item.branch) }
+            : {}),
         });
         return;
       }

@@ -1038,7 +1038,11 @@ export function useThreadOutboxDrain(): void {
           branch: creation.branch,
           worktreePath: creation.worktreePath,
           startFromOrigin: creation.startFromOrigin ?? false,
-          worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
+          supportsServerBranchGeneration:
+            currentConfig.environment.capabilities.worktreeBranchGeneration === true,
+          ...(currentConfig.environment.capabilities.worktreeBranchGeneration === true
+            ? {}
+            : { legacyBranchName: buildTemporaryWorktreeBranchName(randomHex) }),
         }),
       });
       const { reportFailure } = makeDeliveryHelpers(queuedMessage);

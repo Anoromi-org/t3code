@@ -251,7 +251,7 @@ describe("host context compatibility", () => {
             branch: null,
             worktreePath: null,
             startFromOrigin: false,
-            worktreeBranchName: "unused",
+            supportsServerBranchGeneration: true,
           }).message;
     expect(message).not.toHaveProperty("context");
     expect(message.text).not.toContain("t3-context://");

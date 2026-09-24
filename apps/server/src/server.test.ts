@@ -117,6 +117,7 @@ import {
 } from "./ws.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as GitManager from "./git/GitManager.ts";
+import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -527,6 +528,7 @@ const buildAppUnderTest = (options?: {
     providerInstanceRegistry?: Partial<ProviderInstanceRegistry["Service"]>;
     antigravityInstallation?: Partial<AntigravityInstallation["Service"]>;
     serverSettings?: Partial<ServerSettings.ServerSettingsService["Service"]>;
+    textGeneration?: Partial<TextGeneration.TextGeneration["Service"]>;
     externalLauncher?: Partial<ExternalLauncher.ExternalLauncher["Service"]>;
     vcsDriver?: Partial<VcsDriver.VcsDriver["Service"]>;
     vcsDriverRegistry?: Partial<VcsDriverRegistry.VcsDriverRegistry["Service"]>;
@@ -826,6 +828,13 @@ const buildAppUnderTest = (options?: {
           Layer.mock(AntigravityInstallation)({
             managedDirectory: "unused-test-antigravity-runtime",
             ...options?.layers?.antigravityInstallation,
+          }),
+          Layer.mock(TextGeneration.TextGeneration)({
+            generateCommitMessage: () => Effect.die("unexpected commit message generation"),
+            generatePrContent: () => Effect.die("unexpected PR content generation"),
+            generateBranchName: () => Effect.die("unexpected branch name generation"),
+            generateThreadTitle: () => Effect.die("unexpected thread title generation"),
+            ...options?.layers?.textGeneration,
           }),
           Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)({
             upsert: () => Effect.void,
@@ -11122,6 +11131,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           refName: fetchedOriginCommit,
           newRefName: "t3code/bootstrap-refName",
           baseRefName: "main",
+          idempotencyKey: "cmd-bootstrap-turn-start",
           path: null,
         });
         assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
@@ -11314,8 +11324,318 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         refName: "main",
         newRefName: "t3code/bootstrap-refName",
         baseRefName: "main",
+        idempotencyKey: "cmd-bootstrap-turn-start-no-origin",
         path: null,
       });
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("checks out an existing branch directly when bootstrapping a worktree", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const remoteExists = vi.fn(() => Effect.succeed(true));
+      const createWorktree = vi.fn(
+        (_: Parameters<GitVcsDriver.GitVcsDriver["Service"]["createWorktree"]>[0]) =>
+          Effect.succeed({
+            worktree: { refName: "feature/existing", path: "/tmp/feature-existing" },
+          }),
+      );
+      yield* buildAppUnderTest({
+        layers: {
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) },
+          gitVcsDriver: {
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION),
+            remoteExists,
+            createWorktree,
+          },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-existing-worktree"),
+            threadId: ThreadId.make("thread-existing-worktree"),
+            message: {
+              messageId: MessageId.make("msg-existing-worktree"),
+              role: "user",
+              text: "continue on this branch",
+              attachments: [],
+            },
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            bootstrap: {
+              prepareWorktree: {
+                projectCwd: "/tmp/project",
+                baseBranch: "feature/existing",
+                // Ignored: fetching would replace the branch with a detached commit.
+                startFromOrigin: true,
+              },
+            },
+            createdAt: "2026-01-01T00:00:00.000Z",
+          }),
+        ),
+      );
+
+      assert.equal(remoteExists.mock.calls.length, 0);
+      assert.deepEqual(createWorktree.mock.calls[0]?.[0], {
+        cwd: "/tmp/project",
+        refName: "feature/existing",
+        idempotencyKey: "cmd-existing-worktree",
+        path: null,
+      });
+      assert.deepEqual(
+        dispatchedCommands
+          .map((command) => command.type)
+          .filter((type) => type !== "thread.activity.append"),
+        ["thread.meta.update", "thread.turn.start"],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("generates the final branch before creating an unnamed worktree", () =>
+    Effect.gen(function* () {
+      const generateBranchName = vi.fn(
+        (_: Parameters<TextGeneration.TextGeneration["Service"]["generateBranchName"]>[0]) =>
+          Effect.succeed({ branch: "fix worktree directory names" }),
+      );
+      // Retries only reuse a worktree that still exists.
+      const worktreeDir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
+        prefix: "t3-generated-worktree-",
+      });
+      const createWorktree = vi.fn(
+        (_: Parameters<GitVcsDriver.GitVcsDriver["Service"]["createWorktree"]>[0]) =>
+          Effect.succeed({
+            worktree: { refName: "t3code/fix-worktree-directory-names", path: worktreeDir },
+          }),
+      );
+      let preparedWorktreePath: string | null = null;
+      let threadExists = false;
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const runSetupScript = vi.fn(() => Effect.succeed({ status: "no-script" as const }));
+
+      yield* buildAppUnderTest({
+        layers: {
+          textGeneration: { generateBranchName },
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) },
+          gitVcsDriver: {
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION),
+            createWorktree,
+          },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                if (command.type === "thread.create") threadExists = true;
+                if (command.type === "thread.meta.update") {
+                  preparedWorktreePath = command.worktreePath ?? null;
+                }
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+          projectionSnapshotQuery: {
+            getThreadShellById: (threadId) =>
+              Effect.sync(() =>
+                threadExists
+                  ? Option.some(
+                      makeDefaultOrchestrationThreadShell({
+                        id: threadId,
+                        branch: "t3code/fix-worktree-directory-names",
+                        worktreePath: preparedWorktreePath,
+                      }),
+                    )
+                  : Option.none(),
+              ),
+          },
+          projectSetupScriptRunner: { runForThread: runSetupScript },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const command = {
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-generated-worktree"),
+        threadId: ThreadId.make("thread-generated-worktree"),
+        message: {
+          messageId: MessageId.make("msg-generated-worktree"),
+          role: "user",
+          text: "Fix the worktree directory names",
+          attachments: [],
+        },
+        modelSelection: defaultModelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        bootstrap: {
+          createThread: {
+            projectId: defaultProjectId,
+            title: "Fix worktree directory names",
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: "main",
+            worktreePath: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+          prepareWorktree: {
+            projectCwd: "/tmp/project",
+            baseBranch: "main",
+            generateBranch: true,
+          },
+          runSetupScript: true,
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      } as const;
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand](command),
+        ),
+      );
+      const firstAttemptCommands = dispatchedCommands.length;
+      // The client retries the same command, e.g. after its socket dropped.
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand](command),
+        ),
+      );
+
+      assert.equal(generateBranchName.mock.calls.length, 1);
+      assert.equal(generateBranchName.mock.calls[0]?.[0].message, command.message.text);
+      assert.equal(createWorktree.mock.calls.length, 1);
+      assert.equal(runSetupScript.mock.calls.length, 1);
+      assert.deepEqual(createWorktree.mock.calls[0]?.[0], {
+        cwd: "/tmp/project",
+        refName: "main",
+        newRefName: "t3code/fix-worktree-directory-names",
+        baseRefName: "main",
+        ensureUniqueRefName: true,
+        idempotencyKey: "cmd-generated-worktree",
+        path: null,
+      });
+      // The retry creates nothing new and only replays the turn handoff, which
+      // the engine deduplicates by command id.
+      assert.deepEqual(
+        dispatchedCommands.slice(firstAttemptCommands).map((entry) => entry.type),
+        ["thread.turn.start"],
+      );
+      assert.equal(
+        dispatchedCommands.filter((entry) => entry.type === "thread.meta.update").length,
+        1,
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("gives multi-model sibling worktrees distinct generated branches", () =>
+    Effect.gen(function* () {
+      const takenBranches = new Set<string>();
+      const createWorktree = vi.fn(
+        (input: Parameters<GitVcsDriver.GitVcsDriver["Service"]["createWorktree"]>[0]) =>
+          Effect.sync(() => {
+            // Mirrors the driver: a taken name gets the next free suffix.
+            let refName = input.newRefName ?? input.refName;
+            if (input.ensureUniqueRefName === true) {
+              for (let suffix = 1; takenBranches.has(refName); suffix += 1) {
+                refName = `${input.newRefName}-${suffix}`;
+              }
+            }
+            takenBranches.add(refName);
+            return { worktree: { refName, path: `/tmp/${refName.replaceAll("/", "-")}` } };
+          }),
+      );
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          textGeneration: {
+            generateBranchName: () => Effect.succeed({ branch: "compare reconnect backoff" }),
+          },
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) },
+          gitVcsDriver: {
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION),
+            createWorktree,
+          },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const sendSibling = (index: number) =>
+        Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+              type: "thread.turn.start",
+              commandId: CommandId.make(`cmd-sibling-${index}`),
+              threadId: ThreadId.make(`thread-sibling-${index}`),
+              message: {
+                messageId: MessageId.make(`msg-sibling-${index}`),
+                role: "user",
+                text: "Compare reconnect backoff strategies",
+                attachments: [],
+              },
+              modelSelection: defaultModelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              bootstrap: {
+                createThread: {
+                  projectId: defaultProjectId,
+                  title: "Compare reconnect backoff",
+                  modelSelection: defaultModelSelection,
+                  runtimeMode: "full-access",
+                  interactionMode: "default",
+                  branch: "main",
+                  worktreePath: null,
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                },
+                prepareWorktree: {
+                  projectCwd: "/tmp/project",
+                  baseBranch: "main",
+                  generateBranch: true,
+                },
+              },
+              createdAt: "2026-01-01T00:00:00.000Z",
+            }),
+          ),
+        );
+      yield* sendSibling(1);
+      yield* sendSibling(2);
+
+      assert.deepEqual(
+        createWorktree.mock.calls.map(([input]) => [
+          input.ensureUniqueRefName,
+          input.idempotencyKey,
+        ]),
+        [
+          [true, "cmd-sibling-1"],
+          [true, "cmd-sibling-2"],
+        ],
+      );
+      assert.deepEqual(
+        dispatchedCommands.flatMap((command) =>
+          command.type === "thread.meta.update" ? [[command.threadId, command.branch]] : [],
+        ),
+        [
+          ["thread-sibling-1", "t3code/compare-reconnect-backoff"],
+          ["thread-sibling-2", "t3code/compare-reconnect-backoff-1"],
+        ],
+      );
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -11391,6 +11711,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 prepareWorktree: {
                   projectCwd: "/tmp/project",
                   baseBranch: "main",
+                  branch: "t3code/required-worktree",
                   requireWorktree: true,
                   startFromOrigin: failFetch,
                 },

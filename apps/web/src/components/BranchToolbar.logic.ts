@@ -194,20 +194,20 @@ export function shouldSelectRefAsWorktreeBase(input: {
   activeWorktreePath: string | null;
   selectedRefWorktreePath: string | null;
 }): boolean {
+  // A ref some checkout already holds (the project root included) is reused
+  // there; a new worktree cannot check out the same branch twice.
   return (
     input.requestedEnvMode === "worktree" &&
     input.activeWorktreePath === null &&
-    (input.selectedRefWorktreePath === null ||
-      input.selectedRefWorktreePath === input.activeProjectCwd)
+    input.selectedRefWorktreePath === null
   );
 }
 
-/** Toolbar base-ref changes invalidate a pending named worktree target. */
+/** Toolbar base-ref changes move only the source of a pending named worktree. */
 export function resolveToolbarBranchOverride(branch: string | null): {
   branch: string | null;
-  worktreeBranchName: null;
 } {
-  return { branch, worktreeBranchName: null };
+  return { branch };
 }
 
 export function resolveBranchToolbarValue(input: {

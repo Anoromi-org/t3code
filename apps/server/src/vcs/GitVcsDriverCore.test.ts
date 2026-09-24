@@ -2618,6 +2618,221 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.notInclude(registered, "stale");
       }),
     );
+
+    it.effect("checks out an existing ref without creating a second branch", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["branch", "feature/existing", initialBranch]);
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(
+          yield* makeTmpDir("git-worktrees-"),
+          "feature-existing",
+        );
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        const created = yield* driver.createWorktree({
+          cwd,
+          path: worktreePath,
+          refName: "feature/existing",
+        });
+
+        assert.equal(created.worktree.refName, "feature/existing");
+        assert.equal(yield* git(worktreePath, ["branch", "--show-current"]), "feature/existing");
+      }),
+    );
+
+    it.effect("derives the default worktree directory from the final branch name", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        const created = yield* driver.createWorktree({
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "feature/stable-worktree-name",
+        });
+
+        assert.equal(pathService.basename(created.worktree.path), "feature-stable-worktree-name");
+        assert.equal(
+          yield* git(created.worktree.path, ["branch", "--show-current"]),
+          "feature/stable-worktree-name",
+        );
+      }),
+    );
+
+    it.effect("suffixes generated branch and directory names when the first name is taken", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["branch", "t3code/fix-worktrees", initialBranch]);
+        const pathService = yield* Path.Path;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        const created = yield* driver.createWorktree({
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "t3code/fix-worktrees",
+          baseRefName: initialBranch,
+          ensureUniqueRefName: true,
+        });
+
+        assert.equal(created.worktree.refName, "t3code/fix-worktrees-1");
+        assert.equal(pathService.basename(created.worktree.path), "t3code-fix-worktrees-1");
+        assert.equal(
+          yield* git(created.worktree.path, ["branch", "--show-current"]),
+          "t3code/fix-worktrees-1",
+        );
+        assert.equal(
+          yield* git(cwd, ["config", "--get", "branch.t3code/fix-worktrees-1.gh-merge-base"]),
+          initialBranch,
+        );
+      }),
+    );
+
+    it.effect("serializes concurrent generated worktrees with the same requested name", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const input = {
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "t3code/concurrent-worktree",
+          ensureUniqueRefName: true,
+        } as const;
+
+        const created = yield* Effect.all(
+          [driver.createWorktree(input), driver.createWorktree(input)],
+          {
+            concurrency: "unbounded",
+          },
+        );
+
+        assert.deepEqual(created.map(({ worktree }) => worktree.refName).toSorted(), [
+          "t3code/concurrent-worktree",
+          "t3code/concurrent-worktree-1",
+        ]);
+      }),
+    );
+
+    it.effect("recovers a created worktree by bootstrap idempotency key", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const input = {
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "t3code/retry-worktree",
+          ensureUniqueRefName: true,
+          idempotencyKey: "turn-command-retry",
+        } as const;
+
+        const first = yield* driver.createWorktree(input);
+        const claimed = yield* Ref.make<string | null>(null);
+        const retried = yield* driver.createWorktree(input, {
+          progress: { onWorktreeClaimed: (claimedPath) => Ref.set(claimed, claimedPath) },
+        });
+
+        assert.deepEqual(retried, first);
+        assert.equal(retried.worktree.refName, "t3code/retry-worktree");
+        assert.equal(yield* Ref.get(claimed), first.worktree.path);
+      }),
+    );
+
+    it.effect("does not reuse an incomplete or unregistered remembered worktree", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fs = yield* FileSystem.FileSystem;
+        const input = {
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "t3code/partial",
+          ensureUniqueRefName: true,
+          idempotencyKey: "partial-retry",
+        } as const;
+        const first = yield* driver.createWorktree(input);
+        const marker = yield* git(cwd, [
+          "config",
+          "--name-only",
+          "--get-regexp",
+          "^t3code-bootstrap\\..*\\.completed$",
+        ]);
+        yield* git(cwd, ["config", marker, "false"]);
+        const second = yield* driver.createWorktree(input);
+        assert.notEqual(second.worktree.path, first.worktree.path);
+        yield* git(cwd, ["worktree", "remove", "--force", second.worktree.path]);
+        yield* fs.makeDirectory(second.worktree.path, { recursive: true });
+        const third = yield* driver.createWorktree(input);
+        assert.notEqual(third.worktree.path, second.worktree.path);
+        yield* git(third.worktree.path, ["checkout", "--detach"]);
+        const fourth = yield* driver.createWorktree(input);
+        assert.notEqual(fourth.worktree.path, third.worktree.path);
+      }),
+    );
+
+    it.effect("applies submodule options when an idempotent retry reuses the worktree", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+
+        const previousAllowedProtocol = process.env.GIT_ALLOW_PROTOCOL;
+        process.env.GIT_ALLOW_PROTOCOL = "file";
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (previousAllowedProtocol === undefined) {
+              delete process.env.GIT_ALLOW_PROTOCOL;
+            } else {
+              process.env.GIT_ALLOW_PROTOCOL = previousAllowedProtocol;
+            }
+          }),
+        );
+
+        const submoduleRepo = yield* makeTmpDir("git-submodule-");
+        yield* initRepoWithCommit(submoduleRepo);
+        yield* writeTextFile(submoduleRepo, "SHARED.md", "# shared\n");
+        yield* git(submoduleRepo, ["add", "."]);
+        yield* git(submoduleRepo, ["commit", "-m", "shared"]);
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["submodule", "add", submoduleRepo, "shared"]);
+        yield* git(cwd, ["commit", "-m", "add submodule"]);
+
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const input = {
+          cwd,
+          path: null,
+          refName: initialBranch,
+          newRefName: "t3code/submodule-retry",
+          ensureUniqueRefName: true,
+          idempotencyKey: "submodule-retry",
+        } as const;
+        const sharedFile = (worktreePath: string) =>
+          fileSystem.exists(pathService.join(worktreePath, "shared", "SHARED.md"));
+
+        const first = yield* driver.createWorktree(input, { submodules: "none" });
+        assert.equal(yield* sharedFile(first.worktree.path), false);
+
+        const started = yield* Ref.make(false);
+        const retried = yield* driver.createWorktree(input, {
+          submodules: "top-level",
+          progress: { onSubmodulesStarted: () => Ref.set(started, true) },
+        });
+        assert.deepEqual(retried, first);
+        assert.equal(yield* Ref.get(started), true);
+        assert.equal(yield* sharedFile(retried.worktree.path), true);
+      }),
+    );
   });
 
   describe("remote operations", () => {

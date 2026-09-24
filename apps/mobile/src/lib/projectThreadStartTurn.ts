@@ -40,8 +40,39 @@ export interface ProjectThreadStartTurnSpec {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly startFromOrigin: boolean;
-  /** Generated temp branch for worktree mode; unused for local mode. */
-  readonly worktreeBranchName: string;
+  /** The server names new worktree branches (`worktreeBranchGeneration`). */
+  readonly supportsServerBranchGeneration: boolean;
+  /** Temporary branch for servers that cannot name new worktrees. */
+  readonly legacyBranchName?: string;
+}
+
+/**
+ * Worktree-mode bootstrap: prepares a new worktree unless one is already
+ * selected. The server names its branch, or older servers get a temporary one.
+ */
+export function buildProjectThreadWorkspaceBootstrap(input: {
+  readonly projectCwd: string;
+  readonly workspaceMode: "local" | "worktree";
+  readonly branch: string | null;
+  readonly worktreePath: string | null;
+  readonly startFromOrigin: boolean;
+  readonly supportsServerBranchGeneration: boolean;
+  readonly legacyBranchName?: string;
+}) {
+  if (input.workspaceMode === "local" || input.worktreePath !== null) {
+    return {};
+  }
+  return {
+    prepareWorktree: {
+      projectCwd: input.projectCwd,
+      baseBranch: input.branch!,
+      ...(input.supportsServerBranchGeneration || input.legacyBranchName === undefined
+        ? { generateBranch: true as const }
+        : { branch: input.legacyBranchName }),
+      ...(input.startFromOrigin ? { startFromOrigin: true as const } : {}),
+    },
+    runSetupScript: true as const,
+  };
 }
 
 /**
@@ -51,7 +82,6 @@ export interface ProjectThreadStartTurnSpec {
  */
 export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpec) {
   const title = deriveThreadTitleFromPrompt(spec.text);
-  const isWorktree = spec.workspaceMode === "worktree";
   return {
     commandId: CommandId.make(spec.commandId),
     threadId: ThreadId.make(spec.threadId),
@@ -74,20 +104,18 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
         runtimeMode: spec.runtimeMode,
         interactionMode: spec.interactionMode,
         branch: spec.branch,
-        worktreePath: isWorktree ? null : spec.worktreePath,
+        worktreePath: spec.worktreePath,
         createdAt: spec.createdAt,
       },
-      ...(isWorktree
-        ? {
-            prepareWorktree: {
-              projectCwd: spec.projectCwd,
-              baseBranch: spec.branch!,
-              branch: spec.worktreeBranchName,
-              ...(spec.startFromOrigin ? { startFromOrigin: true } : {}),
-            },
-            runSetupScript: true,
-          }
-        : {}),
+      ...buildProjectThreadWorkspaceBootstrap({
+        projectCwd: spec.projectCwd,
+        workspaceMode: spec.workspaceMode,
+        branch: spec.branch,
+        worktreePath: spec.worktreePath,
+        startFromOrigin: spec.startFromOrigin,
+        supportsServerBranchGeneration: spec.supportsServerBranchGeneration,
+        ...(spec.legacyBranchName !== undefined ? { legacyBranchName: spec.legacyBranchName } : {}),
+      }),
     },
     createdAt: spec.createdAt,
   };

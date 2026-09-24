@@ -104,6 +104,19 @@ export function buildTemporaryWorktreeBranchName(
   return `${WORKTREE_BRANCH_PREFIX}/${token}`;
 }
 
+/** Turns a generated branch name into a `t3code/<fragment>` ref. */
+export function buildGeneratedWorktreeBranchName(raw: string): string {
+  const normalized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/^refs\/heads\//, "")
+    .replace(/['"`]/g, "");
+  const withoutPrefix = normalized.startsWith(`${WORKTREE_BRANCH_PREFIX}/`)
+    ? normalized.slice(`${WORKTREE_BRANCH_PREFIX}/`.length)
+    : normalized;
+  return `${WORKTREE_BRANCH_PREFIX}/${sanitizeBranchFragment(withoutPrefix)}`;
+}
+
 export function isTemporaryWorktreeBranch(refName: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(refName.trim().toLowerCase());
 }

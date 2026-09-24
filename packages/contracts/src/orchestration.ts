@@ -1295,6 +1295,8 @@ const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
   projectCwd: TrimmedNonEmptyString,
   baseBranch: TrimmedNonEmptyString,
   branch: Schema.optional(TrimmedNonEmptyString),
+  /** Without `branch`, ask the server to name the new branch from the first message. */
+  generateBranch: Schema.optional(Schema.Boolean),
   startFromOrigin: Schema.optional(Schema.Boolean),
   requireWorktree: Schema.optional(Schema.Boolean),
 });

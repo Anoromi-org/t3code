@@ -3,10 +3,12 @@ import {
   withUsageLimitsCommands,
 } from "@t3tools/shared/usageLimits";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -35,6 +37,7 @@ import {
   type FileManagerRevealKind,
   type OrchestrationClientOrigin,
   type OrchestrationCommand,
+  type OrchestrationThreadShell,
   type GitActionProgressEvent,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
@@ -78,9 +81,11 @@ import {
   WsRpcGroup,
   WORKTREE_SETUP_ACTIVITY_KIND,
   worktreeSetupActivityId,
-  type WorktreeSetupSnapshot,
+  WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
+import { buildGeneratedWorktreeBranchName } from "@t3tools/shared/git";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -122,6 +127,7 @@ import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { withTerminalOutputWindow } from "./terminal/OutputProtocol.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
@@ -180,6 +186,16 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+const isWorktreeSetupSnapshot = Schema.is(WorktreeSetupSnapshot);
+const SETUP_SCRIPT_ACTIVITY_KINDS = [
+  "setup-script.requested",
+  "setup-script.started",
+  "setup-script.failed",
+] as const;
+/** Whether a worktree setup snapshot shows its setup script already launched or settled. */
+const isSetupScriptStageStarted = (snapshot: unknown) =>
+  isWorktreeSetupSnapshot(snapshot) &&
+  snapshot.stages.some((stage) => stage.id === "setup-script" && stage.status !== "pending");
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -579,6 +595,8 @@ const makeWsRpcLayer = (
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
+      const textGeneration = yield* TextGeneration.TextGeneration;
+      const fileSystem = yield* FileSystem.FileSystem;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
@@ -635,6 +653,38 @@ const makeWsRpcLayer = (
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
+      // Worktrees prepared per bootstrap turn-start command, so a retried
+      // command reuses its worktree and does not rerun the setup script.
+      // Bounded: retries arrive shortly after the original.
+      interface BootstrapWorktree {
+        readonly branch: string;
+        readonly path: string;
+        setupStarted: boolean;
+      }
+      const bootstrapWorktreesByCommandId = new Map<CommandId, BootstrapWorktree>();
+      const rememberBootstrapWorktree = (commandId: CommandId, state: BootstrapWorktree) => {
+        if (
+          !bootstrapWorktreesByCommandId.has(commandId) &&
+          bootstrapWorktreesByCommandId.size >= 2_048
+        ) {
+          const oldestCommandId = bootstrapWorktreesByCommandId.keys().next().value;
+          if (oldestCommandId !== undefined) bootstrapWorktreesByCommandId.delete(oldestCommandId);
+        }
+        bootstrapWorktreesByCommandId.set(commandId, state);
+        return state;
+      };
+      // A retry that arrives while the original bootstrap still runs waits for
+      // that run instead of preparing a second worktree.
+      interface BootstrapSettlement {
+        detached: boolean;
+        readonly settle: (
+          exit: Exit.Exit<{ readonly sequence: number }, OrchestrationDispatchCommandError>,
+        ) => Effect.Effect<void>;
+      }
+      const inFlightBootstrapsByCommandId = new Map<
+        CommandId,
+        Deferred.Deferred<{ readonly sequence: number }, OrchestrationDispatchCommandError>
+      >();
       yield* Effect.addFinalizer(() =>
         Ref.get(rpcClientIds).pipe(
           Effect.flatMap((clientIds) =>
@@ -1082,8 +1132,96 @@ const makeWsRpcLayer = (
           .worktreeSubmodules;
       });
 
+      // Names an unnamed bootstrap worktree before it is created, so the branch
+      // and its directory are final from the start. Falls back to the first
+      // message when generation fails.
+      const generateBootstrapWorktreeBranch = (input: {
+        readonly command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>;
+        readonly projectId: ProjectId | null;
+        readonly cwd: string;
+      }) => {
+        const message = assistantCitationsToPlainText(input.command.message.text);
+        return Effect.gen(function* () {
+          const settings = resolveProjectSettings(
+            yield* serverSettings.getSettings,
+            input.projectId,
+          ).settings;
+          const modelSelection =
+            settings.sourceControlWriterModelSelection === null
+              ? settings.textGenerationModelSelection
+              : ServerSettings.resolveSourceControlWriterModelSelection(
+                  settings,
+                  yield* providerRegistry.getProviders,
+                );
+          const generated = yield* textGeneration.generateBranchName({
+            cwd: input.cwd,
+            message,
+            ...(input.command.message.attachments.length > 0
+              ? { attachments: input.command.message.attachments }
+              : {}),
+            modelSelection,
+          });
+          return generated.branch;
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning(
+              "worktree branch generation failed; deriving the branch from the first message",
+              { threadId: input.command.threadId, detail: Cause.pretty(cause) },
+            ).pipe(Effect.as(message)),
+          ),
+          Effect.map(buildGeneratedWorktreeBranchName),
+        );
+      };
+
+      // What an earlier attempt of this bootstrap command already prepared: the
+      // remembered worktree, or (after a restart) the worktree the thread
+      // already points at, with whether its setup script already started.
+      const resolvePreparedBootstrapWorktree = (input: {
+        readonly command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>;
+        readonly thread: Option.Option<OrchestrationThreadShell>;
+        readonly baseBranch: string;
+      }) =>
+        Effect.gen(function* () {
+          const remembered = bootstrapWorktreesByCommandId.get(input.command.commandId);
+          if (
+            remembered &&
+            (yield* fileSystem.exists(remembered.path).pipe(Effect.orElseSucceed(() => false)))
+          ) {
+            return remembered;
+          }
+          bootstrapWorktreesByCommandId.delete(input.command.commandId);
+          if (Option.isNone(input.thread) || input.thread.value.worktreePath === null) return null;
+          const worktreePath = input.thread.value.worktreePath;
+          // A cancelled setup may have removed it; then prepare a new one.
+          if (!(yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => false)))) {
+            return null;
+          }
+          const liveSetup = yield* worktreeSetupTracker.get(input.command.threadId);
+          const persistedSetupStarted = yield* projectionSnapshotQuery
+            .getThreadDetailById(input.command.threadId, {
+              activityKinds: [...SETUP_SCRIPT_ACTIVITY_KINDS, WORKTREE_SETUP_ACTIVITY_KIND],
+            })
+            .pipe(
+              Effect.map(
+                (detail) =>
+                  Option.getOrNull(detail)?.activities.some((activity) =>
+                    activity.kind === WORKTREE_SETUP_ACTIVITY_KIND
+                      ? isSetupScriptStageStarted(activity.payload)
+                      : true,
+                  ) ?? false,
+              ),
+              Effect.orElseSucceed(() => false),
+            );
+          return rememberBootstrapWorktree(input.command.commandId, {
+            branch: input.thread.value.branch ?? input.baseBranch,
+            path: worktreePath,
+            setupStarted: isSetupScriptStageStarted(liveSetup) || persistedSetupStarted,
+          });
+        });
+
       const dispatchBootstrapTurnStart = (
         command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
+        settlement: BootstrapSettlement,
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
         Effect.gen(function* () {
           const bootstrap = command.bootstrap;
@@ -1092,6 +1230,21 @@ const makeWsRpcLayer = (
           let targetProjectId = bootstrap?.createThread?.projectId;
           let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
           let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
+          const existingThread =
+            bootstrap?.createThread || bootstrap?.prepareWorktree
+              ? yield* projectionSnapshotQuery
+                  .getThreadShellById(command.threadId)
+                  .pipe(Effect.orElseSucceed(() => Option.none<OrchestrationThreadShell>()))
+              : Option.none<OrchestrationThreadShell>();
+          // A retried command reuses the worktree its earlier attempt prepared.
+          const preparedWorktree = bootstrap?.prepareWorktree
+            ? yield* resolvePreparedBootstrapWorktree({
+                command,
+                thread: existingThread,
+                baseBranch: bootstrap.prepareWorktree.baseBranch,
+              })
+            : null;
+          let bootstrapWorktree = preparedWorktree;
           // The setup script's terminal, once started. Cancel closes only this
           // one so terminals the user opened meanwhile survive.
           let setupTerminalId: string | null = null;
@@ -1211,7 +1364,11 @@ const makeWsRpcLayer = (
               );
             });
 
-          const tracked = bootstrap?.prepareWorktree !== undefined;
+          // A retry for a thread that already has its worktree only replays the
+          // handoff. A fresh setup card would overwrite the recorded setup.
+          const tracked =
+            bootstrap?.prepareWorktree !== undefined &&
+            !(preparedWorktree !== null && Option.isSome(existingThread));
           const threadId = command.threadId;
           const track = (effect: Effect.Effect<void>) => (tracked ? effect : Effect.void);
 
@@ -1226,6 +1383,18 @@ const makeWsRpcLayer = (
                 yield* track(worktreeSetupTracker.stageStatus(threadId, "setup-script", "skipped"));
                 return null;
               }
+              if (bootstrapWorktree?.setupStarted === true) {
+                yield* track(
+                  worktreeSetupTracker.stageStatus(
+                    threadId,
+                    "setup-script",
+                    "skipped",
+                    "already started",
+                  ),
+                );
+                return null;
+              }
+              if (bootstrapWorktree) bootstrapWorktree.setupStarted = true;
               const worktreePath = targetWorktreePath;
               const requestedAt = yield* nowIso;
               yield* track(worktreeSetupTracker.stageStatus(threadId, "setup-script", "running"));
@@ -1337,16 +1506,19 @@ const makeWsRpcLayer = (
 
           const bootstrapProgram = Effect.gen(function* () {
             const prepareWorktree = bootstrap?.prepareWorktree;
-            let shouldPrepareWorktree = prepareWorktree
-              ? yield* gitWorkflow.isRepository(prepareWorktree.projectCwd)
-              : false;
+            let shouldPrepareWorktree =
+              prepareWorktree && preparedWorktree === null
+                ? yield* gitWorkflow.isRepository(prepareWorktree.projectCwd)
+                : false;
             let worktreeBaseRef = prepareWorktree?.baseBranch ?? null;
 
             if (prepareWorktree && shouldPrepareWorktree) {
               // "Start from origin" is a stored default; repos without the
               // requested remote branch fall back to the local base branch.
+              // Checking out an existing branch keeps that branch as it is.
               const startFromOrigin =
                 prepareWorktree.startFromOrigin === true &&
+                (prepareWorktree.branch !== undefined || prepareWorktree.generateBranch === true) &&
                 (yield* gitWorkflow.remoteExists({
                   cwd: prepareWorktree.projectCwd,
                   remoteName: "origin",
@@ -1406,7 +1578,7 @@ const makeWsRpcLayer = (
               );
             }
 
-            if (prepareWorktree && !shouldPrepareWorktree) {
+            if (prepareWorktree && preparedWorktree === null && !shouldPrepareWorktree) {
               if (prepareWorktree.requireWorktree) {
                 return yield* new OrchestrationDispatchCommandError({
                   message:
@@ -1427,7 +1599,7 @@ const makeWsRpcLayer = (
               );
             }
 
-            if (bootstrap?.createThread) {
+            if (bootstrap?.createThread && Option.isNone(existingThread)) {
               const created = yield* dispatchFromClient({
                 type: "thread.create",
                 commandId: yield* serverCommandId("bootstrap-thread-create"),
@@ -1471,6 +1643,35 @@ const makeWsRpcLayer = (
               }
             }
 
+            if (prepareWorktree && preparedWorktree !== null) {
+              targetWorktreePath = preparedWorktree.path;
+              yield* track(
+                worktreeSetupTracker.update(threadId, (snapshot) => ({
+                  ...snapshot,
+                  branch: preparedWorktree.branch,
+                  worktreePath: preparedWorktree.path,
+                  stages: snapshot.stages.map((stage) =>
+                    stage.id === "fetch" || stage.id === "checkout" || stage.id === "submodules"
+                      ? { ...stage, status: "skipped", detail: "reusing prepared worktree" }
+                      : stage,
+                  ),
+                })),
+              );
+              const currentWorktreePath = createdThread
+                ? null
+                : (Option.getOrNull(existingThread)?.worktreePath ?? null);
+              if (currentWorktreePath !== preparedWorktree.path) {
+                yield* dispatchFromClient({
+                  type: "thread.meta.update",
+                  commandId: yield* serverCommandId("bootstrap-thread-meta-update"),
+                  threadId,
+                  branch: preparedWorktree.branch,
+                  worktreePath: preparedWorktree.path,
+                });
+                yield* refreshGitStatus(preparedWorktree.path);
+              }
+            }
+
             if (prepareWorktree && shouldPrepareWorktree && worktreeBaseRef) {
               if (bootstrap?.createThread && createdThread) {
                 // The checkout and setup script can run for minutes before the
@@ -1498,6 +1699,16 @@ const makeWsRpcLayer = (
                 });
                 preparingSessionSet = true;
               }
+              const newWorktreeBranch =
+                prepareWorktree.branch ??
+                (prepareWorktree.generateBranch === true
+                  ? yield* generateBootstrapWorktreeBranch({
+                      command,
+                      projectId:
+                        targetProjectId ?? Option.getOrNull(existingThread)?.projectId ?? null,
+                      cwd: prepareWorktree.projectCwd,
+                    })
+                  : undefined);
               yield* worktreeSetupTracker.stageStatus(threadId, "checkout", "running");
               let checkoutTotal: number | null = null;
               const submodules = yield* resolveBootstrapWorktreeSubmodules({
@@ -1508,8 +1719,16 @@ const makeWsRpcLayer = (
                 {
                   cwd: prepareWorktree.projectCwd,
                   refName: worktreeBaseRef,
-                  newRefName: prepareWorktree.branch,
-                  baseRefName: prepareWorktree.baseBranch,
+                  ...(newWorktreeBranch !== undefined
+                    ? {
+                        newRefName: newWorktreeBranch,
+                        baseRefName: prepareWorktree.baseBranch,
+                        ...(prepareWorktree.branch === undefined
+                          ? { ensureUniqueRefName: true }
+                          : {}),
+                      }
+                    : {}),
+                  idempotencyKey: command.commandId,
                   path: null,
                 },
                 {
@@ -1569,8 +1788,14 @@ const makeWsRpcLayer = (
                 },
               );
               const checkoutEndedAt = yield* nowIso;
+              bootstrapWorktree = rememberBootstrapWorktree(command.commandId, {
+                branch: worktree.worktree.refName,
+                path: worktree.worktree.path,
+                setupStarted: false,
+              });
               yield* worktreeSetupTracker.update(threadId, (snapshot) => ({
                 ...snapshot,
+                branch: worktree.worktree.refName,
                 worktreePath: worktree.worktree.path,
                 stages: snapshot.stages.map((stage) => {
                   if (stage.id === "checkout" && stage.status === "running") {
@@ -1712,6 +1937,12 @@ const makeWsRpcLayer = (
                             ),
                         ),
                         Effect.ignoreCause({ log: true }),
+                        // A retry must create the worktree again, not reuse this path.
+                        Effect.ensuring(
+                          Effect.sync(() =>
+                            bootstrapWorktreesByCommandId.delete(command.commandId),
+                          ),
+                        ),
                         Effect.uninterruptible,
                       )
                     : Effect.void;
@@ -1763,7 +1994,11 @@ const makeWsRpcLayer = (
                 // the tracker entry that cancel and the stage updates key on.
                 const fiber = yield* Effect.uninterruptible(
                   Effect.gen(function* () {
-                    const fiber = yield* Effect.forkDetach(settledBootstrapProgram);
+                    const fiber = yield* Effect.forkDetach(
+                      settledBootstrapProgram.pipe(Effect.onExit(settlement.settle)),
+                    );
+                    // Retries wait on this fiber, not on the caller that may disconnect.
+                    settlement.detached = true;
                     yield* worktreeSetupTracker.begin({
                       threadId,
                       branch: bootstrap?.prepareWorktree?.branch ?? null,
@@ -1781,12 +2016,38 @@ const makeWsRpcLayer = (
           return yield* runBootstrap;
         });
 
+      const dispatchBootstrapTurnStartOnce = (
+        command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
+      ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
+        Effect.suspend(() => {
+          const inFlight = inFlightBootstrapsByCommandId.get(command.commandId);
+          if (inFlight) return Deferred.await(inFlight);
+          const done = Deferred.makeUnsafe<
+            { readonly sequence: number },
+            OrchestrationDispatchCommandError
+          >();
+          inFlightBootstrapsByCommandId.set(command.commandId, done);
+          const settlement: BootstrapSettlement = {
+            detached: false,
+            settle: (exit) =>
+              Effect.sync(() => {
+                if (inFlightBootstrapsByCommandId.get(command.commandId) === done) {
+                  inFlightBootstrapsByCommandId.delete(command.commandId);
+                }
+              }).pipe(Effect.andThen(Deferred.done(done, exit)), Effect.asVoid),
+          };
+          // A detached bootstrap settles when it ends; otherwise the caller's exit settles it.
+          return dispatchBootstrapTurnStart(command, settlement).pipe(
+            Effect.onExit((exit) => (settlement.detached ? Effect.void : settlement.settle(exit))),
+          );
+        });
+
       const dispatchNormalizedCommand = (
         normalizedCommand: OrchestrationCommand,
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> => {
         const dispatchEffect =
           normalizedCommand.type === "thread.turn.start" && normalizedCommand.bootstrap
-            ? dispatchBootstrapTurnStart(normalizedCommand)
+            ? dispatchBootstrapTurnStartOnce(normalizedCommand)
             : dispatchFromClient(normalizedCommand).pipe(
                 Effect.tap(({ sequence }) =>
                   // Returning from thread.create is the handoff point at which

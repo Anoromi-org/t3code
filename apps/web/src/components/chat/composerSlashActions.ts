@@ -2,13 +2,20 @@ import type {
   ModelCapabilities,
   ProviderOptionDescriptor,
   ProviderOptionSelection,
+  VcsRef,
 } from "@t3tools/contracts";
+import { deriveLocalBranchNameFromRemoteRef } from "@t3tools/shared/git";
 import { getProviderOptionDescriptors } from "@t3tools/shared/model";
 
 import { withImplicitFastModeDefault } from "./composerProviderState";
 
 const REASONING_DESCRIPTOR_IDS = new Set(["reasoningEffort", "reasoning", "effort"]);
 const FAST_SERVICE_TIER_IDS = new Set(["priority", "fast"]);
+
+/** The local branch a `/worktree <ref>` worktree checks out: remote refs map to their local name. */
+export function resolveWorktreeTargetBranchName(branch: Pick<VcsRef, "isRemote" | "name">) {
+  return branch.isRemote ? deriveLocalBranchNameFromRemoteRef(branch.name) : branch.name;
+}
 
 /** Fast mode as a two-state toggle over either a boolean or a service-tier option. */
 interface FastModeDescriptor {
