@@ -1069,6 +1069,10 @@ export const DESKTOP_EXTRA_RESOURCES = [
     from: "apps/desktop/prod-resources/resource-monitor",
     to: "resource-monitor",
   },
+  {
+    from: "ghostty-worktree.cjs",
+    to: "ghostty-worktree.cjs",
+  },
 ] as const;
 export const LINUX_CAPTURE_EXTRA_RESOURCES = [
   {
@@ -3568,6 +3572,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     arch: options.arch,
     verbose: options.verbose,
   });
+  yield* fs.copyFile(
+    path.join(distDirs.desktopDist, "ghostty-worktree-entry.cjs"),
+    path.join(stageAppDir, "ghostty-worktree.cjs"),
+  );
 
   yield* assertPlatformBuildResources(
     options.platform,

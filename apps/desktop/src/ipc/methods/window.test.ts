@@ -23,6 +23,7 @@ import * as DesktopBackendManager from "../../backend/DesktopBackendManager.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import * as HyprnavEnvironment from "../../hyprnav/HyprnavEnvironment.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import type { DesktopSettings } from "../../settings/DesktopAppSettings.ts";
 import {
@@ -31,6 +32,7 @@ import {
   pasteAsText,
   pickProjectFavicon,
   probeRemoteEditors,
+  syncHyprnavEnvironment,
 } from "./window.ts";
 
 const readyWslConfig: DesktopBackendManager.DesktopBackendStartConfig = {
@@ -298,3 +300,37 @@ it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
       assert.notInclude(editors, "webstorm");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
+
+describe("syncHyprnavEnvironment", () => {
+  it.effect("preserves applied scopes through IPC result encoding", () =>
+    Effect.gen(function* () {
+      const result = yield* syncHyprnavEnvironment.handler({
+        projectRoot: "/repo",
+        worktreePath: "/repo/removed-worktree",
+        hyprnav: { bindings: [] },
+        lock: true,
+      });
+
+      assert.deepEqual(result, {
+        status: "ok",
+        message: null,
+        appliedScopes: ["project"],
+      });
+    }).pipe(
+      Effect.provide(
+        Layer.succeed(
+          HyprnavEnvironment.HyprnavEnvironment,
+          HyprnavEnvironment.HyprnavEnvironment.of({
+            sync: () =>
+              Effect.succeed({
+                status: "ok",
+                message: null,
+                appliedScopes: ["project"],
+              }),
+            lock: () => Effect.succeed({ status: "ok", message: null }),
+          }),
+        ),
+      ),
+    ),
+  );
+});

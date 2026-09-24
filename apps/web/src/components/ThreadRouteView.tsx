@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import ChatView from "./ChatView";
 import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
 import { waitForDraftHeroTransition } from "./chat/draftHeroTransition";
+import { HyprnavRuntimeOrchestrator } from "./HyprnavRuntimeOrchestrator";
 import { SidebarInset } from "./ui/sidebar";
 import {
   finalizePromotedDraftThreadByRef,
@@ -208,6 +209,9 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
 
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh">
+      {target.kind === "server" ? (
+        <HyprnavRuntimeOrchestrator threadRef={target.threadRef} />
+      ) : null}
       {view}
     </SidebarInset>
   );

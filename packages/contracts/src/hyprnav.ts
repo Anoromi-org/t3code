@@ -38,7 +38,7 @@ export const ProjectHyprnavWorkspaceTarget = Schema.Union([
 ]);
 export type ProjectHyprnavWorkspaceTarget = typeof ProjectHyprnavWorkspaceTarget.Type;
 
-const DEFAULT_PROJECT_HYPRNAV_WORKSPACE_TARGET = {
+export const DEFAULT_PROJECT_HYPRNAV_WORKSPACE_TARGET = {
   mode: "managed",
 } as const satisfies ProjectHyprnavWorkspaceTarget;
 
