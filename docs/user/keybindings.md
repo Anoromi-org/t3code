@@ -19,6 +19,10 @@ If your keybindings file still has an old generated rule on one of these keys
 (`mod+p` file picker, `mod+shift+p` pin, `mod+shift+s` settle, or `mod+shift+c`
 copy reference), T3 Code moves it on startup; customized rules stay as they are.
 
+On desktop, hold Control and press Tab to cycle recent threads. Add Shift to
+cycle backward, release Control to open the highlighted thread, or press Escape
+to cancel.
+
 ## Composer controls
 
 In **Settings → General → Send shortcut**, choose whether Enter sends, requires

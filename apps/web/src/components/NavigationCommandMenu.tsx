@@ -82,6 +82,8 @@ export function NavigationCommandMenu(props: {
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
+      // IME Enter confirms the composition; it must not open a result.
+      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setHighlightedIndex((current) => Math.min(current + 1, Math.max(0, results.length - 1)));

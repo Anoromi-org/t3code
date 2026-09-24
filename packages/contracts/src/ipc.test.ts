@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { DesktopEnvironmentBootstrapSchema } from "./ipc.ts";
+import { DesktopEnvironmentBootstrapSchema, DesktopThreadSwitcherAction } from "./ipc.ts";
 
 describe("DesktopEnvironmentBootstrapSchema", () => {
   const decode = Schema.decodeUnknownSync(DesktopEnvironmentBootstrapSchema);
@@ -34,5 +34,19 @@ describe("DesktopEnvironmentBootstrapSchema", () => {
         wsBaseUrl: null,
       }).runningDistro,
     ).toBeNull();
+  });
+});
+
+describe("DesktopThreadSwitcherAction", () => {
+  const decode = Schema.decodeUnknownSync(DesktopThreadSwitcherAction);
+
+  it("accepts the complete desktop gesture lifecycle", () => {
+    expect(
+      ["advance-forward", "advance-backward", "commit", "cancel"].map((action) => decode(action)),
+    ).toEqual(["advance-forward", "advance-backward", "commit", "cancel"]);
+  });
+
+  it("rejects unknown desktop actions", () => {
+    expect(() => decode("open-settings")).toThrow();
   });
 });

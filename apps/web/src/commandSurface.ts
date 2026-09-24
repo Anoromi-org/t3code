@@ -1,4 +1,8 @@
-export type CommandSurface = "command-palette" | "navigation" | "project-actions";
+export type CommandSurface =
+  | "command-palette"
+  | "navigation"
+  | "project-actions"
+  | "thread-switcher";
 
 const COMMAND_SURFACE_SELECTOR = "[data-command-surface]";
 

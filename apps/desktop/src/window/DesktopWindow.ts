@@ -22,6 +22,7 @@ import {
   MENU_ACTION_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
+  THREAD_SWITCHER_ACTION_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -29,6 +30,7 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
+import { makeDesktopThreadSwitcherInputController } from "./DesktopThreadSwitcher.ts";
 
 const TITLEBAR_HEIGHT = 40;
 // Matches --workspace-topbar-height in apps/web/src/index.css. Native macOS
@@ -653,8 +655,15 @@ export const make = Effect.gen(function* () {
         void runPromise(electronApp.quit);
       },
     });
+    // Ctrl+Tab cycles recent threads; the renderer only draws the list.
+    const threadSwitcherInput = makeDesktopThreadSwitcherInputController((action) => {
+      if (!window.isDestroyed()) {
+        window.webContents.send(THREAD_SWITCHER_ACTION_CHANNEL, action);
+      }
+    });
     window.webContents.on("before-input-event", (event, input) => {
       quitShortcutHandler(event, input);
+      threadSwitcherInput.beforeInput(event, input);
       if (input.type !== "keyDown" || !input.isAutoRepeat) return;
       const modifier = environment.platform === "darwin" ? input.meta : input.control;
       if (modifier && !input.alt && !input.shift && input.key.toLowerCase() === "w") {
@@ -670,6 +679,7 @@ export const make = Effect.gen(function* () {
     window.on("move", scheduleBoundsPersist);
     window.on("maximize", scheduleBoundsPersist);
     window.on("unmaximize", scheduleBoundsPersist);
+    window.on("blur", threadSwitcherInput.onBlur);
     window.on("close", () => {
       runFork(flushBoundsPersist);
     });

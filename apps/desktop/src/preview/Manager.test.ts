@@ -663,6 +663,89 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect(
+    "forwards a complete Ctrl+Tab gesture from the preview and cleans up its listener",
+    () =>
+      Effect.gen(function* () {
+        const preview = makeFaviconWebContents();
+        const sendInputEvent = vi.fn();
+        const mainWebContents = { sendInputEvent };
+        Object.assign(preview.webContents, { hostWebContents: mainWebContents });
+
+        yield* withManager((manager) =>
+          Effect.gen(function* () {
+            fromId.mockReturnValue(preview.webContents);
+            yield* manager.setMainWindow({
+              isDestroyed: () => false,
+              once: vi.fn(),
+              webContents: mainWebContents,
+            } as never);
+            yield* manager.createTab("tab_thread_switcher");
+            yield* manager.registerWebview("tab_thread_switcher", 42);
+
+            const beforeInput = preview.listeners.get("before-input-event")!;
+            const blur = preview.listeners.get("blur")!;
+            const preventDefault = vi.fn();
+            const event = { preventDefault } as never;
+            const tabInput = {
+              type: "keyDown",
+              key: "Tab",
+              control: true,
+              shift: false,
+              alt: false,
+              meta: false,
+            };
+            const controlUp = { ...tabInput, type: "keyUp", key: "Control", control: false };
+
+            // Losing focus ends the forwarded gesture, so later keys stay in the page.
+            beforeInput(event, tabInput as never);
+            blur();
+            beforeInput(event, { ...tabInput, key: "Escape" } as never);
+            beforeInput(event, controlUp as never);
+            yield* Effect.yieldNow;
+
+            expect(sendInputEvent.mock.calls).toEqual([
+              [{ type: "keyDown", keyCode: "Tab", modifiers: ["control"] }],
+            ]);
+            expect(preventDefault).toHaveBeenCalledOnce();
+
+            beforeInput(event, tabInput as never);
+            beforeInput(event, { ...tabInput, key: "Escape" } as never);
+            beforeInput(event, controlUp as never);
+            yield* Effect.yieldNow;
+
+            expect(sendInputEvent.mock.calls.slice(1)).toEqual([
+              [{ type: "keyDown", keyCode: "Tab", modifiers: ["control"] }],
+              [{ type: "keyDown", keyCode: "Escape", modifiers: ["control"] }],
+            ]);
+            expect(preventDefault).toHaveBeenCalledTimes(3);
+
+            beforeInput(event, tabInput as never);
+            beforeInput(event, controlUp as never);
+            yield* Effect.yieldNow;
+
+            expect(sendInputEvent.mock.calls.slice(3)).toEqual([
+              [{ type: "keyDown", keyCode: "Tab", modifiers: ["control"] }],
+              [{ type: "keyUp", keyCode: "Control", modifiers: [] }],
+            ]);
+            expect(preventDefault).toHaveBeenCalledTimes(5);
+
+            // A sign-in popup is its own window; the main window is not focused.
+            const popup = makeFaviconWebContents({ id: 43 });
+            preview.listeners.get("did-create-window")!({
+              webContents: popup.webContents,
+            } as never);
+            popup.listeners.get("before-input-event")!(event, tabInput as never);
+            expect(sendInputEvent).toHaveBeenCalledTimes(5);
+            expect(preventDefault).toHaveBeenCalledTimes(5);
+          }),
+        );
+
+        expect(preview.off).toHaveBeenCalledWith("before-input-event", expect.any(Function));
+        expect(preview.off).toHaveBeenCalledWith("blur", expect.any(Function));
+      }),
+  );
+
   effectIt.effect("reports an unregistered webview as temporarily unavailable", () =>
     withManager((manager) =>
       Effect.gen(function* () {

@@ -68,6 +68,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import { isDesktopThreadSwitcherForwardInput } from "../window/DesktopThreadSwitcher.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
   ANNOTATION_THEME_CHANNEL,
@@ -1999,7 +2000,39 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         syncMenuShortcuts(window.webContents, input);
       });
     };
+    // A focused preview gets keys before the main window, so the Ctrl+Tab thread
+    // switcher gesture is replayed into the main window, which owns it. Popups
+    // are separate windows and keep their keys.
+    let forwardingThreadSwitcherGesture = false;
+    const resetThreadSwitcherGesture = (): void => {
+      forwardingThreadSwitcherGesture = false;
+    };
+    const forwardThreadSwitcher = (event: Electron.Event, input: Electron.Input): boolean => {
+      const host = currentMainWindow;
+      if (
+        !isDesktopThreadSwitcherForwardInput(input, forwardingThreadSwitcherGesture) ||
+        host === undefined ||
+        host.isDestroyed()
+      ) {
+        return false;
+      }
+      forwardingThreadSwitcherGesture =
+        input.type === "keyDown" && input.key.toLowerCase() === "tab";
+      event.preventDefault();
+      host.webContents.sendInputEvent({
+        type: input.type === "keyUp" ? "keyUp" : "keyDown",
+        keyCode: input.key,
+        modifiers: [
+          ...(input.meta ? (["meta"] as const) : []),
+          ...(input.shift ? (["shift"] as const) : []),
+          ...(input.control ? (["control"] as const) : []),
+          ...(input.alt ? (["alt"] as const) : []),
+        ],
+      });
+      return true;
+    };
     const beforeInput = (event: Electron.Event, input: Electron.Input): void => {
+      if (forwardThreadSwitcher(event, input)) return;
       syncMenuShortcuts(wc, input);
       if (isPreviewRefreshShortcut(input)) {
         event.preventDefault();
@@ -2027,6 +2060,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.off("audio-state-changed", audioStateChanged);
         wc.off("did-create-window", windowCreated);
         wc.off("before-input-event", beforeInput);
+        wc.off("blur", resetThreadSwitcherGesture);
         wc.ipc.off(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.off(RECORDING_INPUT_CHANNEL, recordingInput);
         wc.ipc.off(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
@@ -2063,6 +2097,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         });
         wc.on("did-create-window", windowCreated);
         wc.on("before-input-event", beforeInput);
+        wc.on("blur", resetThreadSwitcherGesture);
       });
       yield* Ref.update(attachedRef, (attached) =>
         replaceMap(attached, (copy) => {
