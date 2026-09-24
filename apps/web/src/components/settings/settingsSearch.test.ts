@@ -337,6 +337,18 @@ describe("searchSettings", () => {
     expect(searchSettings("writing style", available)[0]?.id).toBe("source-control-writing-style");
     expect(searchSettings("auto-settle", available)).toHaveLength(3);
   });
+  it("exposes Hyprnav through the current settings navigation", () => {
+    expect(searchSettings("hyprnav")[0]).toMatchObject({
+      id: "hyprnav",
+      to: "/settings/hyprnav",
+    });
+    expect(searchSettings("project hyprnav")[0]).toMatchObject({
+      id: "project-hyprnav",
+      to: "/settings/projects",
+    });
+    expect(getSettingsSearchTargetScope("hyprnav")?.scope).toBeNull();
+    expect(getSettingsSearchTargetScope("project-hyprnav")?.scope).toBe("project");
+  });
 });
 
 describe("settings search targets", () => {

@@ -201,6 +201,7 @@ import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { projectHyprnavSettingsRoute } from "./settings/projectHyprnavNavigation";
 import {
   derivePhysicalProjectKey,
   deriveProjectGroupingOverrideKey,
@@ -1748,6 +1749,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             params: { projectKey: project.projectKey },
           });
         });
+        actionHandlers.set("project-hyprnav", () => {
+          if (isMobile) setOpenMobile(false);
+          void router.navigate(projectHyprnavSettingsRoute({ projectKey: project.projectKey }));
+        });
 
         const clicked = await api.contextMenu.show(
           [
@@ -1755,6 +1760,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             buildTargetedItem("grouping", "Group into..."),
             buildTargetedItem("copy-path", "Copy Path"),
             { id: "project-settings", label: "Project settings", icon: "settings" },
+            { id: "project-hyprnav", label: "Hyprnav settings" },
             buildTargetedItem("delete", "Remove", {
               destructive: true,
             }),
@@ -2204,25 +2210,17 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     }
 
     const overrideKey = deriveProjectGroupingOverrideKey(projectGroupingTarget);
-    const nextOverrides = {
-      ...projectGroupingSettings.sidebarProjectGroupingOverrides,
-    };
-    if (projectGroupingSelection === "inherit") {
-      delete nextOverrides[overrideKey];
-    } else {
-      nextOverrides[overrideKey] = projectGroupingSelection;
-    }
-    updateSettings({
-      sidebarProjectGroupingOverrides: nextOverrides,
+    void updateSettings((settings) => {
+      const nextOverrides = { ...settings.sidebarProjectGroupingOverrides };
+      if (projectGroupingSelection === "inherit") {
+        delete nextOverrides[overrideKey];
+      } else {
+        nextOverrides[overrideKey] = projectGroupingSelection;
+      }
+      return { sidebarProjectGroupingOverrides: nextOverrides };
     });
     closeProjectGroupingDialog();
-  }, [
-    closeProjectGroupingDialog,
-    projectGroupingSelection,
-    projectGroupingSettings.sidebarProjectGroupingOverrides,
-    projectGroupingTarget,
-    updateSettings,
-  ]);
+  }, [closeProjectGroupingDialog, projectGroupingSelection, projectGroupingTarget, updateSettings]);
 
   const handleThreadContextMenu = useCallback(
     async (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {

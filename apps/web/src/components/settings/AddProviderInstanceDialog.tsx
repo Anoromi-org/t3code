@@ -10,7 +10,7 @@ import {
   type ProviderInstanceConfig,
 } from "@t3tools/contracts";
 
-import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { useEnvironmentSettings, usePersistEnvironmentSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { normalizeProviderAccentColor } from "../../providerInstances";
 import { Button } from "../ui/button";
@@ -123,7 +123,7 @@ export function AddProviderInstanceDialog({
   onOpenChange,
 }: AddProviderInstanceDialogProps) {
   const settings = useEnvironmentSettings(environmentId);
-  const updateSettings = useUpdateEnvironmentSettings(environmentId);
+  const persistSettings = usePersistEnvironmentSettings(environmentId);
 
   const [wizardStep, setWizardStep] = useState(0);
   const [driver, setDriver] = useState<ProviderDriverKind>(DEFAULT_DRIVER_KIND);
@@ -136,6 +136,7 @@ export function AddProviderInstanceDialog({
   // Errors are suppressed until the user has tried to submit once. After that
   // they update live so fixing the problem clears the message in place.
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const existingIds = useMemo(
     () => new Set(Object.keys(settings.providerInstances ?? {})),
@@ -181,9 +182,9 @@ export function AddProviderInstanceDialog({
     );
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setHasAttemptedSubmit(true);
-    if (instanceIdError !== null) return;
+    if (instanceIdError !== null || isSaving) return;
 
     const config = configByDriver[driver] ?? {};
     const hasConfig = Object.keys(config).length > 0;
@@ -201,12 +202,15 @@ export function AddProviderInstanceDialog({
     // keeps the type boundary honest and guards against any future drift in
     // the slug rules.
     const brandedId = ProviderInstanceId.make(instanceId);
-    const nextMap = {
-      ...settings.providerInstances,
-      [brandedId]: nextInstance,
-    };
+    setIsSaving(true);
     try {
-      updateSettings({ providerInstances: nextMap });
+      // Resolved against durable settings so a concurrent provider edit is kept.
+      await persistSettings((currentSettings) => ({
+        providerInstances: {
+          ...currentSettings.providerInstances,
+          [brandedId]: nextInstance,
+        },
+      }));
       toastManager.add({
         type: "success",
         title: "Provider instance added",
@@ -219,6 +223,8 @@ export function AddProviderInstanceDialog({
         title: "Could not add provider instance",
         description: error instanceof Error ? error.message : "Update failed.",
       });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -401,6 +407,7 @@ export function AddProviderInstanceDialog({
         <WizardFooter>
           <Button
             variant="outline"
+            disabled={isSaving}
             onClick={() => {
               if (wizardStep === 0) {
                 onOpenChange(false);
@@ -412,9 +419,13 @@ export function AddProviderInstanceDialog({
             {wizardStep === 0 ? "Cancel" : "Back"}
           </Button>
           {wizardStep < ADD_PROVIDER_WIZARD_STEPS.length - 1 ? (
-            <Button onClick={() => navigateToStep(wizardStep + 1)}>Next</Button>
+            <Button disabled={isSaving} onClick={() => navigateToStep(wizardStep + 1)}>
+              Next
+            </Button>
           ) : (
-            <Button onClick={handleSave}>Add instance</Button>
+            <Button disabled={isSaving} onClick={() => void handleSave()}>
+              {isSaving ? "Adding…" : "Add instance"}
+            </Button>
           )}
         </WizardFooter>
       </WizardPopup>

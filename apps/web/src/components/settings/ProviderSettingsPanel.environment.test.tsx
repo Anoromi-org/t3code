@@ -250,7 +250,11 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(editor).not.toBeNull();
     if (!editor) throw new Error("Provider editor was not rendered");
     (editor.props[action] as (models: string[]) => void)(["chosen"]);
-    expect(settingsState.updateClientSettings).toHaveBeenCalledExactlyOnceWith(expected);
+    expect(settingsState.updateClientSettings).toHaveBeenCalledOnce();
+    const update = settingsState.updateClientSettings.mock.lastCall?.[0] as (
+      settings: UnifiedSettings,
+    ) => Record<string, unknown>;
+    expect(update(settingsState.value!)).toEqual(expected);
     expect(settingsState.updateSettings).not.toHaveBeenCalled();
   });
 
@@ -357,7 +361,10 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(customCard).not.toBeNull();
     (customCard?.props.onDelete as (() => void) | undefined)?.();
 
-    expect(settingsState.updateSettings).toHaveBeenLastCalledWith({
+    const deleteUpdate = settingsState.updateSettings.mock.lastCall?.[0] as (
+      settings: UnifiedSettings,
+    ) => Record<string, unknown>;
+    expect(deleteUpdate(settingsState.value)).toEqual({
       providerInstances: {
         [codexId]: settingsState.value.providerInstances?.[codexId],
       },
@@ -382,9 +389,10 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(resetButton).not.toBeNull();
     (resetButton?.props.onClick as (() => void) | undefined)?.();
 
-    const resetPatch = settingsState.updateSettings.mock.lastCall?.[0] as
-      | Record<string, unknown>
-      | undefined;
+    const resetUpdate = settingsState.updateSettings.mock.lastCall?.[0] as (
+      settings: UnifiedSettings,
+    ) => Record<string, unknown>;
+    const resetPatch = resetUpdate(settingsState.value);
     expect(Object.keys(resetPatch ?? {}).sort()).toEqual(["providerInstances", "providers"]);
     expect(resetPatch).not.toHaveProperty("favorites");
     expect(resetPatch).not.toHaveProperty("providerModelPreferences");

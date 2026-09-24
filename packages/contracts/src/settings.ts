@@ -295,6 +295,7 @@ const GroupedProjectHyprnavState = Schema.Struct({
   ),
   defaultProjectKey: Schema.optionalKey(TrimmedNonEmptyString),
 });
+export type GroupedProjectHyprnavState = typeof GroupedProjectHyprnavState.Type;
 
 export const LoadBalancingWeights = Schema.Record(
   TrimmedNonEmptyString,

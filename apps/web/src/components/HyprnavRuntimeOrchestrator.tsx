@@ -22,7 +22,9 @@ import {
   resolveEffectiveHyprnavSettings,
 } from "../hyprnavRuntime";
 import { usePrimaryEnvironmentId } from "../state/environments";
-import { useProject, useThreadShell } from "../state/entities";
+import { resolveRetainedHyprnavProject } from "../hyprnavSettings";
+import { selectProjectGroupingSettings } from "../logicalProject";
+import { useProject, useProjects, useThreadShell } from "../state/entities";
 import { primaryServerAvailableEditorsAtom } from "../state/server";
 import { toastManager } from "./ui/toast";
 
@@ -34,12 +36,26 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
   const project = useProject(
     thread ? scopeProjectRef(thread.environmentId, thread.projectId) : null,
   );
+  const projects = useProjects();
+  const groupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const settingsProject = useMemo(
+    () =>
+      project
+        ? resolveRetainedHyprnavProject({
+            project,
+            projects,
+            groupingSettings,
+            primaryEnvironmentId,
+          })
+        : null,
+    [groupingSettings, primaryEnvironmentId, project, projects],
+  );
   const defaults = useClientSettings((settings) => settings.defaultProjectHyprnavSettings);
   const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
   const [preferredEditor] = usePreferredEditor(availableEditors);
   const effectiveSettings = useMemo(
-    () => resolveEffectiveHyprnavSettings(project?.hyprnav, defaults),
-    [defaults, project?.hyprnav],
+    () => resolveEffectiveHyprnavSettings(settingsProject?.hyprnav, defaults),
+    [defaults, settingsProject?.hyprnav],
   );
   const target = useMemo(
     () => resolveActiveHyprnavSyncTarget({ primaryEnvironmentId, project, thread }),

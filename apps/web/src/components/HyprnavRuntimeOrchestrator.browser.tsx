@@ -51,13 +51,18 @@ vi.mock("../editorPreferences", () => ({
 vi.mock("../env", () => ({ isElectron: true }));
 vi.mock("../hooks/useSettings", () => ({
   useClientSettings: (select: (settings: unknown) => unknown) =>
-    select({ defaultProjectHyprnavSettings: { bindings: [] } }),
+    select({
+      defaultProjectHyprnavSettings: { bindings: [] },
+      sidebarProjectGroupingMode: "repository",
+      sidebarProjectGroupingOverrides: {},
+    }),
 }));
 vi.mock("../state/environments", () => ({
   usePrimaryEnvironmentId: () => EnvironmentId.make(state.primaryEnvironmentId),
 }));
 vi.mock("../state/entities", () => ({
   useProject: () => project,
+  useProjects: () => [project],
   useThreadShell: (ref: { readonly threadId: string }) =>
     threads.get(ref.threadId as never) ?? null,
 }));

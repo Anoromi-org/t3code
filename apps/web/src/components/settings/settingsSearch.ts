@@ -16,6 +16,7 @@ export type SettingsPath =
   | "/settings/general"
   | "/settings/appearance"
   | "/settings/keybindings"
+  | "/settings/hyprnav"
   | "/settings/snap-shot"
   | "/settings/providers"
   | "/settings/integrations"
@@ -85,6 +86,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
+  "/settings/hyprnav": "Hyprnav",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
@@ -706,6 +708,19 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "project-defaults",
   },
   {
+    id: "hyprnav",
+    title: "Hyprnav defaults",
+    to: "/settings/hyprnav",
+    searchTerms: ["hyprland workspace navigation slots bindings terminal editor corkdiff device"],
+  },
+  {
+    id: "project-hyprnav",
+    title: "Project Hyprnav bindings",
+    to: "/settings/projects",
+    scope: "project",
+    searchTerms: ["hyprland workspace navigation slots override checkout grouped same separate"],
+  },
+  {
     id: "project-actions",
     title: "Actions",
     to: "/settings/projects",
@@ -823,6 +838,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   // Keybindings fan out to the selection; Providers shows the representative
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
+  "/settings/hyprnav": null,
   "/settings/providers": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",

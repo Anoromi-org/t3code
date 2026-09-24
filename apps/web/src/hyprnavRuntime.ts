@@ -311,7 +311,26 @@ export function resolveActiveHyprnavSyncTarget(input: {
   };
 }
 
-function hyprnavNeedsCorkdiffConnection(settings: ProjectHyprnavSettings): boolean {
+export function hyprnavPublicationTargetFromRequest(
+  request: DesktopHyprnavSyncInput,
+): HyprnavPublicationTarget {
+  return {
+    projectRoot: request.projectRoot,
+    worktreePath: request.worktreePath ?? null,
+    threadId: request.threadId ? (request.threadId as ScopedThreadRef["threadId"]) : null,
+    threadTitle: request.threadTitle ?? null,
+  };
+}
+
+export function hyprnavPublicationScopesForRequest(
+  request: DesktopHyprnavSyncInput,
+): readonly ProjectHyprnavScope[] {
+  if (request.threadId) return ["thread"];
+  if (request.worktreePath) return ["worktree"];
+  return ["project", "worktree"];
+}
+
+export function hyprnavNeedsCorkdiffConnection(settings: ProjectHyprnavSettings): boolean {
   return settings.bindings.some(
     (binding) =>
       binding.action === "shell-command" &&

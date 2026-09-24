@@ -25,7 +25,7 @@ vi.mock("react/compiler-runtime", async () => {
 
 vi.mock("../../hooks/useSettings", () => ({
   useEnvironmentSettings: settingsHooks.read,
-  useUpdateEnvironmentSettings: settingsHooks.update,
+  usePersistEnvironmentSettings: settingsHooks.update,
 }));
 
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";

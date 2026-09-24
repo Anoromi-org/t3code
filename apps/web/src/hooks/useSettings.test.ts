@@ -3,7 +3,11 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
 } from "@t3tools/contracts";
-import { DEFAULT_CLIENT_SETTINGS, type ClientSettings } from "@t3tools/contracts/settings";
+import {
+  type ClientSettings,
+  type ClientSettingsPatch,
+  DEFAULT_CLIENT_SETTINGS,
+} from "@t3tools/contracts/settings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const persistenceMocks = vi.hoisted(() => ({
@@ -18,12 +22,16 @@ vi.mock("~/localApi", () => ({
 import {
   __resetClientSettingsPersistenceForTests,
   __setClientSettingsForTests,
+  createSettingsOperationQueue,
+  createSettingsOperationState,
   ensureClientSettingsHydrated,
   getClientSettings,
   mergeEnvironmentSettings,
   persistClientSettingsPatch,
   persistClientSettingsUpdate,
+  persistIndependentSettingsPatches,
   resolveEnvironmentIdentificationMode,
+  updateClientSettings,
 } from "./useSettings";
 
 beforeEach(() => {
@@ -449,5 +457,399 @@ describe("onboarding completion persistence", () => {
     );
     expect(getClientSettings()).toEqual(completedSettings);
     expect(persist).toHaveBeenLastCalledWith(completedSettings);
+  });
+});
+
+describe("createSettingsOperationQueue", () => {
+  it("resolves same-environment map updates after the preceding durable write", async () => {
+    const queue = createSettingsOperationQueue();
+    let providerInstances: Record<string, string> = {};
+    let releaseFirstWrite: (() => void) | undefined;
+    const firstWriteBlocked = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+
+    const persistInstance = (id: string, block = false) =>
+      queue(async () => {
+        const next = { ...providerInstances, [id]: id };
+        if (block) await firstWriteBlocked;
+        providerInstances = next;
+      });
+    const first = persistInstance("codex_work", true);
+    await Promise.resolve();
+    const second = persistInstance("codex_personal");
+    releaseFirstWrite?.();
+    await Promise.all([first, second]);
+
+    expect(providerInstances).toEqual({
+      codex_work: "codex_work",
+      codex_personal: "codex_personal",
+    });
+  });
+
+  it("does not block settings writes for a different environment", async () => {
+    const localQueue = createSettingsOperationQueue();
+    const remoteQueue = createSettingsOperationQueue();
+    let releaseLocal: (() => void) | undefined;
+    const localBlocked = new Promise<void>((resolve) => {
+      releaseLocal = resolve;
+    });
+    let remoteCompleted = false;
+
+    const local = localQueue(async () => localBlocked);
+    await Promise.resolve();
+    await remoteQueue(async () => {
+      remoteCompleted = true;
+    });
+    expect(remoteCompleted).toBe(true);
+    releaseLocal?.();
+    await local;
+  });
+
+  it("continues from durable state after an earlier server write fails", async () => {
+    const queue = createSettingsOperationQueue();
+    let providerInstances: Record<string, string> = {};
+    const failed = queue(async () => {
+      throw new Error("server unavailable");
+    });
+    const succeeding = queue(async () => {
+      providerInstances = { ...providerInstances, codex_durable: "codex_durable" };
+    });
+
+    await expect(failed).rejects.toThrow("server unavailable");
+    await expect(succeeding).resolves.toBeUndefined();
+    expect(providerInstances).toEqual({ codex_durable: "codex_durable" });
+  });
+
+  it("rebases a queued map update onto the authoritative server response", async () => {
+    const state = createSettingsOperationState();
+    const externalId = ProviderInstanceId.make("codex_external");
+    const localId = ProviderInstanceId.make("codex_local");
+    const secondId = ProviderInstanceId.make("codex_second");
+    const thirdId = ProviderInstanceId.make("codex_third");
+    const instance = { driver: ProviderDriverKind.make("codex"), enabled: true };
+    const projected = DEFAULT_SERVER_SETTINGS;
+    const authoritativeAfterFirst = {
+      ...projected,
+      providerInstances: {
+        [externalId]: instance,
+        [localId]: instance,
+      },
+    };
+    const laggingProjection = {
+      ...projected,
+      providerInstances: { [externalId]: instance },
+    };
+    let currentProjection = projected;
+    let secondOutbound = projected.providerInstances;
+    let authoritativeAfterSecond = projected;
+
+    const first = state.enqueue(async () => {
+      const base = state.resolveServerSettings(projected);
+      const firstOutbound = { ...base.providerInstances, [localId]: instance };
+      await state.persistAuthoritativeServerSettings(
+        async () => {
+          currentProjection = laggingProjection;
+          return {
+            ...authoritativeAfterFirst,
+            providerInstances: {
+              ...authoritativeAfterFirst.providerInstances,
+              ...firstOutbound,
+            },
+          };
+        },
+        () => currentProjection,
+      );
+    });
+    const second = state.enqueue(async () => {
+      const base = state.resolveServerSettings(currentProjection);
+      secondOutbound = {
+        ...base.providerInstances,
+        [secondId]: instance,
+      };
+      await state.persistAuthoritativeServerSettings(
+        async () => {
+          authoritativeAfterSecond = {
+            ...base,
+            providerInstances: secondOutbound,
+          };
+          return authoritativeAfterSecond;
+        },
+        () => currentProjection,
+      );
+    });
+
+    await Promise.all([first, second]);
+    expect(secondOutbound).toEqual({
+      [externalId]: instance,
+      [localId]: instance,
+      [secondId]: instance,
+    });
+
+    currentProjection = authoritativeAfterFirst;
+    let thirdOutbound = projected.providerInstances;
+    await state.enqueue(async () => {
+      const base = state.resolveServerSettings(currentProjection);
+      thirdOutbound = { ...base.providerInstances, [thirdId]: instance };
+      await state.persistAuthoritativeServerSettings(
+        async () => ({ ...base, providerInstances: thirdOutbound }),
+        () => currentProjection,
+      );
+    });
+    expect(thirdOutbound).toEqual({
+      [externalId]: instance,
+      [localId]: instance,
+      [secondId]: instance,
+      [thirdId]: instance,
+    });
+
+    const genuinelyNewProjection = {
+      ...authoritativeAfterSecond,
+      enableProviderUpdateChecks: !authoritativeAfterSecond.enableProviderUpdateChecks,
+    };
+    expect(state.resolveServerSettings(genuinelyNewProjection)).toBe(genuinelyNewProjection);
+  });
+});
+
+describe("updateClientSettings", () => {
+  it("composes rapid functional updates optimistically", async () => {
+    __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+    const codex = ProviderInstanceId.make("codex");
+    const toggle = (model: string) =>
+      updateClientSettings((settings) => ({
+        favorites: [...settings.favorites, { provider: codex, model }],
+      }));
+
+    const first = toggle("a");
+    const second = toggle("b");
+    expect(getClientSettings().favorites.map(({ model }) => model)).toEqual(["a", "b"]);
+    await Promise.all([first, second]);
+    expect(persistenceMocks.setClientSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        favorites: [
+          { provider: codex, model: "a" },
+          { provider: codex, model: "b" },
+        ],
+      }),
+    );
+  });
+
+  it("resolves a functional update against saved settings when it precedes hydration", async () => {
+    const codex = ProviderInstanceId.make("codex");
+    persistenceMocks.getClientSettings.mockResolvedValue({
+      ...DEFAULT_CLIENT_SETTINGS,
+      favorites: [{ provider: codex, model: "saved" }],
+    });
+
+    await updateClientSettings((settings) => ({
+      favorites: [...settings.favorites, { provider: codex, model: "new" }],
+    }));
+
+    expect(getClientSettings().favorites.map(({ model }) => model)).toEqual(["saved", "new"]);
+  });
+});
+
+describe("createSettingsOperationState", () => {
+  it("treats a later outside change as authoritative after early projections", async () => {
+    const state = createSettingsOperationState();
+    const instance = { driver: ProviderDriverKind.make("codex"), enabled: true };
+    const firstId = ProviderInstanceId.make("codex_first");
+    const secondId = ProviderInstanceId.make("codex_second");
+    const afterFirst = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: { [firstId]: instance },
+    };
+    const afterSecond = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: { [firstId]: instance, [secondId]: instance },
+    };
+    let projection = DEFAULT_SERVER_SETTINGS;
+    const write = (response: typeof afterFirst) =>
+      state.enqueue(async () => {
+        state.resolveServerSettings(projection);
+        await state.persistAuthoritativeServerSettings(
+          async () => {
+            // The projection lands before the RPC response resolves.
+            projection = { ...response };
+            return response;
+          },
+          () => projection,
+        );
+      });
+
+    await write(afterFirst);
+    await write(afterSecond);
+
+    // Another client restores the first configuration.
+    const restoredElsewhere = { ...afterFirst };
+    expect(state.resolveServerSettings(restoredElsewhere)).toBe(restoredElsewhere);
+  });
+});
+
+describe("persistIndependentSettingsPatches", () => {
+  it("still persists client settings when the server update fails", async () => {
+    const calls: string[] = [];
+    await expect(
+      persistIndependentSettingsPatches({
+        persistServer: async () => {
+          calls.push("server");
+          throw new Error("server unavailable");
+        },
+        persistClient: async () => {
+          calls.push("client");
+        },
+      }),
+    ).rejects.toThrow("server unavailable");
+    expect(calls).toEqual(["server", "client"]);
+  });
+
+  it("starts client persistence without waiting for the server write", async () => {
+    let releaseServer: (() => void) | undefined;
+    const server = new Promise<void>((resolve) => {
+      releaseServer = resolve;
+    });
+    let clientStarted = false;
+    const persistence = persistIndependentSettingsPatches({
+      persistServer: () => server,
+      persistClient: async () => {
+        clientStarted = true;
+      },
+    });
+
+    await Promise.resolve();
+    expect(clientStarted).toBe(true);
+    releaseServer?.();
+    await expect(persistence).resolves.toBeUndefined();
+  });
+});
+
+// Mirrors `usePersistClientSettings`: patches merge onto the durable snapshot
+// through upstream's `persistClientSettingsUpdate` queue.
+function persistClientPatch(
+  update: ClientSettingsPatch | ((settings: ClientSettings) => ClientSettingsPatch),
+  persist: (settings: ClientSettings) => Promise<void>,
+) {
+  return persistClientSettingsUpdate(
+    (current) => ({ ...current, ...(typeof update === "function" ? update(current) : update) }),
+    persist,
+  ).then(() => undefined);
+}
+
+describe("functional client settings patches", () => {
+  beforeEach(() => {
+    __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+  });
+
+  it("serializes writes, merges concurrent patches, and publishes only durable snapshots", async () => {
+    let releaseFirstWrite: (() => void) | undefined;
+    const firstWriteBlocked = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    const persisted: ClientSettings[] = [];
+    const persistPatch = (
+      update: ClientSettingsPatch | ((settings: ClientSettings) => ClientSettingsPatch),
+    ) =>
+      persistClientPatch(update, async (settings) => {
+        persisted.push(settings);
+        if (persisted.length === 1) {
+          await firstWriteBlocked;
+        }
+      });
+
+    const first = persistPatch({ confirmThreadArchive: true });
+    await Promise.resolve();
+    const second = persistPatch({ diffIgnoreWhitespace: false });
+
+    expect(getClientSettings()).toBe(DEFAULT_CLIENT_SETTINGS);
+    expect(persisted).toHaveLength(1);
+
+    releaseFirstWrite?.();
+    await Promise.all([first, second]);
+
+    expect(persisted).toHaveLength(2);
+    expect(persisted[1]?.confirmThreadArchive).toBe(true);
+    expect(persisted[1]?.diffIgnoreWhitespace).toBe(false);
+    expect(getClientSettings().confirmThreadArchive).toBe(true);
+    expect(getClientSettings().diffIgnoreWhitespace).toBe(false);
+  });
+
+  it("does not publish a settings patch when persistence fails", async () => {
+    const persistPatch = (
+      update: ClientSettingsPatch | ((settings: ClientSettings) => ClientSettingsPatch),
+    ) =>
+      persistClientPatch(update, async () => {
+        throw new Error("disk full");
+      });
+
+    await expect(persistPatch({ defaultProjectHyprnavSettings: { bindings: [] } })).rejects.toThrow(
+      "disk full",
+    );
+    expect(getClientSettings()).toBe(DEFAULT_CLIENT_SETTINGS);
+  });
+
+  it("resolves functional updates against the preceding durable settings", async () => {
+    let releaseFirstWrite: (() => void) | undefined;
+    const firstWriteBlocked = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    const persisted: ClientSettings[] = [];
+    const persistPatch = (
+      update: ClientSettingsPatch | ((settings: ClientSettings) => ClientSettingsPatch),
+    ) =>
+      persistClientPatch(update, async (settings) => {
+        persisted.push(settings);
+        if (persisted.length === 1) await firstWriteBlocked;
+      });
+
+    const first = persistPatch((settings) => ({
+      favorites: [
+        ...settings.favorites,
+        { provider: ProviderInstanceId.make("codex"), model: "a" },
+      ],
+    }));
+    await Promise.resolve();
+    const second = persistPatch((settings) => ({
+      favorites: [
+        ...settings.favorites,
+        { provider: ProviderInstanceId.make("codex"), model: "b" },
+      ],
+    }));
+
+    releaseFirstWrite?.();
+    await Promise.all([first, second]);
+
+    expect(persisted[1]?.favorites.map(({ model }) => model)).toEqual(["a", "b"]);
+    expect(getClientSettings().favorites.map(({ model }) => model)).toEqual(["a", "b"]);
+  });
+
+  it("rebases later updates onto the last durable snapshot after a failure", async () => {
+    let writeCount = 0;
+    const persisted: ClientSettings[] = [];
+    const persistPatch = (
+      update: ClientSettingsPatch | ((settings: ClientSettings) => ClientSettingsPatch),
+    ) =>
+      persistClientPatch(update, async (settings) => {
+        writeCount += 1;
+        if (writeCount === 1) throw new Error("disk full");
+        persisted.push(settings);
+      });
+
+    const failed = persistPatch((settings) => ({
+      favorites: [
+        ...settings.favorites,
+        { provider: ProviderInstanceId.make("codex"), model: "failed" },
+      ],
+    }));
+    const succeeding = persistPatch((settings) => ({
+      favorites: [
+        ...settings.favorites,
+        { provider: ProviderInstanceId.make("codex"), model: "durable" },
+      ],
+    }));
+
+    await expect(failed).rejects.toThrow("disk full");
+    await expect(succeeding).resolves.toBeUndefined();
+    expect(persisted[0]?.favorites.map(({ model }) => model)).toEqual(["durable"]);
+    expect(getClientSettings().favorites.map(({ model }) => model)).toEqual(["durable"]);
   });
 });
