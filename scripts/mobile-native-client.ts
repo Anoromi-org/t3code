@@ -139,7 +139,9 @@ export const hashBundle = Effect.fn("hashBundle")(function* (root: string) {
 });
 type FileSystemError = import("effect/PlatformError").PlatformError;
 
-const bundleId = "com.t3tools.t3code.dev";
+// The fork signs iOS with its own bundle ID; Android keeps upstream's package.
+const iosBundleId = "com.anoromi.t3code.dev";
+const androidPackage = "com.t3tools.t3code.dev";
 const roots = Effect.gen(function* () {
   const path = yield* Path.Path;
   const repo = yield* path.fromFileUrl(new URL("../", import.meta.url));
@@ -261,14 +263,24 @@ export const installedBinary = Effect.fn("installedBinary")(function* (
 ) {
   if (platform === "ios") {
     const apps = yield* run("xcrun", ["simctl", "listapps", device]);
-    if (!apps.includes(`"${bundleId}"`)) return null;
+    if (!apps.includes(`"${iosBundleId}"`)) return null;
     return yield* hashBundle(
-      yield* run("xcrun", ["simctl", "get_app_container", device, bundleId, "app"]),
+      yield* run("xcrun", ["simctl", "get_app_container", device, iosBundleId, "app"]),
     );
   }
-  const installed = yield* run("adb", ["-s", device, "shell", "pm", "list", "packages", bundleId]);
-  if (!installed.split("\n").some((line) => line.trim() === `package:${bundleId}`)) return null;
-  const packages = yield* run("adb", ["-s", device, "shell", "pm", "path", bundleId]);
+  const installed = yield* run("adb", [
+    "-s",
+    device,
+    "shell",
+    "pm",
+    "list",
+    "packages",
+    androidPackage,
+  ]);
+  if (!installed.split("\n").some((line) => line.trim() === `package:${androidPackage}`)) {
+    return null;
+  }
+  const packages = yield* run("adb", ["-s", device, "shell", "pm", "path", androidPackage]);
   const apks = packages
     .split("\n")
     .filter((line) => line.startsWith("package:"))

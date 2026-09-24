@@ -39,7 +39,8 @@ mobile verification includes that build step unless the user prohibits it.
 
 Start `vp run dev:client` from `apps/mobile`, or reuse a healthy Metro belonging
 to this checkout. Open its printed development-client URL with AgentDevice
-`open com.t3tools.t3code.dev <url>` and all returned target arguments.
+`open <app-id> <url>` and all returned target arguments, where `<app-id>` is
+`com.anoromi.t3code.dev` on iOS and `com.t3tools.t3code.dev` on Android.
 The device must be able to reach both Metro and the isolated backend.
 
 ## Pair and verify
