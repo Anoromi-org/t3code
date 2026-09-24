@@ -182,6 +182,36 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("uses a configured Linux desktop entry name override", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { platform: "linux" },
+        {
+          T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME: " t3-code-alpha.desktop ",
+        },
+      );
+
+      assert.equal(environment.linuxDesktopEntryName, "t3-code-alpha.desktop");
+      assert.isTrue(environment.linuxDesktopEntryExternal);
+    }),
+  );
+
+  it.effect("uses a configured Linux URL handler executable", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { platform: "linux" },
+        {
+          T3CODE_DESKTOP_LINUX_URL_HANDLER_EXEC: " /nix/store/t3-code/bin/t3-code ",
+        },
+      );
+
+      assert.deepEqual(
+        environment.linuxUrlHandlerExecTarget,
+        Option.some("/nix/store/t3-code/bin/t3-code"),
+      );
+    }),
+  );
+
   it.effect("resolves picker defaults without nullish sentinels", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment();

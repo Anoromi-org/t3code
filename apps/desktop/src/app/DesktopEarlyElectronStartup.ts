@@ -28,6 +28,10 @@ export interface EarlyLinuxElectronOptions {
   readonly isDevelopment: boolean;
   readonly linuxWmClass: string;
   readonly linuxDesktopEntryName: string;
+  // True when a package manager (Nix, Home Manager) installs the entry named by
+  // T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME. The app must not overwrite it with
+  // its hidden URL-handler entry, which would shadow the visible launcher.
+  readonly linuxDesktopEntryExternal: boolean;
   readonly passwordStore: LinuxPasswordStoreSwitch | null;
 }
 
@@ -86,10 +90,12 @@ export function resolveEarlyLinuxElectronOptions(
 ): EarlyLinuxElectronOptions {
   const preference = resolveEarlyLinuxPasswordStorePreference(input);
   const isDevelopment = isDevelopmentEnvironment(input.env);
+  const desktopEntryNameOverride = trimNonEmpty(input.env.T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME);
   return {
     isDevelopment,
     linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
-    linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
+    linuxDesktopEntryName: desktopEntryNameOverride ?? resolveLinuxDesktopEntryName(isDevelopment),
+    linuxDesktopEntryExternal: desktopEntryNameOverride !== null,
     passwordStore: resolveLinuxPasswordStoreSwitch({
       preference,
       env: input.env,

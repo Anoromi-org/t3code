@@ -96,6 +96,30 @@ describe("ElectronApp", () => {
     setPathMock.mockClear();
   });
 
+  it("allows a system package wrapper to force packaged behavior", () => {
+    assert.isTrue(ElectronApp.resolveIsPackaged(false, "1"));
+    assert.isFalse(ElectronApp.resolveIsPackaged(false, undefined));
+    assert.isTrue(ElectronApp.resolveIsPackaged(true, undefined));
+  });
+
+  it("lets a system package wrapper supply the packaged resources directory", () => {
+    assert.equal(
+      ElectronApp.resolveResourcesPath(
+        "/nix/store/electron/resources",
+        " /nix/store/t3/resources ",
+      ),
+      "/nix/store/t3/resources",
+    );
+    assert.equal(
+      ElectronApp.resolveResourcesPath("/opt/T3 Code/resources", undefined),
+      "/opt/T3 Code/resources",
+    );
+    assert.equal(
+      ElectronApp.resolveResourcesPath("/opt/T3 Code/resources", " "),
+      "/opt/T3 Code/resources",
+    );
+  });
+
   it.effect("reads app metadata through the service", () =>
     Effect.gen(function* () {
       const electronApp = yield* ElectronApp.ElectronApp;

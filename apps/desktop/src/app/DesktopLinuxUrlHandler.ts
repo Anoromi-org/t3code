@@ -105,7 +105,9 @@ export const make = Effect.gen(function* () {
   const writeDesktopEntry = Effect.gen(function* () {
     // Inside the mounted AppImage, process.execPath points at a transient
     // /tmp/.mount_* path — the handler must launch the AppImage itself.
-    const execTarget = Option.getOrElse(environment.appImagePath, () => process.execPath);
+    const execTarget = Option.getOrElse(environment.linuxUrlHandlerExecTarget, () =>
+      Option.getOrElse(environment.appImagePath, () => process.execPath),
+    );
     const content = renderUrlHandlerDesktopEntry({
       displayName: environment.displayName,
       execTarget,
@@ -168,7 +170,9 @@ export const make = Effect.gen(function* () {
     if (environment.platform !== "linux") {
       return;
     }
-    yield* writeDesktopEntry;
+    // A package-managed entry already declares the scheme; overwriting it with
+    // the hidden handler entry would hide the installed launcher.
+    if (!environment.linuxDesktopEntryExternal) yield* writeDesktopEntry;
     if (!environment.isPackaged) return;
     yield* setDefaultHandler;
     yield* logInfo("registered URL scheme handler", { scheme });

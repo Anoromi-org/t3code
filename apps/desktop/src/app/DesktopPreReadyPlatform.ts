@@ -58,7 +58,7 @@ export const make = Effect.gen(function* () {
         : null;
     const linux = platform === "linux" ? resolveEarlyLinuxElectronOptionsFromProcess() : null;
 
-    if (linux !== null) {
+    if (linux !== null && !linux.linuxDesktopEntryExternal) {
       // The portal also requires a valid desktop entry. An AppImage update may
       // have removed the executable referenced by the previous launch's entry.
       try {
@@ -75,7 +75,10 @@ export const make = Effect.gen(function* () {
               isDevelopment: linux.isDevelopment,
               appVersion: Electron.app.getVersion(),
             }).displayName,
-            execTarget: process.env.APPIMAGE?.trim() || process.execPath,
+            execTarget:
+              process.env.T3CODE_DESKTOP_LINUX_URL_HANDLER_EXEC?.trim() ||
+              process.env.APPIMAGE?.trim() ||
+              process.execPath,
             scheme: ElectronProtocol.getDesktopScheme(linux.isDevelopment),
           }),
           "utf8",
@@ -83,6 +86,8 @@ export const make = Effect.gen(function* () {
       } catch {
         // The URL handler retries with the full environment and logs failures.
       }
+    }
+    if (linux !== null) {
       // Chromium caches its portal registration during startup. Set the identity
       // before any asynchronous work can initialize it with Electron's default.
       Electron.app.setDesktopName(linux.linuxDesktopEntryName);
