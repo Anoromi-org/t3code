@@ -12,6 +12,8 @@ import {
   type CanonicalItemType,
   type CanonicalRequestType,
   type CodexSettings,
+  IsoDateTime,
+  MessageId,
   ProviderDriverKind,
   type ProviderEvent,
   ProviderInstanceId,
@@ -29,13 +31,16 @@ import {
   type TurnTokenUsage,
   ProviderApprovalDecision,
   ThreadId,
+  TurnId,
   ProviderSendTurnInput,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as NodeCrypto from "node:crypto";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -70,7 +75,11 @@ import {
   type CodexSessionRuntimeShape,
 } from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
-import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
+import {
+  codexThreadMcpArgs,
+  resolveCodexLaunchArgs,
+  T3CODE_CODEX_THREAD_MCP_SERVER_ENV,
+} from "./codexLaunchArgs.ts";
 import {
   type CodexRateLimitSnapshot,
   codexRateLimitsToUpdate,
@@ -628,6 +637,119 @@ function toTurnStatus(
     default:
       return "completed";
   }
+}
+
+function codexEpochSecondsToIso(seconds: number | null | undefined): IsoDateTime | null {
+  return seconds === null || seconds === undefined
+    ? null
+    : IsoDateTime.make(DateTime.formatIso(DateTime.makeUnsafe(seconds * 1_000)));
+}
+
+type CodexHistoryRuntimeEvent = Extract<
+  ProviderRuntimeEvent,
+  { type: "turn.reconciled" | "turn.proposed.completed" }
+>;
+
+const decodeCodexHistoryTurn = Schema.decodeUnknownOption(
+  EffectCodexSchema.V2ThreadReadResponse__Turn,
+);
+
+/**
+ * Maps one settled turn read back on resume. User and assistant text become
+ * reconciled messages (tool transcripts are not copied); plan items are
+ * replayed as proposed-plan completions so an unimplemented plan stays
+ * actionable. Messages get one-millisecond offsets from the turn start and
+ * never precede the previous dated turn's messages, so turns reported in the
+ * same second keep their order once persisted.
+ */
+function mapCodexHistoryTurn(
+  event: ProviderEvent,
+  turn: EffectCodexSchema.V2ThreadReadResponse__Turn,
+  canonicalThreadId: ThreadId,
+  previousMessageMs: number | undefined,
+): { readonly events: ReadonlyArray<CodexHistoryRuntimeEvent>; readonly lastMessageMs: number } {
+  const turnEvent: ProviderEvent = {
+    ...event,
+    id: EventId.make(`${event.id}:${turn.id}`),
+    turnId: TurnId.make(turn.id),
+    payload: turn,
+  };
+  const startedAt = codexEpochSecondsToIso(turn.startedAt);
+  const completedAt = codexEpochSecondsToIso(turn.completedAt);
+  const reportedStartMs = DateTime.toEpochMillis(
+    DateTime.makeUnsafe(startedAt ?? completedAt ?? event.createdAt),
+  );
+  const messageBaseMs =
+    previousMessageMs === undefined
+      ? reportedStartMs
+      : Math.max(reportedStartMs, previousMessageMs + 1);
+  const requestedAt =
+    startedAt ??
+    completedAt ??
+    IsoDateTime.make(DateTime.formatIso(DateTime.makeUnsafe(messageBaseMs)));
+  const messages: Array<
+    Extract<ProviderRuntimeEvent, { type: "turn.reconciled" }>["payload"]["messages"][number]
+  > = [];
+  const plans: Array<CodexHistoryRuntimeEvent> = [];
+  turn.items.forEach((item, index) => {
+    const createdAt = IsoDateTime.make(
+      DateTime.formatIso(DateTime.makeUnsafe(messageBaseMs + index)),
+    );
+    if (item.type === "userMessage") {
+      const text = trimText(
+        item.content
+          .flatMap((content) => (content.type === "text" ? [content.text] : []))
+          .join("\n"),
+      );
+      if (text) {
+        messages.push({
+          messageId: MessageId.make(`user:${item.id}`),
+          role: "user",
+          text,
+          createdAt,
+        });
+      }
+      return;
+    }
+    if (item.type === "agentMessage") {
+      const text = trimText(item.text);
+      if (text) {
+        messages.push({
+          messageId: MessageId.make(`assistant:${item.id}`),
+          role: "assistant",
+          text,
+          createdAt,
+        });
+      }
+      return;
+    }
+    if (item.type === "plan" && trimText(item.text)) {
+      plans.push({
+        ...runtimeEventBase(turnEvent, canonicalThreadId),
+        eventId: EventId.make(`${turnEvent.id}:plan:${item.id}`),
+        createdAt: completedAt ?? event.createdAt,
+        type: "turn.proposed.completed",
+        payload: { planMarkdown: item.text },
+      });
+    }
+  });
+  return {
+    events: [
+      {
+        ...runtimeEventBase(turnEvent, canonicalThreadId),
+        type: "turn.reconciled",
+        payload: {
+          state: toTurnStatus(turn.status),
+          requestedAt,
+          startedAt,
+          completedAt,
+          messages,
+        },
+      },
+      ...plans,
+    ],
+    lastMessageMs: messageBaseMs + Math.max(0, turn.items.length - 1),
+  };
 }
 
 function normalizeItemType(raw: string | undefined | null): string {
@@ -1307,6 +1429,36 @@ function mapToRuntimeEvents(
 ): ReadonlyArray<ProviderRuntimeEvent> {
   if (event.kind === "notification" && event.method.startsWith("collabAgent/")) {
     return mapCollabAgentEvent(event, canonicalThreadId);
+  }
+  if (event.kind === "notification" && event.method === "thread/history") {
+    const turns = Array.isArray(event.payload) ? event.payload : [];
+    const base = runtimeEventBase(event, canonicalThreadId);
+    const events: Array<CodexHistoryRuntimeEvent> = [];
+    let previousMessageMs: number | undefined;
+    for (const rawTurn of turns) {
+      const turn = decodeCodexHistoryTurn(rawTurn);
+      if (Option.isNone(turn) || turn.value.status === "inProgress") continue;
+      const dated = turn.value.startedAt != null || turn.value.completedAt != null;
+      // Undated turns fall back to the notification time, which must not push
+      // later dated turns forward.
+      const mapped = mapCodexHistoryTurn(
+        event,
+        turn.value,
+        canonicalThreadId,
+        dated ? previousMessageMs : undefined,
+      );
+      events.push(...mapped.events);
+      if (dated) previousMessageMs = mapped.lastMessageMs;
+    }
+    return [
+      {
+        ...base,
+        // Each reconciled event keeps its own turn as raw payload.
+        raw: { source: eventRawSource(event), method: event.method, payload: {} },
+        type: "thread.history.reconciled",
+        payload: { events },
+      },
+    ];
   }
   if (event.kind === "error") {
     if (!event.message) {
@@ -2272,13 +2424,28 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? getCodexServiceTierOptionValue(input.modelSelection)
             : undefined;
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+        const baseEnvironment = options?.environment ?? process.env;
+        // Processes the agent starts (MCP servers, desktop agents) inherit these
+        // ids so they can attribute their work to the owning T3 Code thread.
+        const threadEnvironment = {
+          ...baseEnvironment,
+          T3CODE_THREAD_ID: input.threadId,
+          ...(mcpSession ? { T3CODE_ENVIRONMENT_ID: mcpSession.environmentId } : {}),
+        };
+        // Codex does not pass its own environment to configured MCP servers, so
+        // the named server gets the thread ids through its `env` table.
+        const threadMcpArgs = codexThreadMcpArgs(
+          baseEnvironment[T3CODE_CODEX_THREAD_MCP_SERVER_ENV],
+          input.threadId,
+          mcpSession?.environmentId,
+        );
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           providerInstanceId: boundInstanceId,
           cwd: input.cwd ?? process.cwd(),
           binaryPath: codexConfig.binaryPath,
           launchArgs: resolveCodexLaunchArgs(codexConfig.launchArgs, options?.environment),
-          ...(options?.environment ? { environment: options.environment } : {}),
+          environment: threadEnvironment,
           ...(codexConfig.homePath ? { homePath: codexConfig.homePath } : {}),
           ...(isCodexResumeCursorSchema(input.resumeCursor)
             ? { resumeCursor: input.resumeCursor }
@@ -2288,16 +2455,15 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? { model: input.modelSelection.model }
             : {}),
           ...(serviceTier ? { serviceTier } : {}),
+          ...(threadMcpArgs.length > 0 ? { appServerArgs: threadMcpArgs } : {}),
           ...(mcpSession
             ? {
                 environment: {
-                  ...McpProviderSession.withAgentDeviceEnvironment(
-                    options?.environment ?? process.env,
-                    mcpSession,
-                  ),
+                  ...McpProviderSession.withAgentDeviceEnvironment(threadEnvironment, mcpSession),
                   T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
                 },
                 appServerArgs: [
+                  ...threadMcpArgs,
                   "-c",
                   `mcp_servers.t3-code.url=${mcpSession.endpoint}`,
                   "-c",

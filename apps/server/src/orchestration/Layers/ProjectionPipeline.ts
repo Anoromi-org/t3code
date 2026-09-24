@@ -1065,6 +1065,46 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.turn-reconciled": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          const existingLatestTurn = existingRow.value.latestTurnId
+            ? yield* projectionTurnRepository.getByTurnId({
+                threadId: event.payload.threadId,
+                turnId: existingRow.value.latestTurnId,
+              })
+            : Option.none();
+          // Mirrors the in-memory projector: a different turn takes the latest
+          // slot only when it is not older, ties broken by turn id.
+          const requestedAtOrder = Option.isSome(existingLatestTurn)
+            ? compareDateTimeStrings(
+                event.payload.requestedAt,
+                existingLatestTurn.value.requestedAt,
+              )
+            : 1;
+          const latestTurnId =
+            Option.isNone(existingLatestTurn) ||
+            requestedAtOrder > 0 ||
+            (requestedAtOrder === 0 &&
+              event.payload.turnId.localeCompare(existingLatestTurn.value.turnId) >= 0)
+              ? event.payload.turnId
+              : existingRow.value.latestTurnId;
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId,
+            updatedAt:
+              compareDateTimeStrings(event.occurredAt, existingRow.value.updatedAt) >= 0
+                ? event.occurredAt
+                : existingRow.value.updatedAt,
+          });
+          yield* refreshThreadShellSummary(event.payload.threadId);
+          return;
+        }
+
         case "thread.turn-diff-completed": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -1667,6 +1707,38 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             checkpointRef: null,
             checkpointStatus: null,
             checkpointFiles: [],
+          });
+          return;
+        }
+
+        case "thread.turn-reconciled": {
+          const existingTurn = yield* projectionTurnRepository.getByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+          yield* projectionTurnRepository.upsertByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+            pendingMessageId: event.payload.pendingMessageId,
+            sourceProposedPlanThreadId: Option.isSome(existingTurn)
+              ? existingTurn.value.sourceProposedPlanThreadId
+              : null,
+            sourceProposedPlanId: Option.isSome(existingTurn)
+              ? existingTurn.value.sourceProposedPlanId
+              : null,
+            assistantMessageId: event.payload.assistantMessageId,
+            state: event.payload.state,
+            requestedAt: event.payload.requestedAt,
+            startedAt: event.payload.startedAt,
+            completedAt: event.payload.completedAt,
+            checkpointTurnCount: Option.isSome(existingTurn)
+              ? existingTurn.value.checkpointTurnCount
+              : null,
+            checkpointRef: Option.isSome(existingTurn) ? existingTurn.value.checkpointRef : null,
+            checkpointStatus: Option.isSome(existingTurn)
+              ? existingTurn.value.checkpointStatus
+              : null,
+            checkpointFiles: Option.isSome(existingTurn) ? existingTurn.value.checkpointFiles : [],
           });
           return;
         }

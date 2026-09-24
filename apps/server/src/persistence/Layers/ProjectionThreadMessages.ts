@@ -239,6 +239,18 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     `,
   });
 
+  const getLatestImportedMessageAtRow = SqlSchema.findOne({
+    Request: ListProjectionThreadMessagesInput,
+    Result: Schema.Struct({
+      latestImportedMessageAt: Schema.NullOr(ProjectionThreadMessage.fields.createdAt),
+    }),
+    execute: ({ threadId }) => sql`
+      SELECT MAX(created_at) AS "latestImportedMessageAt"
+      FROM projection_thread_messages
+      WHERE thread_id = ${threadId} AND message_id GLOB 'import:*'
+    `,
+  });
+
   const deleteProjectionThreadMessageRows = SqlSchema.void({
     Request: DeleteProjectionThreadMessagesInput,
     execute: ({ threadId }) =>
@@ -297,6 +309,17 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
       Effect.map((row) => row.latestUserMessageAt),
     );
 
+  const getLatestImportedMessageAt: ProjectionThreadMessageRepositoryShape["getLatestImportedMessageAt"] =
+    (input) =>
+      getLatestImportedMessageAtRow(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlError(
+            "ProjectionThreadMessageRepository.getLatestImportedMessageAt:query",
+          ),
+        ),
+        Effect.map((row) => row.latestImportedMessageAt),
+      );
+
   const deleteByThreadId: ProjectionThreadMessageRepositoryShape["deleteByThreadId"] = (input) =>
     deleteProjectionThreadMessageRows(input).pipe(
       Effect.mapError(
@@ -311,6 +334,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     hasAssistantMessageForTurn,
     listByThreadId,
     getLatestUserMessageAt,
+    getLatestImportedMessageAt,
     deleteByThreadId,
   } satisfies ProjectionThreadMessageRepositoryShape;
 });

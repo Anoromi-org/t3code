@@ -408,7 +408,18 @@ export function applyThreadDetailEvent(
           ...(message.context !== undefined ? { context: message.context } : {}),
         };
       });
-      if (!found) messages.push(message);
+      if (!found) {
+        // Messages recovered from provider history can arrive after newer ones
+        // (a resume prompt). Keep the list in the snapshot's chronological order.
+        let index = messages.length;
+        while (
+          index > 0 &&
+          compareDateTimeStrings(messages[index - 1]!.createdAt, message.createdAt) > 0
+        ) {
+          index -= 1;
+        }
+        messages.splice(index, 0, message);
+      }
       // Update latestTurn for assistant messages bound to a turn. A completed
       // assistant message only settles the turn once the session is no longer
       // running it — providers may emit several assistant messages per turn
@@ -471,6 +482,42 @@ export function applyThreadDetailEvent(
           checkpoints,
           latestTurn,
           updatedAt: event.occurredAt,
+        },
+      };
+    }
+
+    case "thread.turn-reconciled": {
+      // Same rule as the server projector: a reconciled turn updates itself and
+      // replaces a different latest turn only when it is not older, ties broken
+      // by turn id.
+      const requestedAtOrder =
+        thread.latestTurn === null
+          ? 1
+          : compareDateTimeStrings(event.payload.requestedAt, thread.latestTurn.requestedAt);
+      const latestTurn =
+        thread.latestTurn === null ||
+        thread.latestTurn.turnId === event.payload.turnId ||
+        requestedAtOrder > 0 ||
+        (requestedAtOrder === 0 &&
+          event.payload.turnId.localeCompare(thread.latestTurn.turnId) >= 0)
+          ? {
+              turnId: event.payload.turnId,
+              state: event.payload.state,
+              requestedAt: event.payload.requestedAt,
+              startedAt: event.payload.startedAt,
+              completedAt: event.payload.completedAt,
+              assistantMessageId: event.payload.assistantMessageId,
+            }
+          : thread.latestTurn;
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          latestTurn,
+          updatedAt:
+            compareDateTimeStrings(event.occurredAt, thread.updatedAt) >= 0
+              ? event.occurredAt
+              : thread.updatedAt,
         },
       };
     }

@@ -4947,7 +4947,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         canUseTool,
         onUserDialog,
         supportedDialogKinds: ["resume_return"],
-        env: McpProviderSession.withAgentDeviceEnvironment(claudeEnvironment, mcpSession),
+        // Processes the agent starts (MCP servers, desktop agents) inherit these
+        // ids so they can attribute their work to the owning T3 Code thread.
+        env: McpProviderSession.withAgentDeviceEnvironment(
+          {
+            ...claudeEnvironment,
+            T3CODE_THREAD_ID: input.threadId,
+            ...(mcpSession ? { T3CODE_ENVIRONMENT_ID: mcpSession.environmentId } : {}),
+          },
+          mcpSession,
+        ),
         additionalDirectories,
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
         ...(mcpSession

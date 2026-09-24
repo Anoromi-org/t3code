@@ -1715,6 +1715,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             'thread.proposed-plan-upserted',
             'thread.activity-appended',
             'thread.turn-diff-completed',
+            'thread.turn-reconciled',
             'thread.reverted',
             'thread.session-set'
           )

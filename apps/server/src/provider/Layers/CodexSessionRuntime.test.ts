@@ -18,6 +18,7 @@ import {
   isRecoverableThreadResumeError,
   makeMemoryConsolidationNotificationFilter,
   openCodexThread,
+  readCodexSettledHistoryTurns,
   readCodexThread,
   rollbackCodexThread,
   toMcpElicitationResponse,
@@ -89,6 +90,78 @@ describe("Codex thread history", () => {
       }),
     );
   }
+
+  it.effect("reads recent settled turns on resume and skips turns that do not decode", () =>
+    Effect.gen(function* () {
+      const listRequests: Array<unknown> = [];
+      const client: Parameters<typeof readCodexSettledHistoryTurns>[0] = {
+        request: () => Effect.die("Legacy history API must not be used for paginated threads"),
+        raw: {
+          request: (method, params) =>
+            Effect.sync(() => {
+              if (method === "thread/read") return { thread: { historyMode: "paginated" } };
+              NodeAssert.equal(method, "thread/turns/list");
+              listRequests.push(params);
+              return {
+                // Newest first; turns without timestamps keep this order.
+                data: [
+                  { id: "turn-running", items: [], status: "inProgress" },
+                  { id: "turn-b", items: [], status: "completed" },
+                  { id: "turn-malformed", items: "not-an-array", status: "completed" },
+                  { id: "turn-a", items: [], status: "interrupted" },
+                ],
+                nextCursor: "older",
+              };
+            }),
+        },
+      };
+      const turns = yield* readCodexSettledHistoryTurns(client, "thread-1");
+      NodeAssert.deepEqual(
+        turns.map((turn) => turn.id),
+        ["turn-a", "turn-b"],
+      );
+      NodeAssert.deepEqual(listRequests, [
+        {
+          threadId: "thread-1",
+          cursor: null,
+          limit: 100,
+          sortDirection: "desc",
+          itemsView: "full",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("reads settled turns of older threads without failing on one bad turn", () =>
+    Effect.gen(function* () {
+      const client: Parameters<typeof readCodexSettledHistoryTurns>[0] = {
+        request: () => Effect.die("Typed thread/read would reject the whole history"),
+        raw: {
+          request: (method, params) =>
+            Effect.sync(() => {
+              NodeAssert.equal(method, "thread/read");
+              if ((params as { includeTurns: boolean }).includeTurns === false) {
+                return { thread: {} };
+              }
+              return {
+                thread: {
+                  turns: [
+                    { id: "turn-z", items: [], status: "completed" },
+                    { id: "turn-bad", status: "completed" },
+                    { id: "turn-a", items: [], status: "failed" },
+                  ],
+                },
+              };
+            }),
+        },
+      };
+      const turns = yield* readCodexSettledHistoryTurns(client, "legacy-thread");
+      NodeAssert.deepEqual(
+        turns.map((turn) => turn.id),
+        ["turn-z", "turn-a"],
+      );
+    }),
+  );
 
   it.effect("keeps the count-based rollback API for older threads", () =>
     Effect.gen(function* () {

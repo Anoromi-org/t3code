@@ -289,6 +289,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
       NodeAssert.deepStrictEqual(validationRuntimeFactory.factory.mock.calls[0]?.[0], {
         binaryPath: "codex",
         cwd: process.cwd(),
+        environment: { ...process.env, T3CODE_THREAD_ID: asThreadId("thread-1") },
         launchArgs: "",
         model: "gpt-5.3-codex",
         providerInstanceId: ProviderInstanceId.make("codex"),
@@ -534,7 +535,10 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       Effect.gen(function* () {
         const codexConfig = decodeCodexSettings({ launchArgs: "--enable settings-feature" });
         return yield* makeCodexAdapter(codexConfig, {
-          environment: { T3CODE_CODEX_LAUNCH_ARGS: " --strict-config --enable env-feature " },
+          environment: {
+            T3CODE_CODEX_LAUNCH_ARGS: " --strict-config --enable env-feature ",
+            T3CODE_CODEX_THREAD_MCP_SERVER: "cua_repl",
+          },
           makeRuntime: runtimeFactory.factory,
         });
       }),
@@ -556,6 +560,10 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       const runtime = runtimeFactory.lastRuntime;
       NodeAssert.ok(runtime);
       NodeAssert.equal(runtime.options.launchArgs, "--strict-config --enable env-feature");
+      NodeAssert.deepStrictEqual(runtime.options.appServerArgs, [
+        "-c",
+        'mcp_servers.cua_repl.env.T3CODE_THREAD_ID="sess-launch-args-env"',
+      ]);
     }).pipe(Effect.provide(layer));
   });
 
@@ -1278,6 +1286,168 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       NodeAssert.equal(firstEvent.value.itemId, "msg_1");
       NodeAssert.equal(firstEvent.value.turnId, "turn-1");
       NodeAssert.equal(firstEvent.value.payload.itemType, "assistant_message");
+    }),
+  );
+
+  it.effect("maps resumed Codex turns to timestamped reconciliation events", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-history"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-02T00:00:00.000Z",
+        method: "thread/history",
+        threadId: asThreadId("thread-1"),
+        payload: [
+          // A turn with an unfamiliar shape is skipped without hiding the rest.
+          { id: "turn-malformed", status: "completed", items: "not-an-array" },
+          {
+            id: "turn-history",
+            status: "completed",
+            startedAt: 1_767_225_600,
+            completedAt: 1_767_225_605,
+            items: [
+              {
+                type: "userMessage",
+                id: "user-history",
+                content: [{ type: "text", text: "continue" }],
+              },
+              {
+                type: "agentMessage",
+                id: "assistant-history",
+                text: "finished",
+              },
+            ],
+          },
+        ],
+      });
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "thread.history.reconciled") {
+        NodeAssert.fail("Expected a history batch");
+      }
+      NodeAssert.equal(firstEvent.value.payload.events.length, 1);
+      const reconciled = firstEvent.value.payload.events[0]!;
+      NodeAssert.equal(reconciled.type, "turn.reconciled");
+      NodeAssert.equal(reconciled.turnId, "turn-history");
+      NodeAssert.deepStrictEqual(reconciled.payload, {
+        state: "completed",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        completedAt: "2026-01-01T00:00:05.000Z",
+        messages: [
+          {
+            messageId: "user:user-history",
+            role: "user",
+            text: "continue",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            messageId: "assistant:assistant-history",
+            role: "assistant",
+            text: "finished",
+            createdAt: "2026-01-01T00:00:00.001Z",
+          },
+        ],
+      });
+    }),
+  );
+
+  it.effect("keeps resumed turns from the same second in conversation order", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const turn = (id: string) => ({
+        id,
+        status: "completed",
+        startedAt: 1_767_225_600,
+        items: [
+          { type: "userMessage", id: `${id}-user`, content: [{ type: "text", text: id }] },
+          { type: "agentMessage", id: `${id}-assistant`, text: id },
+        ],
+      });
+      yield* runtime.emit({
+        id: asEventId("evt-history-same-second"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-02T00:00:00.000Z",
+        method: "thread/history",
+        threadId: asThreadId("thread-1"),
+        payload: [turn("turn-z"), turn("turn-a")],
+      });
+      const event = yield* Fiber.join(eventFiber);
+      if (event._tag !== "Some" || event.value.type !== "thread.history.reconciled") {
+        NodeAssert.fail("Expected a history batch");
+      }
+      const createdAt = event.value.payload.events.flatMap((entry) =>
+        entry.type === "turn.reconciled"
+          ? entry.payload.messages.map((message) => message.createdAt)
+          : [],
+      );
+      NodeAssert.deepStrictEqual(createdAt, [
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-01T00:00:00.001Z",
+        "2026-01-01T00:00:00.002Z",
+        "2026-01-01T00:00:00.003Z",
+      ]);
+    }),
+  );
+
+  it.effect("recovers plan-only turns in a single resumed-history batch", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const eventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      yield* runtime.emit({
+        id: asEventId("evt-history-plan"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-02T00:00:00.000Z",
+        method: "thread/history",
+        threadId: asThreadId("thread-1"),
+        payload: [
+          {
+            id: "turn-plan",
+            status: "completed",
+            startedAt: 1_767_225_600,
+            completedAt: 1_767_225_605,
+            items: [
+              { type: "plan", id: "plan-item", text: "# Recovered plan\n\n- Implement this" },
+            ],
+          },
+        ],
+      });
+      const event = yield* Fiber.join(eventFiber);
+      NodeAssert.equal(event._tag, "Some");
+      if (event._tag !== "Some" || event.value.type !== "thread.history.reconciled") {
+        NodeAssert.fail("Expected a history batch");
+      }
+      NodeAssert.equal(event.value.payload.events.length, 2);
+      NodeAssert.equal(event.value.payload.events[0]?.type, "turn.reconciled");
+      const plan = event.value.payload.events[1]!;
+      NodeAssert.deepStrictEqual(
+        {
+          eventId: plan.eventId,
+          type: plan.type,
+          provider: plan.provider,
+          threadId: plan.threadId,
+          turnId: plan.turnId,
+          createdAt: plan.createdAt,
+          payload: plan.payload,
+        },
+        {
+          eventId: "evt-history-plan:turn-plan:plan:plan-item",
+          type: "turn.proposed.completed",
+          provider: "codex",
+          threadId: "thread-1",
+          turnId: "turn-plan",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          payload: { planMarkdown: "# Recovered plan\n\n- Implement this" },
+        },
+      );
     }),
   );
 

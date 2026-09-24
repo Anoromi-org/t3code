@@ -112,6 +112,11 @@ export interface ProjectionThreadMessageRepositoryShape {
     input: ListProjectionThreadMessagesInput,
   ) => Effect.Effect<ProjectionThreadMessage["createdAt"] | null, ProjectionRepositoryError>;
 
+  /** Read the newest timestamp of a transcript imported from a provider's session files. */
+  readonly getLatestImportedMessageAt: (
+    input: ListProjectionThreadMessagesInput,
+  ) => Effect.Effect<ProjectionThreadMessage["createdAt"] | null, ProjectionRepositoryError>;
+
   /**
    * Delete projected thread messages by thread.
    */

@@ -78,3 +78,11 @@ In an existing Codex thread, send `/feedback` with an optional description, for
 example `/feedback The agent stopped before finishing the tests`. This uploads
 the conversation and Codex logs to OpenAI. The returned thread ID can be shared
 with OpenAI support.
+
+## Continue a session outside T3 Code
+
+If you continue the same Codex session outside T3 Code, T3 Code restores the completed user and assistant messages, and any plans, from its most recent 100 turns the next time it resumes that session. Tool transcripts are not copied.
+
+## Pass thread IDs to your own MCP server
+
+Set `T3CODE_CODEX_THREAD_MCP_SERVER` on the T3 Code server to the name of an MCP server in your Codex config. Codex then starts that server with `T3CODE_THREAD_ID` (and `T3CODE_ENVIRONMENT_ID` when available) in its environment, so its work can be attributed to the owning thread.

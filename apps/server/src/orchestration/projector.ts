@@ -53,6 +53,7 @@ import {
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
+  ThreadTurnReconciledPayload,
 } from "./Schemas.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
@@ -810,6 +811,45 @@ export function projectEvent(
           }),
         };
       });
+
+    case "thread.turn-reconciled":
+      return decodeForEvent(ThreadTurnReconciledPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          // A reconciled turn updates itself, and replaces a different latest
+          // turn only when that turn is not newer (ties broken by turn id).
+          // Codex reports whole seconds, so timestamps alone cannot match a
+          // turn T3 Code started to its own history entry.
+          const latestTurn =
+            thread.latestTurn === null ||
+            thread.latestTurn.turnId === payload.turnId ||
+            compareDateTimeStrings(payload.requestedAt, thread.latestTurn.requestedAt) > 0 ||
+            (compareDateTimeStrings(payload.requestedAt, thread.latestTurn.requestedAt) === 0 &&
+              payload.turnId.localeCompare(thread.latestTurn.turnId) >= 0)
+              ? {
+                  turnId: payload.turnId,
+                  state: payload.state,
+                  requestedAt: payload.requestedAt,
+                  startedAt: payload.startedAt,
+                  completedAt: payload.completedAt,
+                  assistantMessageId: payload.assistantMessageId,
+                }
+              : thread.latestTurn;
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              latestTurn,
+              updatedAt:
+                compareDateTimeStrings(event.occurredAt, thread.updatedAt) >= 0
+                  ? event.occurredAt
+                  : thread.updatedAt,
+            }),
+          };
+        }),
+      );
 
     case "thread.session-set":
       return Effect.gen(function* () {

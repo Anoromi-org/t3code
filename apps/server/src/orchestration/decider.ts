@@ -2055,6 +2055,57 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return events;
     }
 
+    case "thread.turn.reconcile": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const events: Array<PlannedOrchestrationEvent> = [];
+      for (const message of command.messages) {
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: message.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.message-sent",
+          payload: {
+            threadId: command.threadId,
+            messageId: message.messageId,
+            role: message.role,
+            text: message.text,
+            turnId: command.turnId,
+            streaming: false,
+            createdAt: message.createdAt,
+            updatedAt: message.createdAt,
+          },
+        });
+      }
+      events.push({
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.turn-reconciled",
+        payload: {
+          threadId: command.threadId,
+          turnId: command.turnId,
+          pendingMessageId: command.pendingMessageId,
+          assistantMessageId:
+            command.messages.findLast((message) => message.role === "assistant")?.messageId ?? null,
+          state: command.state,
+          requestedAt: command.requestedAt,
+          startedAt: command.startedAt,
+          completedAt: command.completedAt,
+        },
+      });
+      return events;
+    }
+
     case "thread.proposed-plan.upsert": {
       yield* requireThread({
         readModel,

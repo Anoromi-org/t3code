@@ -25,6 +25,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -73,7 +74,11 @@ function configuredMcpToolAvailability(
   appServerArgs: ReadonlyArray<string> | undefined,
   mcpCapabilities: ReadonlySet<string> | undefined,
 ): T3CodeToolAvailability {
-  if (!hasConfiguredMcpServer(appServerArgs)) return { browser: false, device: false };
+  // Only the T3 Code server carries these tools; other configured servers
+  // (for example one receiving thread attribution) do not.
+  if (appServerArgs?.some((argument) => argument.includes("mcp_servers.t3-code.")) !== true) {
+    return { browser: false, device: false };
+  }
   // Callers predating the capability set attached the browser toolkit only.
   if (mcpCapabilities === undefined) return { browser: true, device: false };
   return { browser: mcpCapabilities.has("preview"), device: mcpCapabilities.has("device") };
@@ -1268,6 +1273,71 @@ export const readCodexThread = Effect.fn("readCodexThread")(function* (
   return { threadId, turns };
 });
 
+// Resume reconciliation only needs recent history: turns continued outside T3
+// Code since its last session. Bounding the read keeps resuming a long thread
+// from loading (and logging) its whole transcript.
+const RESUMED_HISTORY_TURN_LIMIT = 100;
+const CodexLegacyThreadTurns = Schema.Struct({
+  thread: Schema.Struct({ turns: Schema.Array(Schema.Unknown) }),
+});
+const CodexRawTurnsPage = Schema.Struct({ data: Schema.Array(Schema.Unknown) });
+const decodeCodexLegacyThreadTurns = Schema.decodeUnknownEffect(CodexLegacyThreadTurns);
+const decodeCodexRawTurnsPage = Schema.decodeUnknownEffect(CodexRawTurnsPage);
+const decodeCodexHistoryTurn = Schema.decodeUnknownOption(
+  EffectCodexSchema.V2ThreadReadResponse__Turn,
+);
+
+/**
+ * Reads the most recent settled turns of a provider thread in conversation
+ * order (oldest first).
+ * Turns are decoded one at a time and a turn that does not decode is skipped,
+ * so one unfamiliar item cannot hide the rest of the history.
+ */
+export const readCodexSettledHistoryTurns = Effect.fn("readCodexSettledHistoryTurns")(function* (
+  client: CodexHistoryClient,
+  threadId: string,
+): Effect.fn.Return<
+  ReadonlyArray<EffectCodexSchema.V2ThreadReadResponse__Turn>,
+  CodexErrors.CodexAppServerError
+> {
+  let rawTurns: ReadonlyArray<unknown>;
+  if ((yield* readCodexHistoryMode(client, threadId)) === "paginated") {
+    const response = yield* client.raw.request("thread/turns/list", {
+      threadId,
+      cursor: null,
+      limit: RESUMED_HISTORY_TURN_LIMIT,
+      sortDirection: "desc",
+      itemsView: "full",
+    });
+    rawTurns = (yield* decodeCodexRawTurnsPage(response).pipe(
+      Effect.mapError((error) =>
+        CodexErrors.CodexAppServerRequestError.invalidPayload(
+          "thread/turns/list",
+          "decode-payload",
+          error,
+        ),
+      ),
+    )).data.toReversed();
+  } else {
+    const response = yield* client.raw.request("thread/read", { threadId, includeTurns: true });
+    rawTurns = (yield* decodeCodexLegacyThreadTurns(response).pipe(
+      Effect.mapError((error) =>
+        CodexErrors.CodexAppServerRequestError.invalidPayload(
+          "thread/read",
+          "decode-payload",
+          error,
+        ),
+      ),
+    )).thread.turns.slice(-RESUMED_HISTORY_TURN_LIMIT);
+  }
+  // Keep the provider's order: timestamps are optional and whole seconds, so
+  // sorting by them could reorder a conversation.
+  return rawTurns.flatMap((rawTurn) => {
+    const turn = decodeCodexHistoryTurn(rawTurn);
+    return Option.isSome(turn) && turn.value.status !== "inProgress" ? [turn.value] : [];
+  });
+});
+
 export const rollbackCodexThread = Effect.fn("rollbackCodexThread")(function* (
   client: CodexHistoryClient,
   threadId: string,
@@ -2456,6 +2526,31 @@ export const makeCodexSessionRuntime = (
         updatedAt: yield* nowIso,
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
+      // Resume skips history (excludeTurns), so read back the settled turns
+      // separately: the thread may have been continued outside T3 Code. This is
+      // best effort and never blocks the session. A fresh start after a failed
+      // resume has no history to reconcile.
+      if (providerThreadId === readResumeCursorThreadId(options.resumeCursor)) {
+        yield* readCodexSettledHistoryTurns(client, providerThreadId).pipe(
+          Effect.flatMap((turns) =>
+            turns.length === 0
+              ? Effect.void
+              : emitEvent({
+                  kind: "notification",
+                  threadId: options.threadId,
+                  method: "thread/history",
+                  payload: turns,
+                }),
+          ),
+          Effect.catch((cause) =>
+            Effect.logWarning("codex resumed thread history could not be read", {
+              threadId: options.threadId,
+              providerThreadId,
+              cause,
+            }),
+          ),
+        );
+      }
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
       return session;
     });

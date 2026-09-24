@@ -31,6 +31,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
 import { formatTokens } from "@t3tools/shared/usageFormat";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -186,6 +187,10 @@ function maxCheckpointTurnCount(
 
 function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
+}
+
+function isSettledProjectionTurnState(state: string): boolean {
+  return state === "completed" || state === "error" || state === "interrupted";
 }
 
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
@@ -1755,7 +1760,7 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
+  const processSingleRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
       if (
         event.type === "content.delta" &&
@@ -1768,6 +1773,67 @@ const make = Effect.gen(function* () {
 
       const thread = yield* resolveThreadRuntimeContext(event.threadId);
       if (!thread) return;
+
+      if (event.type === "turn.reconciled") {
+        const turnId = toTurnId(event.turnId);
+        if (!turnId) {
+          return;
+        }
+        const existingTurn = yield* projectionTurnRepository.getByTurnId({
+          threadId: thread.id,
+          turnId,
+        });
+        if (Option.isSome(existingTurn) && isSettledProjectionTurnState(existingTurn.value.state)) {
+          return;
+        }
+        // A turn T3 Code started already owns its user message; keep it and
+        // only add the provider's assistant output, placed after that message
+        // (Codex timestamps are whole seconds and can precede it).
+        const preservedPromptAtMs =
+          Option.isSome(existingTurn) && existingTurn.value.pendingMessageId !== null
+            ? DateTime.toEpochMillis(DateTime.makeUnsafe(existingTurn.value.requestedAt))
+            : undefined;
+        const undated = event.payload.startedAt === null && event.payload.completedAt === null;
+        const messages = event.payload.messages
+          .filter((message) => message.role !== "user" || preservedPromptAtMs === undefined)
+          .map((message, index) => {
+            const createdAtMs = DateTime.toEpochMillis(DateTime.makeUnsafe(message.createdAt));
+            return {
+              ...message,
+              messageId: MessageId.make(message.messageId),
+              createdAt:
+                preservedPromptAtMs !== undefined && (undated || createdAtMs <= preservedPromptAtMs)
+                  ? DateTime.formatIso(DateTime.makeUnsafe(preservedPromptAtMs + index + 1))
+                  : message.createdAt,
+            };
+          });
+        const reconciledUserMessageId = event.payload.messages.find(
+          (message) => message.role === "user",
+        )?.messageId;
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.reconcile",
+          commandId: yield* providerCommandId(event, "turn-reconcile"),
+          threadId: thread.id,
+          turnId,
+          pendingMessageId: Option.isSome(existingTurn)
+            ? existingTurn.value.pendingMessageId
+            : reconciledUserMessageId
+              ? MessageId.make(reconciledUserMessageId)
+              : null,
+          state:
+            event.payload.state === "failed"
+              ? "error"
+              : event.payload.state === "cancelled"
+                ? "interrupted"
+                : event.payload.state,
+          requestedAt: event.payload.requestedAt,
+          startedAt: event.payload.startedAt,
+          completedAt: event.payload.completedAt,
+          messages,
+          createdAt: event.createdAt,
+        });
+        return;
+      }
 
       const now = event.createdAt;
       const eventTurnId = toTurnId(event.turnId);
@@ -2592,6 +2658,78 @@ const make = Effect.gen(function* () {
           ),
         ),
       ).pipe(Effect.asVoid);
+    });
+
+  // Resumed history arrives as one batch. One read of the thread's turns (and
+  // plans, when the batch carries any) skips everything already recorded, so
+  // resuming a long thread does not cost a query per historical turn.
+  const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
+    Effect.gen(function* () {
+      if (event.type !== "thread.history.reconciled") {
+        return yield* processSingleRuntimeEvent(event);
+      }
+      const threadId = event.threadId;
+      const turns = yield* projectionTurnRepository.listByThreadId({ threadId });
+      const knownTurnStates = new Map(
+        turns.flatMap((turn) => (turn.turnId === null ? [] : [[turn.turnId, turn.state] as const])),
+      );
+      // Turns T3 Code never recorded are new unless a transcript imported from
+      // the provider's session files already shows them. Imported messages have
+      // no turn records, so their newest timestamp marks what is already shown.
+      let unknownTurnCutoff: string | null | undefined;
+      const skippedTurnIds = new Set<TurnId>();
+      const plans = event.payload.events.some((entry) => entry.type === "turn.proposed.completed")
+        ? yield* projectionThreadProposedPlans.listByThreadId({ threadId })
+        : [];
+      const planMarkdownById = new Map<string, string>(
+        plans.map((plan) => [plan.planId, plan.planMarkdown]),
+      );
+      for (const entry of event.payload.events) {
+        if (entry.threadId !== threadId) continue;
+        const entryTurnId = toTurnId(entry.turnId);
+        if (entryTurnId && skippedTurnIds.has(entryTurnId)) continue;
+        if (entry.type === "turn.reconciled" && entryTurnId) {
+          const knownState = knownTurnStates.get(entryTurnId);
+          if (knownState !== undefined && isSettledProjectionTurnState(knownState)) continue;
+          if (knownState === undefined) {
+            const { startedAt, completedAt, requestedAt } = entry.payload;
+            // A turn Codex reports without timestamps cannot be placed in the
+            // conversation, so only dated turns are recovered.
+            if (startedAt === null && completedAt === null) {
+              skippedTurnIds.add(entryTurnId);
+              continue;
+            }
+            if (unknownTurnCutoff === undefined) {
+              unknownTurnCutoff = yield* projectionThreadMessages.getLatestImportedMessageAt({
+                threadId,
+              });
+            }
+            // Imported messages carry original timestamps but no turn records;
+            // a turn that started by the newest of them is already shown.
+            if (
+              unknownTurnCutoff !== null &&
+              compareDateTimeStrings(requestedAt, unknownTurnCutoff) <= 0
+            ) {
+              skippedTurnIds.add(entryTurnId);
+              continue;
+            }
+          }
+        }
+        const planId =
+          entry.type === "turn.proposed.completed"
+            ? proposedPlanIdFromEvent(entry, threadId)
+            : undefined;
+        const planMarkdown =
+          entry.type === "turn.proposed.completed"
+            ? normalizeProposedPlanMarkdown(entry.payload.planMarkdown)
+            : undefined;
+        if (planId !== undefined && planMarkdownById.get(planId) === planMarkdown) continue;
+        yield* processSingleRuntimeEvent(entry);
+        if (entry.type === "turn.reconciled" && entryTurnId) {
+          knownTurnStates.set(entryTurnId, "completed");
+        }
+        if (planId !== undefined && planMarkdown) planMarkdownById.set(planId, planMarkdown);
+      }
     });
 
   const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;

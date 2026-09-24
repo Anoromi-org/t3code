@@ -5,6 +5,7 @@ import { describe, it } from "vite-plus/test";
 import {
   codexAppServerArgs,
   codexExecLaunchArgs,
+  codexThreadMcpArgs,
   resolveCodexLaunchArgs,
 } from "./codexLaunchArgs.ts";
 
@@ -25,6 +26,22 @@ describe("resolveCodexLaunchArgs", () => {
 
   it("ignores whitespace-only environment values", () => {
     NodeAssert.equal(resolveCodexLaunchArgs("", { T3CODE_CODEX_LAUNCH_ARGS: "   " }), "");
+  });
+});
+
+describe("codexThreadMcpArgs", () => {
+  it("passes both thread IDs to the configured MCP server", () => {
+    NodeAssert.deepStrictEqual(codexThreadMcpArgs("cua_repl", "thread-1", "environment-1"), [
+      "-c",
+      'mcp_servers.cua_repl.env.T3CODE_THREAD_ID="thread-1"',
+      "-c",
+      'mcp_servers.cua_repl.env.T3CODE_ENVIRONMENT_ID="environment-1"',
+    ]);
+  });
+
+  it("does not add an MCP server when the name is missing or unsafe", () => {
+    NodeAssert.deepStrictEqual(codexThreadMcpArgs(undefined, "thread-1"), []);
+    NodeAssert.deepStrictEqual(codexThreadMcpArgs("cua_repl.command", "thread-1"), []);
   });
 });
 

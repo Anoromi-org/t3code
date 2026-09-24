@@ -1558,6 +1558,32 @@ const ThreadMessageUserAppendCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ReconciledThreadMessage = Schema.Struct({
+  messageId: MessageId,
+  role: Schema.Literals(["user", "assistant"]),
+  text: Schema.String,
+  createdAt: IsoDateTime,
+});
+
+/**
+ * Records a provider turn that completed outside T3 Code (for example a Codex
+ * session continued from the CLI) so its messages and settled state appear
+ * when the session is resumed.
+ */
+const ThreadTurnReconcileCommand = Schema.Struct({
+  type: Schema.Literal("thread.turn.reconcile"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  turnId: TurnId,
+  pendingMessageId: Schema.NullOr(MessageId),
+  state: Schema.Literals(["completed", "error", "interrupted"]),
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime),
+  completedAt: Schema.NullOr(IsoDateTime),
+  messages: Schema.Array(ReconciledThreadMessage),
+  createdAt: IsoDateTime,
+});
+
 const ThreadProposedPlanUpsertCommand = Schema.Struct({
   type: Schema.Literal("thread.proposed-plan.upsert"),
   commandId: CommandId,
@@ -1658,6 +1684,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadMessageReasoningCompleteCommand,
   ThreadHistoryImportCommand,
   ThreadMessageUserAppendCommand,
+  ThreadTurnReconcileCommand,
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
@@ -1699,6 +1726,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.interaction-mode-set",
   "thread.message-sent",
   "thread.turn-start-requested",
+  "thread.turn-reconciled",
   "thread.turn-interrupt-requested",
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
@@ -1919,6 +1947,17 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadTurnReconciledPayload = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+  pendingMessageId: Schema.NullOr(MessageId),
+  assistantMessageId: Schema.NullOr(MessageId),
+  state: Schema.Literals(["completed", "error", "interrupted"]),
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime),
+  completedAt: Schema.NullOr(IsoDateTime),
+});
+
 export const ThreadTurnInterruptRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   turnId: Schema.optional(TurnId),
@@ -2134,6 +2173,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.turn-start-requested"),
     payload: ThreadTurnStartRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.turn-reconciled"),
+    payload: ThreadTurnReconciledPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

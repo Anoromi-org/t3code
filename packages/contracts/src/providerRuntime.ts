@@ -163,6 +163,8 @@ const ThreadRealtimeAudioDeltaType = Schema.Literal("thread.realtime.audio.delta
 const ThreadRealtimeErrorType = Schema.Literal("thread.realtime.error");
 const ThreadRealtimeClosedType = Schema.Literal("thread.realtime.closed");
 const TurnStartedType = Schema.Literal("turn.started");
+const TurnReconciledType = Schema.Literal("turn.reconciled");
+const ThreadHistoryReconciledType = Schema.Literal("thread.history.reconciled");
 const TurnCompletedType = Schema.Literal("turn.completed");
 const TurnAbortedType = Schema.Literal("turn.aborted");
 const TurnPlanUpdatedType = Schema.Literal("turn.plan.updated");
@@ -344,6 +346,21 @@ export const TurnTokenUsage = Schema.Union([
   }),
 ]);
 export type TurnTokenUsage = typeof TurnTokenUsage.Type;
+
+const ReconciledTurnMessage = Schema.Struct({
+  messageId: TrimmedNonEmptyStringSchema,
+  role: Schema.Literals(["user", "assistant"]),
+  text: Schema.String,
+  createdAt: IsoDateTime,
+});
+
+const TurnReconciledPayload = Schema.Struct({
+  state: RuntimeTurnState,
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime),
+  completedAt: Schema.NullOr(IsoDateTime),
+  messages: Schema.Array(ReconciledTurnMessage),
+});
 
 const TurnCompletedPayload = Schema.Struct({
   state: RuntimeTurnState,
@@ -922,6 +939,13 @@ const ProviderRuntimeTurnStartedEvent = Schema.Struct({
 });
 export type ProviderRuntimeTurnStartedEvent = typeof ProviderRuntimeTurnStartedEvent.Type;
 
+/** A settled provider turn read back from history when a session resumes. */
+const ProviderRuntimeTurnReconciledEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: TurnReconciledType,
+  payload: TurnReconciledPayload,
+});
+
 const ProviderRuntimeTurnCompletedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: TurnCompletedType,
@@ -958,6 +982,20 @@ const ProviderRuntimeTurnProposedCompletedEvent = Schema.Struct({
 });
 export type ProviderRuntimeTurnProposedCompletedEvent =
   typeof ProviderRuntimeTurnProposedCompletedEvent.Type;
+
+/**
+ * Resumed history delivered as one batch, so ingestion checks which turns and
+ * plans it already has with one read instead of one per turn.
+ */
+const ProviderRuntimeThreadHistoryReconciledEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: ThreadHistoryReconciledType,
+  payload: Schema.Struct({
+    events: Schema.Array(
+      Schema.Union([ProviderRuntimeTurnReconciledEvent, ProviderRuntimeTurnProposedCompletedEvent]),
+    ),
+  }),
+});
 
 const ProviderRuntimeTurnDiffUpdatedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
@@ -1189,6 +1227,8 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeThreadRealtimeErrorEvent,
   ProviderRuntimeThreadRealtimeClosedEvent,
   ProviderRuntimeTurnStartedEvent,
+  ProviderRuntimeTurnReconciledEvent,
+  ProviderRuntimeThreadHistoryReconciledEvent,
   ProviderRuntimeTurnCompletedEvent,
   ProviderRuntimeTurnAbortedEvent,
   ProviderRuntimeTurnPlanUpdatedEvent,

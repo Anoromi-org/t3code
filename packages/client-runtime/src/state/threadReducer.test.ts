@@ -930,6 +930,125 @@ describe("applyThreadDetailEvent", () => {
     });
   });
 
+  it("inserts a recovered message before newer messages", () => {
+    const thread: OrchestrationThread = {
+      ...baseThread,
+      messages: [
+        {
+          id: MessageId.make("resume-prompt"),
+          role: "user",
+          text: "resume",
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-04-01T09:00:00.000Z",
+          updatedAt: "2026-04-01T09:00:00.000Z",
+        },
+      ],
+    };
+    const result = applyThreadDetailEvent(thread, {
+      ...baseEventFields,
+      sequence: 11,
+      occurredAt: "2026-04-01T09:00:01.000Z",
+      aggregateKind: "thread",
+      aggregateId: ThreadId.make("thread-1"),
+      type: "thread.message-sent",
+      payload: {
+        threadId: ThreadId.make("thread-1"),
+        messageId: MessageId.make("user:recovered"),
+        role: "user",
+        text: "continued elsewhere",
+        turnId: TurnId.make("turn-recovered"),
+        streaming: false,
+        createdAt: "2026-04-01T08:00:00.000Z",
+        updatedAt: "2026-04-01T08:00:00.000Z",
+      },
+    });
+    expect(result.kind).toBe("updated");
+    if (result.kind === "updated") {
+      expect(result.thread.messages.map((message) => message.id)).toEqual([
+        "user:recovered",
+        "resume-prompt",
+      ]);
+    }
+  });
+
+  describe("thread.turn-reconciled", () => {
+    const threadWithLatestTurn: OrchestrationThread = {
+      ...baseThread,
+      latestTurn: {
+        turnId: TurnId.make("turn-b"),
+        state: "completed",
+        requestedAt: "2026-04-01T07:00:00.000Z",
+        startedAt: "2026-04-01T07:00:00.000Z",
+        completedAt: "2026-04-01T07:00:01.000Z",
+        assistantMessageId: MessageId.make("assistant-b"),
+      },
+    };
+
+    const reconcile = (turnId: string) =>
+      applyThreadDetailEvent(threadWithLatestTurn, {
+        ...baseEventFields,
+        sequence: 9,
+        occurredAt: "2026-04-01T08:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.turn-reconciled",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          turnId: TurnId.make(turnId),
+          pendingMessageId: MessageId.make(`user-${turnId}`),
+          assistantMessageId: MessageId.make(`assistant-${turnId}`),
+          state: "completed",
+          requestedAt: "2026-04-01T07:00:00.000Z",
+          startedAt: "2026-04-01T07:00:00.000Z",
+          completedAt: "2026-04-01T07:00:02.000Z",
+        },
+      });
+
+    it("updates live state and breaks timestamp ties by turn id", () => {
+      const older = reconcile("turn-a");
+      expect(older.kind).toBe("updated");
+      if (older.kind === "updated") {
+        expect(older.thread.latestTurn?.turnId).toBe("turn-b");
+      }
+
+      const newer = reconcile("turn-c");
+      expect(newer.kind).toBe("updated");
+      if (newer.kind === "updated") {
+        expect(newer.thread.latestTurn).toMatchObject({
+          turnId: "turn-c",
+          assistantMessageId: "assistant-turn-c",
+          state: "completed",
+        });
+      }
+    });
+
+    it("updates the same turn even when the provider reports an earlier second", () => {
+      const result = applyThreadDetailEvent(threadWithLatestTurn, {
+        ...baseEventFields,
+        sequence: 10,
+        occurredAt: "2026-04-01T08:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.turn-reconciled",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          turnId: TurnId.make("turn-b"),
+          pendingMessageId: null,
+          assistantMessageId: null,
+          state: "error",
+          requestedAt: "2026-04-01T06:59:59.000Z",
+          startedAt: "2026-04-01T06:59:59.000Z",
+          completedAt: "2026-04-01T07:00:03.000Z",
+        },
+      });
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.latestTurn).toMatchObject({ turnId: "turn-b", state: "error" });
+      }
+    });
+  });
+
   describe("thread.session-set", () => {
     it("settles a running latestTurn when the session leaves the running status", () => {
       const threadWithRunningTurn: OrchestrationThread = {
