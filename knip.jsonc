@@ -84,6 +84,18 @@
       // These workspace packages are private to this monorepo.
       "includeEntryExports": true,
     },
+    "packages/sdk": {
+      // Published package: its entry exports are the public API. The examples
+      // and the declaration build script run directly.
+      "entry": [
+        "src/index.ts!",
+        "src/react.tsx!",
+        "src/contracts.ts!",
+        "examples/*.{ts,tsx}",
+        "scripts/build-types.ts",
+      ],
+      "includeEntryExports": false,
+    },
     "packages/effect-acp": {
       "includeEntryExports": true,
       "entry": ["test/fixtures/*.ts"],
