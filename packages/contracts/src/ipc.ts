@@ -1220,6 +1220,11 @@ export interface DesktopBridge {
    * builds lack it; callers fall back to VS Code only.
    */
   probeRemoteEditors?: () => Promise<readonly EditorId[]>;
+  /** Hyprland-only, primary local environment Corkdiff integration. */
+  openExternalCorkdiff?: (input: { readonly cwd: string; readonly threadId: string }) => Promise<{
+    readonly workspaceId: number;
+    readonly reused: boolean;
+  }>;
   /** Present when the desktop shell can perform an ordered plain-text paste. */
   pasteAsText?: () => Promise<void>;
   onMenuAction: (listener: (action: string) => void) => () => void;

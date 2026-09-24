@@ -515,6 +515,9 @@ type BootstrapExchangeResult = {
 const AUTHORIZATION_PREFIX = "Bearer ";
 const DPOP_AUTHORIZATION_PREFIX = "DPoP ";
 const WEBSOCKET_TICKET_QUERY_PARAM = "wsTicket";
+// Corkdiff sends its websocket ticket in its redacted `token` parameter. Only
+// websocket tickets are accepted there; access tokens stay header-only.
+const REDACTED_WEBSOCKET_TICKET_QUERY_PARAM = "token";
 
 const bySessionPriority = (left: AuthClientSession, right: AuthClientSession) => {
   const leftCanManage = left.scopes.includes(AuthAccessWriteScope);
@@ -1076,7 +1079,9 @@ export const make = Effect.gen(function* () {
     Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(function* (request) {
       const requestUrl = HttpServerRequest.toURL(request);
       if (Option.isSome(requestUrl)) {
-        const websocketTicket = requestUrl.value.searchParams.get(WEBSOCKET_TICKET_QUERY_PARAM);
+        const websocketTicket =
+          requestUrl.value.searchParams.get(WEBSOCKET_TICKET_QUERY_PARAM) ??
+          requestUrl.value.searchParams.get(REDACTED_WEBSOCKET_TICKET_QUERY_PARAM);
         if (websocketTicket && websocketTicket.trim().length > 0) {
           return yield* sessions.verifyWebSocketToken(websocketTicket).pipe(
             Effect.map((session) => ({
