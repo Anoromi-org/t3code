@@ -33,6 +33,7 @@ import type {
   ServerProvider,
   ThreadId,
   SnapShotSource,
+  VcsRef,
 } from "@t3tools/contracts";
 import {
   ProviderDriverKind,
@@ -50,7 +51,12 @@ import {
 } from "@t3tools/client-runtime/text-paste";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { folderDropTarget, resolveDroppedFolderPath } from "./folderDrop";
-import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
+import {
+  applyClaudePromptEffortPrefix,
+  createModelSelection,
+  isClaudeUltrathinkPrompt,
+  normalizeModelSlug,
+} from "@t3tools/shared/model";
 import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
 import {
   memo,
@@ -76,6 +82,7 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
+  parseComposerMenuSlashCommandQuery,
   replaceTextRange,
 } from "../../composer-logic";
 import { DISCONNECTED_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
@@ -242,7 +249,9 @@ import {
   type EnvironmentQueryTarget,
 } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
-import { useDebouncedValue } from "~/state/queries";
+import { useDebouncedValue, usePaginatedBranches } from "~/state/queries";
+import { getProviderModelCapabilities } from "../../providerModels";
+import { sanitizeNewRefName } from "../BranchToolbar.logic";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
@@ -269,6 +278,7 @@ import {
   searchSlashCommandItems,
   slashCommandItemsForPromptPosition,
 } from "./composerSlashCommandSearch";
+import { replaceProviderOptionSelection, resolveReasoningDescriptor } from "./composerSlashActions";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
@@ -996,6 +1006,51 @@ const extendReplacementRangeForTrailingSpace = (
   return text[rangeEnd] === " " ? rangeEnd + 1 : rangeEnd;
 };
 
+const COMPOSER_VCS_QUERY_DEBOUNCE_MS = 120;
+const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
+
+function describeBranchCommandItem(branch: VcsRef, activeProjectCwd: string): string {
+  if (branch.current) return "Current branch";
+  if (branch.worktreePath && branch.worktreePath !== activeProjectCwd) {
+    return "Reuse existing worktree";
+  }
+  if (branch.worktreePath === activeProjectCwd) return "Checked out in the project root";
+  if (branch.isRemote) return "Remote branch";
+  return "Local branch";
+}
+
+function branchCommandItems(
+  branches: ReadonlyArray<VcsRef>,
+  query: string,
+  activeProjectCwd: string,
+): Array<Extract<ComposerCommandItem, { type: "branch" }>> {
+  return branches
+    .filter((branch) => query.length === 0 || branch.name.toLowerCase().includes(query))
+    .map((branch) => ({
+      id: `branch:${branch.name}:${branch.worktreePath ?? ""}`,
+      type: "branch",
+      branch,
+      label: branch.name,
+      description: describeBranchCommandItem(branch, activeProjectCwd),
+    }));
+}
+
+/** Where the thread runs, and how `/branch` and `/worktree` change it. */
+export interface ComposerRunContext {
+  projectCwd: string;
+  canChangeWorktree: boolean;
+  envMode: "local" | "worktree";
+  branch: string | null;
+  isBranchPending: boolean;
+  worktreePath: string | null;
+  /** Resolves false when the change did not apply, keeping the command for a retry. */
+  select: (input: {
+    branch: VcsRef | string | null;
+    envMode: "local" | "worktree";
+    worktreeBranchName?: string | null;
+  }) => Promise<boolean>;
+}
+
 function useRestingComposerControlsLayout(host: HTMLDivElement | null, useControlsAsHost = false) {
   const [controls, setControls] = useState<HTMLDivElement | null>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
@@ -1427,6 +1482,8 @@ export interface ChatComposerProps {
    * effect, so it is current before the chat view measures the overlay.
    */
   onRestingChange: (resting: boolean) => void;
+  /** Present only in a VCS repository; enables `/branch` and `/worktree`. */
+  runContext: ComposerRunContext | null;
 
   // Refs the parent needs kept in sync
   promptRef: React.RefObject<string>;
@@ -1547,6 +1604,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     timelineOverflows,
     onComposerOverlayHeightChange,
     onRestingChange,
+    runContext,
     promptRef,
     composerRef,
     composerImagesRef,
@@ -1769,6 +1827,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (store) => store.syncPersistedAttachments,
   );
   const getComposerDraft = useComposerDraftStore((store) => store.getComposerDraft);
+  const setComposerDraftProviderModelOptions = useComposerDraftStore(
+    (store) => store.setProviderModelOptions,
+  );
 
   useEffect(() => {
     if (!attachmentUploadsCapabilityKnown) {
@@ -2034,6 +2095,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const selectedPromptEffort = composerProviderState.promptEffort;
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
+  const reasoningDescriptor = useMemo(
+    () =>
+      resolveReasoningDescriptor({
+        capabilities: getProviderModelCapabilities(
+          selectedProviderModels,
+          selectedModel,
+          selectedProvider,
+          settings.planModeEnabled,
+        ),
+        selections: selectedModelOptionsForDispatch,
+      }),
+    [
+      selectedModel,
+      selectedModelOptionsForDispatch,
+      selectedProvider,
+      selectedProviderModels,
+      settings.planModeEnabled,
+    ],
+  );
   const { enabled: planModeUiEnabled, interactionMode } = resolveComposerInteractionMode({
     planModeEnabled: settings.planModeEnabled,
     provider: selectedProviderStatus,
@@ -2152,6 +2232,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerMenuOpenRef = useRef(false);
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
+  const composerMenuSearchKeyRef = useRef<string | null>(null);
+  const [isRunContextSelectionPending, setIsRunContextSelectionPending] = useState(false);
   const composerBlurFrameRef = useRef<number | null>(null);
   const mobileComposerExpandFrameRef = useRef<number | null>(null);
   const mobileComposerExpandReleaseFrameRef = useRef<number | null>(null);
@@ -2336,6 +2418,58 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }),
   );
 
+  const composerMenuSlashCommand =
+    composerTrigger?.kind === "slash-command"
+      ? parseComposerMenuSlashCommandQuery(composerTrigger.query)
+      : null;
+  const isVcsSlashCommand =
+    runContext !== null &&
+    (composerMenuSlashCommand?.command === "branch" ||
+      composerMenuSlashCommand?.command === "worktree");
+  // Refs are created under their sanitized name, so search and match on it too.
+  const vcsSlashValueQuery = isVcsSlashCommand
+    ? sanitizeNewRefName(composerMenuSlashCommand?.valueQuery ?? "")
+    : "";
+  const debouncedVcsSlashValueQuery = useDebouncedValue(
+    vcsSlashValueQuery,
+    COMPOSER_VCS_QUERY_DEBOUNCE_MS,
+  );
+  const isVcsSlashQueryDebounced = vcsSlashValueQuery !== debouncedVcsSlashValueQuery;
+  const branchRefState = usePaginatedBranches({
+    environmentId: isVcsSlashCommand ? environmentId : null,
+    cwd: isVcsSlashCommand ? gitCwd : null,
+    query: debouncedVcsSlashValueQuery,
+  });
+  const gitBranches = branchRefState.refs;
+  const isInitialBranchRefLoadPending = branchRefState.isPending && branchRefState.data === null;
+  const branchRefsNextCursor = branchRefState.data?.nextCursor;
+  const loadNextBranchRefs = branchRefState.loadNext;
+  // An exact match may still be on a later page; only then is a name new.
+  const areBranchRefsExhausted =
+    !isInitialBranchRefLoadPending &&
+    branchRefsNextCursor == null &&
+    !branchRefState.isFetchingNextPage;
+  // The slash menu filters locally, so it needs every page, not just the first.
+  useEffect(() => {
+    if (
+      !isVcsSlashCommand ||
+      isVcsSlashQueryDebounced ||
+      branchRefState.isPending ||
+      branchRefState.isFetchingNextPage ||
+      branchRefsNextCursor == null
+    ) {
+      return;
+    }
+    loadNextBranchRefs();
+  }, [
+    branchRefState.isFetchingNextPage,
+    branchRefState.isPending,
+    branchRefsNextCursor,
+    isVcsSlashCommand,
+    isVcsSlashQueryDebounced,
+    loadNextBranchRefs,
+  ]);
+
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -2349,6 +2483,82 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }));
     }
     if (composerTrigger.kind === "slash-command") {
+      if (composerMenuSlashCommand?.command === "reasoning") {
+        if (!reasoningDescriptor) return [];
+        const query = composerMenuSlashCommand.valueQuery.toLowerCase();
+        return reasoningDescriptor.options
+          .filter(
+            (option) =>
+              query.length === 0 ||
+              option.id.toLowerCase().startsWith(query) ||
+              option.label.toLowerCase().includes(query),
+          )
+          .map((option) => ({
+            id: `reasoning:${reasoningDescriptor.id}:${option.id}`,
+            type: "reasoning" as const,
+            descriptorId: reasoningDescriptor.id,
+            value: option.id,
+            label: `/reasoning ${option.id}`,
+            description: `${option.label}${option.isDefault ? " (default)" : ""}`,
+          }));
+      }
+
+      if (composerMenuSlashCommand?.command === "worktree") {
+        if (!runContext?.canChangeWorktree) return [];
+        const rawQuery = composerMenuSlashCommand.valueQuery;
+        const query = rawQuery.toLowerCase();
+        const modes = (
+          [
+            {
+              id: "worktree-mode:local",
+              type: "worktree-mode",
+              mode: "local",
+              label: "/worktree local",
+              description: "Use the current checkout",
+            },
+            {
+              id: "worktree-mode:worktree",
+              type: "worktree-mode",
+              mode: "worktree",
+              label: "/worktree worktree",
+              description: "Create and run in a new worktree",
+            },
+          ] as const
+        ).filter((item) => item.mode.startsWith(query));
+        if (modes.length > 0) return [...modes];
+        if (isVcsSlashQueryDebounced) return [];
+        const branchName = sanitizeNewRefName(rawQuery);
+        const hasExactMatch = gitBranches.some(
+          (branch) => branch.name.toLowerCase() === branchName.toLowerCase(),
+        );
+        return [
+          ...(branchName.length > 0 &&
+          runContext.branch !== null &&
+          !hasExactMatch &&
+          areBranchRefsExhausted
+            ? [
+                {
+                  id: `named-worktree:${branchName}`,
+                  type: "named-worktree-target" as const,
+                  branchName,
+                  label: `/worktree ${branchName}`,
+                  description: `Use ${branchName} as the new worktree branch`,
+                },
+              ]
+            : []),
+          ...branchCommandItems(gitBranches, branchName.toLowerCase(), runContext.projectCwd),
+        ];
+      }
+
+      if (composerMenuSlashCommand?.command === "branch") {
+        if (!runContext || isVcsSlashQueryDebounced) return [];
+        return branchCommandItems(
+          gitBranches,
+          sanitizeNewRefName(composerMenuSlashCommand.valueQuery).toLowerCase(),
+          runContext.projectCwd,
+        );
+      }
+
       const builtInSlashCommandItems = [
         {
           id: "slash:model",
@@ -2374,6 +2584,39 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 description: "Switch this thread back to normal build mode",
               },
             ] as const)
+          : []),
+        ...(runContext
+          ? [
+              {
+                id: "slash:branch",
+                type: "slash-command" as const,
+                command: "branch" as const,
+                label: "/branch",
+                description: "Select a branch or worktree",
+              },
+            ]
+          : []),
+        ...(runContext?.canChangeWorktree
+          ? [
+              {
+                id: "slash:worktree",
+                type: "slash-command" as const,
+                command: "worktree" as const,
+                label: "/worktree",
+                description: "Choose the current checkout or a new worktree",
+              },
+            ]
+          : []),
+        ...(reasoningDescriptor
+          ? [
+              {
+                id: "slash:reasoning",
+                type: "slash-command" as const,
+                command: "reasoning" as const,
+                label: "/reasoning",
+                description: "Set reasoning for this thread",
+              },
+            ]
           : []),
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const slashMenuSkills = getProviderSkillsForSlashMenu(
@@ -2479,9 +2722,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return [];
   }, [
     compactSlashCommandAvailable,
+    composerMenuSlashCommand,
     composerTrigger,
     exactPullRequestLookup.data,
+    areBranchRefsExhausted,
+    gitBranches,
+    isVcsSlashQueryDebounced,
     planModeUiEnabled,
+    reasoningDescriptor,
+    runContext,
     pullRequestLookup.data,
     pullRequestProjectId,
     pullRequestRepository,
@@ -2516,6 +2765,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   composerMenuOpenRef.current = composerMenuOpen;
   composerMenuItemsRef.current = composerMenuItems;
   activeComposerMenuItemRef.current = activeComposerMenuItem;
+  composerMenuSearchKeyRef.current = composerMenuSearchKey;
 
   const nonPersistedComposerImageIdSet = useMemo(
     () => new Set(nonPersistedComposerImageIds),
@@ -2561,6 +2811,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     showPlanFollowUpPrompt,
   ]);
 
+  const isWorktreeModeQuery =
+    composerMenuSlashCommand?.command === "worktree" &&
+    ["local", "worktree"].some((mode) =>
+      mode.startsWith(composerMenuSlashCommand.valueQuery.toLowerCase()),
+    );
+  // Branch items would otherwise flash stale or empty results while refs load.
+  const isComposerSlashMenuLoading =
+    isVcsSlashCommand &&
+    !isWorktreeModeQuery &&
+    (isInitialBranchRefLoadPending ||
+      isVcsSlashQueryDebounced ||
+      (composerMenuSlashCommand?.command === "worktree" &&
+        composerMenuSlashCommand.valueQuery.length > 0 &&
+        runContext?.isBranchPending === true));
   const isComposerMenuLoading =
     (composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending) ||
     (composerTriggerKind === "pull-request" &&
@@ -2569,7 +2833,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       (pullRequestLookup.isPending ||
         pullRequestTextQuery !== debouncedPullRequestTextQuery ||
         pullRequestTriggerNumber !== debouncedPullRequestNumber ||
-        exactPullRequestLookup.isPending));
+        exactPullRequestLookup.isPending)) ||
+    isComposerSlashMenuLoading;
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
@@ -3573,8 +3838,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const { onUsageLimitsCommand } = props;
   const onSelectComposerItem = useCallback(
-    (item: ComposerCommandItem) => {
-      if (composerSelectLockRef.current) return;
+    async (item: ComposerCommandItem) => {
+      if (composerSelectLockRef.current || isRunContextSelectionPending) return;
       composerSelectLockRef.current = true;
       window.requestAnimationFrame(() => {
         composerSelectLockRef.current = false;
@@ -3599,7 +3864,47 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
         return;
       }
+      const removeTrigger = () => {
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+        });
+        if (applied) setComposerHighlightedItemId(null);
+      };
+      // The prompt keeps the command until the context change lands, so a
+      // failed or interrupted change leaves it in place for a retry.
+      const selectRunContext = async (
+        input: Parameters<ComposerRunContext["select"]>[0],
+      ): Promise<void> => {
+        if (!runContext) return;
+        setIsRunContextSelectionPending(true);
+        try {
+          if (!(await runContext.select(input))) return;
+        } finally {
+          setIsRunContextSelectionPending(false);
+        }
+        removeTrigger();
+      };
       if (item.type === "slash-command") {
+        if (
+          item.command === "branch" ||
+          item.command === "worktree" ||
+          item.command === "reasoning"
+        ) {
+          const replacement = `/${item.command} `;
+          const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+            snapshot.value,
+            trigger.rangeEnd,
+            replacement,
+          );
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            replacementRangeEnd,
+            replacement,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+          );
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
         if (item.command === "model") {
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -3612,13 +3917,85 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           return;
         }
         if (!planModeUiEnabled) return;
-        void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
+        void handleInteractionModeChange(item.command);
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
         });
         if (applied) {
           setComposerHighlightedItemId(null);
         }
+        return;
+      }
+      if (item.type === "reasoning") {
+        if (reasoningDescriptor?.promptInjectedValues?.includes(item.value)) {
+          const withoutCommand = replaceTextRange(
+            snapshot.value,
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            "",
+          ).text;
+          const nextPrompt =
+            withoutCommand.trim().length === 0
+              ? ULTRATHINK_PROMPT_PREFIX
+              : applyClaudePromptEffortPrefix(withoutCommand, "ultrathink");
+          const applied = applyPromptReplacement(0, snapshot.value.length, nextPrompt, {
+            expectedText: snapshot.value,
+          });
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
+        setComposerDraftProviderModelOptions(
+          composerDraftTarget,
+          selectedProvider,
+          replaceProviderOptionSelection(selectedModelOptionsForDispatch, {
+            id: item.descriptorId,
+            value: item.value,
+          }),
+          { instanceId: selectedInstanceId, model: selectedModel, persistSticky: true },
+        );
+        // A prompt-injected effort ("Ultrathink:") would override the new
+        // selection, so choosing another level strips it.
+        const stripPromptInjectedEffort =
+          (reasoningDescriptor?.promptInjectedValues?.length ?? 0) > 0 &&
+          isClaudeUltrathinkPrompt(snapshot.value);
+        const replacementStart = stripPromptInjectedEffort ? 0 : trigger.rangeStart;
+        const replacement = stripPromptInjectedEffort
+          ? snapshot.value.slice(0, trigger.rangeStart).replace(/^Ultrathink:\s*/i, "")
+          : "";
+        const applied = applyPromptReplacement(replacementStart, trigger.rangeEnd, replacement, {
+          expectedText: snapshot.value.slice(replacementStart, trigger.rangeEnd),
+        });
+        if (applied) setComposerHighlightedItemId(null);
+        return;
+      }
+      if (item.type === "branch") {
+        if (!runContext) return;
+        const selectedWorktreePath = item.branch.worktreePath;
+        await selectRunContext({
+          branch: item.branch,
+          envMode:
+            composerMenuSlashCommand?.command === "worktree" ||
+            (selectedWorktreePath && selectedWorktreePath !== runContext.projectCwd)
+              ? "worktree"
+              : selectedWorktreePath === runContext.projectCwd
+                ? runContext.envMode === "worktree" && runContext.worktreePath === null
+                  ? "worktree"
+                  : "local"
+                : runContext.envMode,
+        });
+        return;
+      }
+      if (item.type === "worktree-mode") {
+        await selectRunContext({ branch: null, envMode: item.mode });
+        return;
+      }
+      if (item.type === "named-worktree-target") {
+        if (!runContext || runContext.branch === null) return;
+        await selectRunContext({
+          branch: runContext.branch,
+          envMode: "worktree",
+          worktreeBranchName: item.branchName,
+        });
         return;
       }
       if (item.type === "provider-slash-command") {
@@ -3703,10 +4080,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       addComposerDraftReviewComment,
       applyPromptReplacement,
       composerDraftTarget,
+      composerMenuSlashCommand?.command,
       handleInteractionModeChange,
+      isRunContextSelectionPending,
       planModeUiEnabled,
       onUsageLimitsCommand,
+      reasoningDescriptor,
       resolveActiveComposerTrigger,
+      runContext,
+      selectedInstanceId,
+      selectedModel,
+      selectedModelOptionsForDispatch,
+      selectedProvider,
+      setComposerDraftProviderModelOptions,
     ],
   );
 
@@ -3811,6 +4197,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         });
         return;
       }
+      // Sending now would start the turn in the context being replaced.
+      if (isRunContextSelectionPending) {
+        event?.preventDefault();
+        return;
+      }
       const submission = submitComposerDraft({
         prompt: promptRef.current,
         submissionTarget: activePendingProgress ? "pending-user-input" : "provider-turn",
@@ -3834,6 +4225,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       activePendingProgress,
       attachmentTargetKey,
       blurMobileComposerAfterSend,
+      isRunContextSelectionPending,
       isSendDisabled,
       noProviderAvailable,
       onSend,
@@ -3998,6 +4390,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerMenuOpenRef.current = false;
       return true;
     }
+    if (key === "Enter" || key === "Tab") {
+      if (isRunContextSelectionPending) return true;
+      if (trigger?.kind === "slash-command" && parseComposerMenuSlashCommandQuery(trigger.query)) {
+        // Menu items were computed for an older query or are still loading;
+        // selecting now would pick a stale item, and sending would post the
+        // command as prompt text.
+        const searchKey = `${trigger.kind}:${trigger.query.trim().toLowerCase()}`;
+        if (searchKey !== composerMenuSearchKeyRef.current || isComposerSlashMenuLoading) {
+          return true;
+        }
+        const selectedItem =
+          activeComposerMenuItemRef.current ?? composerMenuItemsRef.current[0] ?? null;
+        if (selectedItem) void onSelectComposerItem(selectedItem);
+        return true;
+      }
+    }
     if (menuIsActive) {
       const currentItems = composerMenuItemsRef.current;
       const selectedItem = activeComposerMenuItemRef.current ?? currentItems[0];
@@ -4010,7 +4418,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return true;
       }
       if ((key === "Enter" || key === "Tab") && selectedItem) {
-        onSelectComposerItem(selectedItem);
+        void onSelectComposerItem(selectedItem);
         return true;
       }
     }

@@ -9,6 +9,7 @@ import {
   type PullRequestContextMetadata,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
+  type VcsRef,
 } from "@t3tools/contracts";
 import {
   BlocksIcon,
@@ -49,6 +50,35 @@ export type ComposerCommandItem =
       type: "provider-slash-command";
       provider: ProviderDriverKind;
       command: ServerProviderSlashCommand;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "reasoning";
+      descriptorId: string;
+      value: string;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "branch";
+      branch: VcsRef;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "worktree-mode";
+      mode: "local" | "worktree";
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "named-worktree-target";
+      branchName: string;
       label: string;
       description: string;
     }
@@ -127,7 +157,9 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
                   ? "Searching workspace skills..."
                   : props.triggerKind === "pull-request"
                     ? "Finding pull request..."
-                    : "Searching workspace files..."
+                    : props.triggerKind === "slash-command"
+                      ? "Loading branches..."
+                      : "Searching workspace files..."
                 : (props.emptyStateText ??
                   (props.triggerKind === "skill"
                     ? "No skills found. Try / to browse provider commands."

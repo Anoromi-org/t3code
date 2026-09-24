@@ -183,6 +183,33 @@ export function resolveDraftEnvModeAfterBranchChange(input: {
   return "local";
 }
 
+/**
+ * Whether a ref picked while requesting a new worktree becomes that worktree's
+ * base instead of being checked out. Refs checked out in another worktree are
+ * reused as they are; the project-root checkout can still seed a new worktree.
+ */
+export function shouldSelectRefAsWorktreeBase(input: {
+  requestedEnvMode: EnvMode;
+  activeProjectCwd: string;
+  activeWorktreePath: string | null;
+  selectedRefWorktreePath: string | null;
+}): boolean {
+  return (
+    input.requestedEnvMode === "worktree" &&
+    input.activeWorktreePath === null &&
+    (input.selectedRefWorktreePath === null ||
+      input.selectedRefWorktreePath === input.activeProjectCwd)
+  );
+}
+
+/** Toolbar base-ref changes invalidate a pending named worktree target. */
+export function resolveToolbarBranchOverride(branch: string | null): {
+  branch: string | null;
+  worktreeBranchName: null;
+} {
+  return { branch, worktreeBranchName: null };
+}
+
 export function resolveBranchToolbarValue(input: {
   envMode: EnvMode;
   activeWorktreePath: string | null;

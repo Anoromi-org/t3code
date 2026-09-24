@@ -1,0 +1,805 @@
+import "../../index.css";
+
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ThreadId,
+  type ResolvedKeybindingsConfig,
+  type ServerProvider,
+  type VcsRef,
+} from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { createModelSelection } from "@t3tools/shared/model";
+import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { page, userEvent } from "vite-plus/test/browser";
+import { render } from "vitest-browser-react";
+import { createRef } from "react";
+
+import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
+import type { Thread } from "../../types";
+import { ChatComposer, type ChatComposerHandle, type ComposerRunContext } from "./ChatComposer";
+
+const refs: VcsRef[] = [
+  { name: "main", current: true, isDefault: true, worktreePath: "/repo" },
+  {
+    name: "feature/existing",
+    current: false,
+    isDefault: false,
+    worktreePath: "/repo/worktrees/existing",
+  },
+  {
+    name: "andrii/eng-6363-chore-xero-publishing-doesnt-allow-url-to-be-ip-address",
+    current: false,
+    isDefault: false,
+    worktreePath: null,
+  },
+  { name: "main-old", current: false, isDefault: false, worktreePath: null },
+];
+let branchRefsPending = false;
+let branchRefsHaveData = true;
+let branchQueries: string[] = [];
+let branchNextCursor: string | null = null;
+const loadNextBranches = vi.fn();
+
+vi.mock("../../state/queries", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../state/queries")>();
+  return {
+    ...actual,
+    usePaginatedBranches: ({ query }: { query?: string }) => {
+      branchQueries.push(query ?? "");
+      return {
+        refs: refs.filter((ref) => !query || ref.name.toLowerCase().includes(query.toLowerCase())),
+        data: branchRefsHaveData ? { totalCount: refs.length, nextCursor: branchNextCursor } : null,
+        isPending: branchRefsPending,
+        isFetchingNextPage: false,
+        loadNext: loadNextBranches,
+        refresh: vi.fn(),
+      };
+    },
+  };
+});
+
+vi.mock("../../lib/composerPathSearchState", () => ({
+  useComposerPathSearch: () => ({ entries: [], isLoading: false }),
+}));
+
+vi.mock("../../hooks/useMediaQuery", () => ({
+  useMediaQuery: () => false,
+}));
+
+const ENVIRONMENT_ID = EnvironmentId.make("environment-slash-test");
+const PROJECT_ID = ProjectId.make("project-slash-test");
+const THREAD_ID = ThreadId.make("thread-slash-test");
+const DRAFT_ID = DraftId.make("draft-slash-test");
+const INSTANCE_ID = ProviderInstanceId.make("codex");
+const DRIVER = ProviderDriverKind.make("codex");
+const MODEL = "descriptor-model";
+const NOW = "2026-07-12T00:00:00.000Z";
+
+const provider: ServerProvider = {
+  instanceId: INSTANCE_ID,
+  driver: DRIVER,
+  enabled: true,
+  installed: true,
+  version: "1.0.0",
+  status: "ready",
+  auth: { status: "authenticated" },
+  checkedAt: NOW,
+  models: [
+    {
+      slug: MODEL,
+      name: "Descriptor model",
+      isCustom: false,
+      capabilities: {
+        optionDescriptors: [
+          {
+            id: "reasoningEffort",
+            label: "Reasoning",
+            type: "select",
+            options: [
+              { id: "normal", label: "Normal", isDefault: true },
+              { id: "high", label: "High" },
+              { id: "ultrathink", label: "Ultrathink" },
+            ],
+            promptInjectedValues: ["ultrathink"],
+          },
+          {
+            id: "serviceTier",
+            label: "Service Tier",
+            type: "select",
+            options: [
+              { id: "default", label: "Standard", isDefault: true },
+              { id: "priority", label: "Fast" },
+            ],
+            currentValue: "default",
+          },
+        ],
+      },
+    },
+  ],
+  slashCommands: [],
+  skills: [],
+};
+
+const activeThread: Thread = {
+  environmentId: ENVIRONMENT_ID,
+  id: THREAD_ID,
+  projectId: PROJECT_ID,
+  title: "Slash command test",
+  modelSelection: createModelSelection(INSTANCE_ID, MODEL),
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  branch: "main",
+  worktreePath: null,
+  latestTurn: null,
+  createdAt: NOW,
+  updatedAt: NOW,
+  archivedAt: null,
+  settledOverride: null,
+  settledAt: null,
+  deletedAt: null,
+  messages: [],
+  proposedPlans: [],
+  activities: [],
+  checkpoints: [],
+  pullRequests: [],
+  session: null,
+};
+
+function resetDraft() {
+  branchRefsPending = false;
+  branchRefsHaveData = true;
+  branchQueries = [];
+  branchNextCursor = null;
+  loadNextBranches.mockReset();
+  useComposerDraftStore.setState({
+    draftsByThreadKey: {},
+    draftThreadsByThreadKey: {},
+    logicalProjectDraftThreadKeyByLogicalProjectKey: {},
+    stickyModelSelectionByProvider: {},
+    stickyActiveProvider: null,
+  });
+  useComposerDraftStore
+    .getState()
+    .setLogicalProjectDraftThreadId(
+      "slash-project",
+      { environmentId: ENVIRONMENT_ID, projectId: PROJECT_ID },
+      DRAFT_ID,
+      {
+        threadId: THREAD_ID,
+        branch: "main",
+        worktreePath: null,
+        envMode: "local",
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: NOW,
+      },
+    );
+  useComposerDraftStore
+    .getState()
+    .setModelSelection(DRAFT_ID, createModelSelection(INSTANCE_ID, MODEL));
+}
+
+type SelectRunContext = ComposerRunContext["select"];
+
+async function mountComposer(
+  options: {
+    onSelectRunContext?: SelectRunContext;
+    hasVcsRepository?: boolean;
+    runContextBranch?: string | null;
+    isRunContextBranchPending?: boolean;
+    planModeEnabled?: boolean;
+  } = {},
+) {
+  const composerRef = createRef<ChatComposerHandle>();
+  const promptRef = { current: "" };
+  const onSend = vi.fn((event?: { preventDefault: () => void }) => event?.preventDefault());
+  const onSelectRunContext =
+    options.onSelectRunContext ?? vi.fn<SelectRunContext>(async () => true);
+  const handleInteractionModeChange = vi.fn();
+  const runContext: ComposerRunContext | null =
+    options.hasVcsRepository === false
+      ? null
+      : {
+          projectCwd: "/repo",
+          canChangeWorktree: true,
+          envMode: "local",
+          branch: options.runContextBranch === undefined ? "main" : options.runContextBranch,
+          isBranchPending: options.isRunContextBranchPending ?? false,
+          worktreePath: null,
+          select: onSelectRunContext,
+        };
+  const screen = await render(
+    <div style={{ paddingTop: 360 }}>
+      <ChatComposer
+        composerRef={composerRef}
+        composerDraftTarget={DRAFT_ID}
+        environmentId={ENVIRONMENT_ID}
+        attachmentUploadsCapabilityKnown
+        supportsAttachmentUploads={false}
+        supportsQuestionAttachments={false}
+        maxFileAttachmentBytes={null}
+        routeKind="draft"
+        routeThreadRef={scopeThreadRef(ENVIRONMENT_ID, THREAD_ID)}
+        draftId={DRAFT_ID}
+        multipleModelSelections={null}
+        supportsMultipleModels={false}
+        onMultipleModelSelectionsChange={vi.fn()}
+        activeThreadId={THREAD_ID}
+        activeThreadEnvironmentId={ENVIRONMENT_ID}
+        activeThread={activeThread}
+        activeThreadShell={null}
+        promptHistoryMessages={[]}
+        isServerThread={false}
+        isLocalDraftThread
+        forceExpandedOnMobile={false}
+        projectSelectionRequired={false}
+        phase="ready"
+        isConnecting={false}
+        isSendBusy={false}
+        sendDisabledReason={null}
+        isPreparingWorktree={false}
+        bannerItems={[]}
+        environmentUnavailable={null}
+        activePendingApproval={null}
+        pendingApprovals={[]}
+        pendingUserInputs={[]}
+        activePendingProgress={null}
+        activePendingResolvedAnswers={null}
+        activePendingIsResponding={false}
+        activePendingDraftAnswers={{}}
+        activePendingQuestionIndex={0}
+        respondingRequestIds={[]}
+        showPlanFollowUpPrompt={false}
+        activeProposedPlan={null}
+        activeTasksProgress={null}
+        activeTaskSteps={null}
+        threadSyncPhase={null}
+        runtimeMode="full-access"
+        interactionMode="default"
+        lockedProvider={null}
+        providerStatuses={[provider]}
+        providerCatalogKnown
+        activeProjectDefaultModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
+        activeThreadModelSelection={createModelSelection(INSTANCE_ID, MODEL)}
+        activeContextWindow={null}
+        compactThreadUnavailable
+        compactDisabled
+        compactDisabledReason={null}
+        resolvedTheme="dark"
+        settings={{
+          ...DEFAULT_UNIFIED_SETTINGS,
+          composerRichTextEnabled: richTextEnabled,
+          planModeEnabled: options.planModeEnabled ?? DEFAULT_UNIFIED_SETTINGS.planModeEnabled,
+        }}
+        keybindings={[] as ResolvedKeybindingsConfig}
+        terminalOpen={false}
+        gitCwd="/repo"
+        pullRequestProjectId={null}
+        pullRequestRepository={null}
+        restingControlsHost={null}
+        restingControlsHaveLeadingContext={false}
+        onRestingControlsVisibilityChange={vi.fn()}
+        getTimelineScrollableNode={() => null}
+        isTimelineAtLogicalEnd={() => true}
+        timelineOverflows={false}
+        onComposerOverlayHeightChange={vi.fn()}
+        onRestingChange={vi.fn()}
+        runContext={runContext}
+        promptRef={promptRef}
+        composerImagesRef={{ current: [] }}
+        composerFilesRef={{ current: [] }}
+        composerTerminalContextsRef={{ current: [] }}
+        onPageScrollKeyDown={vi.fn()}
+        onPageScrollKeyUp={vi.fn()}
+        onPageScrollRelease={vi.fn()}
+        onCompactContext={vi.fn()}
+        onSend={onSend}
+        onInterrupt={vi.fn()}
+        onImplementPlanInNewThread={vi.fn()}
+        onRespondToApproval={vi.fn(async () => undefined)}
+        onSelectActivePendingUserInputOption={vi.fn()}
+        onAdvanceActivePendingUserInput={vi.fn()}
+        onDismissActivePendingUserInput={vi.fn()}
+        onPreviousActivePendingUserInputQuestion={vi.fn()}
+        onChangeActivePendingUserInputCustomAnswer={vi.fn()}
+        onProviderModelSelect={vi.fn()}
+        onOpenProviderSetup={vi.fn()}
+        getModelDisabledReason={() => null}
+        toggleInteractionMode={vi.fn()}
+        handleRuntimeModeChange={vi.fn()}
+        handleInteractionModeChange={handleInteractionModeChange}
+        focusComposer={vi.fn()}
+        scheduleComposerFocus={vi.fn()}
+        setThreadError={vi.fn()}
+        onExpandImage={vi.fn()}
+        onFileOpen={vi.fn()}
+      />
+    </div>,
+  );
+  return { screen, onSelectRunContext, onSend, handleInteractionModeChange };
+}
+
+let richTextEnabled = false;
+
+describe.each([
+  { mode: "plain text", richText: false },
+  { mode: "rich text", richText: true },
+])("composer slash commands ($mode)", ({ richText }) => {
+  beforeEach(() => {
+    richTextEnabled = richText;
+    resetDraft();
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("selects a live reasoning mode with typing and Enter", async () => {
+    const mounted = await mountComposer();
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/reasoning high");
+      await expect
+        .element(page.getByRole("option", { name: /\/reasoning high/ }))
+        .toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe("");
+        expect(
+          useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.modelSelectionByProvider[
+            INSTANCE_ID
+          ]?.options,
+        ).toContainEqual({ id: "reasoningEffort", value: "high" });
+      });
+
+      await editor.fill("/reasoning normal");
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(() => {
+        expect(
+          useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.modelSelectionByProvider[
+            INSTANCE_ID
+          ]?.options,
+        ).toContainEqual({ id: "reasoningEffort", value: "normal" });
+      });
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("clears prompt-injected reasoning when selecting another mode", async () => {
+    const mounted = await mountComposer();
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/reasoning ultrathink");
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe(
+          "Ultrathink:\n",
+        );
+      });
+      await userEvent.keyboard("/reasoning high");
+      await expect
+        .element(page.getByRole("option", { name: /\/reasoning high/ }))
+        .toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe("");
+        expect(
+          useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.modelSelectionByProvider[
+            INSTANCE_ID
+          ]?.options,
+        ).toContainEqual({ id: "reasoningEffort", value: "high" });
+      });
+    } finally {
+      mounted.screen.unmount();
+    }
+  });
+
+  it("applies prompt-injected reasoning modes to the prompt", async () => {
+    const mounted = await mountComposer();
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/reasoning ultrathink");
+      await userEvent.keyboard("{Enter}");
+
+      await vi.waitFor(() => {
+        const draft = useComposerDraftStore.getState().getComposerDraft(DRAFT_ID);
+        expect(draft?.prompt).toBe("Ultrathink:\n");
+        expect(draft?.modelSelectionByProvider[INSTANCE_ID]?.options ?? []).not.toContainEqual({
+          id: "reasoningEffort",
+          value: "ultrathink",
+        });
+      });
+    } finally {
+      mounted.screen.unmount();
+    }
+  });
+
+  it("does not offer a named worktree until refs finish loading", async () => {
+    branchRefsPending = true;
+    branchRefsHaveData = false;
+    const mounted = await mountComposer();
+    try {
+      await page.getByTestId("composer-editor").fill("/worktree feature/new");
+      await expect
+        .element(page.getByRole("option", { name: "/worktree feature/new" }))
+        .not.toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(mounted.onSend).not.toHaveBeenCalled();
+      expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe(
+        "/worktree feature/new",
+      );
+    } finally {
+      mounted.screen.unmount();
+    }
+  });
+
+  it("does not offer a named worktree while more ref pages remain", async () => {
+    branchNextCursor = "page-2";
+    const mounted = await mountComposer();
+    try {
+      await page.getByTestId("composer-editor").fill("/worktree feature/new");
+      await vi.waitFor(() => expect(loadNextBranches).toHaveBeenCalled());
+      await expect
+        .element(page.getByRole("option", { name: "/worktree feature/new" }))
+        .not.toBeInTheDocument();
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("does not accept a named worktree before its base branch resolves", async () => {
+    const onSelectRunContext = vi.fn<SelectRunContext>(async () => true);
+    const mounted = await mountComposer({
+      onSelectRunContext,
+      runContextBranch: null,
+      isRunContextBranchPending: true,
+    });
+    try {
+      await page.getByTestId("composer-editor").fill("/worktree feature/new");
+      await expect
+        .element(page.getByRole("option", { name: "/worktree feature/new" }))
+        .not.toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).not.toHaveBeenCalled();
+      expect(mounted.onSend).not.toHaveBeenCalled();
+      expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe(
+        "/worktree feature/new",
+      );
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("hides VCS actions outside a repository", async () => {
+    const mounted = await mountComposer({ hasVcsRepository: false });
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/");
+      await expect.element(page.getByRole("option", { name: /^\/branch/ })).not.toBeInTheDocument();
+      await expect
+        .element(page.getByRole("option", { name: /^\/worktree/ }))
+        .not.toBeInTheDocument();
+
+      await editor.fill("/branch main");
+      await userEvent.keyboard("{Enter}");
+      expect(mounted.onSend).not.toHaveBeenCalled();
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("debounces ref searches while typing a slash command", async () => {
+    const mounted = await mountComposer();
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.click();
+      await userEvent.keyboard("/branch feature");
+      await vi.waitFor(() => {
+        expect(branchQueries.at(-1)).toBe("feature");
+      });
+      expect([...new Set(branchQueries.filter((query) => query.length > 0))]).toEqual(["feature"]);
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("loads every branch page while the VCS slash menu is open", async () => {
+    branchNextCursor = "page-2";
+    const mounted = await mountComposer();
+    try {
+      await page.getByTestId("composer-editor").fill("/branch");
+      await vi.waitFor(() => expect(loadNextBranches).toHaveBeenCalled());
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("lists every supported keyboard action from the bare slash menu", async () => {
+    const mounted = await mountComposer();
+    try {
+      await page.getByTestId("composer-editor").fill("/");
+      for (const command of ["/model", "/branch", "/worktree", "/reasoning"]) {
+        await expect
+          .element(page.getByRole("option", { name: new RegExp(`^${command}`) }))
+          .toBeInTheDocument();
+      }
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("keeps legacy plan commands behind the plan mode setting", async () => {
+    const disabled = await mountComposer({ planModeEnabled: false });
+    try {
+      await page.getByTestId("composer-editor").fill("/");
+      await expect.element(page.getByRole("option", { name: /^\/plan/ })).not.toBeInTheDocument();
+      await expect
+        .element(page.getByRole("option", { name: /^\/default/ }))
+        .not.toBeInTheDocument();
+    } finally {
+      await disabled.screen.unmount();
+    }
+
+    const enabled = await mountComposer({ planModeEnabled: true });
+    try {
+      await page.getByTestId("composer-editor").fill("/");
+      await expect.element(page.getByRole("option", { name: /^\/plan/ })).toBeInTheDocument();
+      await expect.element(page.getByRole("option", { name: /^\/default/ })).toBeInTheDocument();
+      await page.getByRole("option", { name: /^\/plan/ }).click();
+      expect(enabled.handleInteractionModeChange).toHaveBeenCalledWith("plan");
+    } finally {
+      await enabled.screen.unmount();
+    }
+  });
+
+  it("sends disabled legacy plan commands as ordinary prompt text", async () => {
+    const mounted = await mountComposer({ planModeEnabled: false });
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/plan");
+      await userEvent.keyboard("{Enter}");
+      expect(mounted.handleInteractionModeChange).not.toHaveBeenCalled();
+      expect(mounted.onSend).toHaveBeenCalledOnce();
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("shows the provider's default reasoning level", async () => {
+    const mounted = await mountComposer();
+    try {
+      await page.getByTestId("composer-editor").fill("/reasoning ");
+      await expect.element(page.getByText("Normal (default)", { exact: true })).toBeInTheDocument();
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("selects branches and named worktrees without pointer input", async () => {
+    const onSelectRunContext = vi.fn<SelectRunContext>(async () => true);
+    const mounted = await mountComposer({ onSelectRunContext });
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/branch existing");
+      await expect
+        .element(page.getByRole("option", { name: /feature\/existing/ }))
+        .toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).toHaveBeenLastCalledWith({
+        branch: refs[1],
+        envMode: "worktree",
+      });
+
+      await editor.fill("/branch main");
+      await expect
+        .element(page.getByRole("option", { name: "main Current branch", exact: true }))
+        .toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).toHaveBeenLastCalledWith({
+        branch: refs[0],
+        envMode: "local",
+      });
+
+      await editor.fill("/worktree main");
+      await expect
+        .element(page.getByRole("option", { name: "main Current branch", exact: true }))
+        .toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).toHaveBeenLastCalledWith({
+        branch: refs[0],
+        envMode: "worktree",
+      });
+
+      await editor.fill("/worktree feature/new-command");
+      await expect
+        .element(page.getByRole("option", { name: "/worktree feature/new-command" }))
+        .toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).toHaveBeenLastCalledWith({
+        branch: "main",
+        envMode: "worktree",
+        worktreeBranchName: "feature/new-command",
+      });
+
+      await editor.fill("/worktree local");
+      await expect
+        .element(page.getByRole("option", { name: /\/worktree local/ }))
+        .toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).toHaveBeenLastCalledWith({ branch: null, envMode: "local" });
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("selects exact branches while the ref stream refreshes in the background", async () => {
+    branchRefsPending = true;
+    const onSelectRunContext = vi.fn<SelectRunContext>(async () => true);
+    const mounted = await mountComposer({ onSelectRunContext });
+    try {
+      const editor = page.getByTestId("composer-editor");
+      for (const branch of [refs[0], refs[2]]) {
+        if (!branch) throw new Error("Expected branch test fixture");
+        await editor.fill(`/branch ${branch.name}`);
+        await expect
+          .element(
+            page.getByRole("option", {
+              name: branch === refs[0] ? "main Current branch" : `${branch.name} Local branch`,
+              exact: true,
+            }),
+          )
+          .toBeInTheDocument();
+        await userEvent.keyboard("{Enter}");
+        expect(onSelectRunContext).toHaveBeenLastCalledWith({
+          branch,
+          envMode: "local",
+        });
+      }
+      expect(onSelectRunContext).toHaveBeenCalledTimes(2);
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("keeps an unknown branch command intact after loading completes", async () => {
+    const onSelectRunContext = vi.fn<SelectRunContext>(async () => true);
+    const mounted = await mountComposer({ onSelectRunContext });
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/branch missing-branch");
+      await vi.waitFor(() => {
+        expect(branchQueries.at(-1)).toBe("missing-branch");
+      });
+      await expect.element(page.getByRole("option")).not.toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).not.toHaveBeenCalled();
+      expect(mounted.onSend).not.toHaveBeenCalled();
+      expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe(
+        "/branch missing-branch",
+      );
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("blocks repeated pointer selections while a context change is pending", async () => {
+    let finishSelection: ((applied: boolean) => void) | undefined;
+    const onSelectRunContext = vi.fn<SelectRunContext>(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishSelection = resolve;
+        }),
+    );
+    const mounted = await mountComposer({ onSelectRunContext });
+    try {
+      await page.getByTestId("composer-editor").fill("/branch existing");
+      const option = page.getByRole("option", { name: /feature\/existing/ });
+      await expect.element(option).toBeInTheDocument();
+      const optionElement = document.querySelector<HTMLElement>(
+        '[data-composer-item-id^="branch:feature/existing:"]',
+      );
+      expect(optionElement).not.toBeNull();
+      optionElement?.click();
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      optionElement?.click();
+      expect(onSelectRunContext).toHaveBeenCalledTimes(1);
+      const form = document.querySelector<HTMLFormElement>('[data-chat-composer-form="true"]');
+      expect(form).not.toBeNull();
+      expect(form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))).toBe(
+        false,
+      );
+      expect(mounted.onSend).not.toHaveBeenCalled();
+      finishSelection?.(true);
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe("");
+      });
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("keeps the slash command when a context change does not apply", async () => {
+    const onSelectRunContext = vi.fn<SelectRunContext>(async () => false);
+    const mounted = await mountComposer({ onSelectRunContext });
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("/branch existing");
+      await expect
+        .element(page.getByRole("option", { name: /feature\/existing/ }))
+        .toBeInTheDocument();
+      document
+        .querySelector<HTMLElement>('[data-composer-item-id^="branch:feature/existing:"]')
+        ?.click();
+      await vi.waitFor(() => {
+        expect(onSelectRunContext).toHaveBeenCalledOnce();
+        expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe(
+          "/branch existing",
+        );
+      });
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("does not keep the removed /r alias open", async () => {
+    const mounted = await mountComposer();
+    try {
+      await page.getByTestId("composer-editor").fill("/r high");
+      await expect
+        .element(page.getByText("/reasoning high", { exact: true }))
+        .not.toBeInTheDocument();
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("sanitizes spaces in named worktree branches", async () => {
+    const onSelectRunContext = vi.fn<SelectRunContext>(async () => true);
+    const mounted = await mountComposer({ onSelectRunContext });
+    try {
+      await page.getByTestId("composer-editor").fill("/worktree feature new");
+      await expect
+        .element(page.getByRole("option", { name: "/worktree feature-new" }))
+        .toBeInTheDocument();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).toHaveBeenLastCalledWith({
+        branch: "main",
+        envMode: "worktree",
+        worktreeBranchName: "feature-new",
+      });
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+
+  it("keeps underscores in typed ref names literal", async () => {
+    const onSelectRunContext = vi.fn<SelectRunContext>(async () => true);
+    const mounted = await mountComposer({ onSelectRunContext });
+    try {
+      await page.getByTestId("composer-editor").click();
+      await userEvent.keyboard("/worktree _wip_");
+      await expect
+        .element(page.getByRole("option", { name: "/worktree _wip_" }))
+        .toBeInTheDocument();
+      expect(useComposerDraftStore.getState().getComposerDraft(DRAFT_ID)?.prompt).toBe(
+        "/worktree _wip_",
+      );
+      expect(document.querySelector('[data-testid="composer-editor"] em')).toBeNull();
+      await userEvent.keyboard("{Enter}");
+      expect(onSelectRunContext).toHaveBeenLastCalledWith({
+        branch: "main",
+        envMode: "worktree",
+        worktreeBranchName: "_wip_",
+      });
+    } finally {
+      await mounted.screen.unmount();
+    }
+  });
+});

@@ -16,6 +16,7 @@ import {
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
   isCollapsedCursorAdjacentToInlineToken,
+  parseComposerMenuSlashCommandQuery,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
@@ -165,6 +166,25 @@ describe("composerSubmissionIntentForEnter", () => {
 });
 
 describe("detectComposerTrigger", () => {
+  it("keeps reasoning selection active while typing a value", () => {
+    const text = "/reasoning high";
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "slash-command",
+      query: "reasoning high",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("keeps branch and worktree selection active after a space", () => {
+    expect(detectComposerTrigger("/branch ", 8)?.query).toBe("branch ");
+    expect(detectComposerTrigger("/worktree feature", 17)?.query).toBe("worktree feature");
+  });
+
+  it("does not recognize the removed /r alias as a reasoning command", () => {
+    expect(detectComposerTrigger("/r high", 7)).toBeNull();
+  });
+
   it("detects @path trigger at cursor", () => {
     const text = "Please check @src/com";
     const trigger = detectComposerTrigger(text, text.length);
@@ -417,6 +437,35 @@ describe("filterComposerPullRequestMatches", () => {
         limit: 2,
       }).map((entry) => entry.number),
     ).toEqual([8987, 27]);
+  });
+});
+
+describe("parseComposerMenuSlashCommandQuery", () => {
+  it("parses supported multiword command queries", () => {
+    expect(parseComposerMenuSlashCommandQuery("reasoning high")).toEqual({
+      command: "reasoning",
+      valueQuery: "high",
+    });
+    expect(parseComposerMenuSlashCommandQuery("branch feature/search")).toEqual({
+      command: "branch",
+      valueQuery: "feature/search",
+    });
+    expect(parseComposerMenuSlashCommandQuery("worktree")).toEqual({
+      command: "worktree",
+      valueQuery: "",
+    });
+  });
+
+  it("reads rich-text emphasis markers in ref queries as underscores", () => {
+    expect(parseComposerMenuSlashCommandQuery("worktree fix/*wip*")).toEqual({
+      command: "worktree",
+      valueQuery: "fix/_wip_",
+    });
+    expect(parseComposerMenuSlashCommandQuery("branch **tmp**")?.valueQuery).toBe("__tmp__");
+  });
+
+  it("rejects the removed reasoning alias", () => {
+    expect(parseComposerMenuSlashCommandQuery("r high")).toBeNull();
   });
 });
 

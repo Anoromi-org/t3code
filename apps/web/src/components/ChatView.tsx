@@ -33,6 +33,7 @@ import {
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
+  type VcsRef,
   type ThreadLinkedPullRequest,
   type TurnId,
   type KeybindingCommand,
@@ -178,7 +179,10 @@ import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import { subscribeSnapShotComposerFocus } from "../lib/desktopSnapShot";
-import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
+import {
+  buildTemporaryWorktreeBranchName,
+  deriveLocalBranchNameFromRemoteRef,
+} from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
@@ -364,7 +368,12 @@ import {
   useThreadShell,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
-import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import {
+  ChatComposer,
+  type ChatComposerHandle,
+  type ComposerRunContext,
+} from "./chat/ChatComposer";
+import { requireSuccessfulRunContextMutation } from "./runContextSelection";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { isTimelineScrollTarget } from "./chat/timelineScrollTarget";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
@@ -381,8 +390,11 @@ import { NoActiveThreadState } from "./NoActiveThreadState";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import {
   type EnvironmentOption,
+  resolveBranchSelectionTarget,
   resolveEffectiveEnvMode,
   resolveLocalCheckoutBranchMismatch,
+  resolveToolbarBranchOverride,
+  shouldSelectRefAsWorktreeBase,
   shouldShowComposerContextStrip,
   shouldShowEnvironmentIndicator,
 } from "./BranchToolbar.logic";
@@ -1505,6 +1517,9 @@ export default function ChatView(props: ChatViewProps) {
     reportFailure: false,
   });
   const switchGitRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
+  const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
+    reportFailure: false,
+  });
   const setThreadRuntimeMode = useAtomCommand(threadEnvironment.setRuntimeMode, {
     reportFailure: false,
   });
@@ -1761,6 +1776,9 @@ export default function ChatView(props: ChatViewProps) {
   const [pendingServerThreadEnvMode, setPendingServerThreadEnvMode] =
     useState<DraftThreadEnvMode | null>(null);
   const [pendingServerThreadBranch, setPendingServerThreadBranch] = useState<string | null>();
+  const [pendingServerWorktreeBranchName, setPendingServerWorktreeBranchName] = useState<
+    string | null
+  >(null);
   const [
     pendingServerThreadStartFromOriginByThreadId,
     setPendingServerThreadStartFromOriginByThreadId,
@@ -5883,6 +5901,12 @@ export default function ChatView(props: ChatViewProps) {
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined
       ? pendingServerThreadBranch
       : (activeThread?.branch ?? null);
+  // Branch a pending new worktree creates, chosen with `/worktree <name>`.
+  const worktreeBranchName = isLocalDraftThread
+    ? (draftThread?.worktreeBranchName ?? null)
+    : canOverrideServerThreadEnvMode
+      ? pendingServerWorktreeBranchName
+      : null;
   const startFromOrigin = isLocalDraftThread
     ? (draftThread?.startFromOrigin ?? false)
     : canOverrideServerThreadEnvMode
@@ -6624,6 +6648,7 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     setPendingServerThreadEnvMode(null);
     setPendingServerThreadBranch(undefined);
+    setPendingServerWorktreeBranchName(null);
   }, [activeThread?.id]);
 
   useEffect(() => {
@@ -6632,6 +6657,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     setPendingServerThreadEnvMode(null);
     setPendingServerThreadBranch(undefined);
+    setPendingServerWorktreeBranchName(null);
   }, [canOverrideServerThreadEnvMode]);
 
   useEffect(() => {
@@ -8419,7 +8445,7 @@ export default function ChatView(props: ChatViewProps) {
                     prepareWorktree: {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
-                      branch: buildTemporaryWorktreeBranchName(randomHex),
+                      branch: worktreeBranchName ?? buildTemporaryWorktreeBranchName(randomHex),
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
                     runSetupScript: true,
@@ -9417,6 +9443,7 @@ export default function ChatView(props: ChatViewProps) {
       if (multipleModelSelections !== null) return;
       if (canOverrideServerThreadEnvMode) {
         setPendingServerThreadEnvMode(mode);
+        setPendingServerWorktreeBranchName(null);
         scheduleComposerFocus();
         return;
       }
@@ -9444,6 +9471,187 @@ export default function ChatView(props: ChatViewProps) {
       setDraftThreadContext,
     ],
   );
+
+  const selectRunContext = useCallback(
+    async (input: {
+      branch: VcsRef | string | null;
+      envMode: DraftThreadEnvMode;
+      worktreeBranchName?: string | null;
+    }): Promise<boolean> => {
+      if (!activeThread || !activeProject) return false;
+
+      const applyContext = async (context: {
+        branch: string | null;
+        worktreePath: string | null;
+        envMode: DraftThreadEnvMode;
+        worktreeBranchName: string | null;
+      }): Promise<boolean> => {
+        if (isLocalDraftThread) {
+          setDraftThreadContext(composerDraftTarget, {
+            ...context,
+            // Entering worktree mode here must pick up the project's origin
+            // default, just like the workspace selector does.
+            ...(context.envMode !== draftThread?.envMode
+              ? {
+                  startFromOrigin: resolveNewDraftStartFromOrigin({
+                    envMode: context.envMode,
+                    newWorktreesStartFromOrigin:
+                      activeProjectSettings.settings.newWorktreesStartFromOrigin,
+                  }),
+                }
+              : {}),
+          });
+          return true;
+        }
+        if (activeThread.session && context.worktreePath !== activeThread.worktreePath) {
+          const stopResult = await stopThreadSession({
+            environmentId,
+            input: { threadId: activeThread.id },
+          });
+          if (!requireSuccessfulRunContextMutation(stopResult)) return false;
+        }
+        const result = await updateThreadMetadata({
+          environmentId,
+          input: {
+            threadId: activeThread.id,
+            branch: context.branch,
+            worktreePath: context.worktreePath,
+          },
+        });
+        if (!requireSuccessfulRunContextMutation(result)) return false;
+        if (canOverrideServerThreadEnvMode && context.worktreePath === null) {
+          setPendingServerThreadBranch(context.branch);
+          setPendingServerThreadEnvMode(context.envMode);
+          setPendingServerWorktreeBranchName(context.worktreeBranchName);
+        }
+        return true;
+      };
+
+      try {
+        if (input.branch === null) {
+          onEnvModeChange(input.envMode);
+          return true;
+        }
+        if (typeof input.branch === "string") {
+          return await applyContext({
+            branch: input.branch,
+            worktreePath: null,
+            envMode: input.envMode,
+            worktreeBranchName: input.worktreeBranchName ?? null,
+          });
+        }
+
+        // Mirrors BranchToolbarBranchSelector's selectBranch, but reports
+        // whether the change applied so the composer can keep the command.
+        const branch = input.branch;
+        if (
+          shouldSelectRefAsWorktreeBase({
+            requestedEnvMode: input.envMode,
+            activeProjectCwd: activeProject.workspaceRoot,
+            activeWorktreePath: activeThread.worktreePath,
+            selectedRefWorktreePath: branch.worktreePath,
+          })
+        ) {
+          return await applyContext({
+            branch: branch.name,
+            worktreePath: null,
+            envMode: "worktree",
+            worktreeBranchName: input.worktreeBranchName ?? null,
+          });
+        }
+        if (branch.worktreePath) {
+          const existingWorktreePath =
+            branch.worktreePath !== activeProject.workspaceRoot ? branch.worktreePath : null;
+          return await applyContext({
+            branch: branch.name,
+            worktreePath: existingWorktreePath,
+            envMode: existingWorktreePath ? "worktree" : "local",
+            worktreeBranchName: null,
+          });
+        }
+
+        const selectionTarget = resolveBranchSelectionTarget({
+          activeProjectCwd: activeProject.workspaceRoot,
+          activeWorktreePath: activeThread.worktreePath,
+          refName: branch,
+        });
+        const checkoutResult = await switchGitRef({
+          environmentId,
+          input: { cwd: selectionTarget.checkoutCwd, refName: branch.name },
+        });
+        if (!requireSuccessfulRunContextMutation(checkoutResult)) return false;
+        const selectedBranchName = branch.isRemote
+          ? ((checkoutResult._tag === "Success" ? checkoutResult.value.refName : null) ??
+            deriveLocalBranchNameFromRemoteRef(branch.name))
+          : branch.name;
+        return await applyContext({
+          branch: selectedBranchName,
+          worktreePath: selectionTarget.nextWorktreePath,
+          envMode: selectionTarget.nextWorktreePath ? "worktree" : "local",
+          worktreeBranchName: null,
+        });
+      } catch (error) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not change branch",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+        return false;
+      }
+    },
+    [
+      activeProject,
+      activeProjectSettings.settings.newWorktreesStartFromOrigin,
+      activeThread,
+      canOverrideServerThreadEnvMode,
+      composerDraftTarget,
+      draftThread?.envMode,
+      environmentId,
+      isLocalDraftThread,
+      onEnvModeChange,
+      setDraftThreadContext,
+      stopThreadSession,
+      switchGitRef,
+      updateThreadMetadata,
+    ],
+  );
+  const runContextBranch = activeThreadBranch ?? gitStatusQuery.data?.refName ?? null;
+  const composerRunContext = useMemo<ComposerRunContext | null>(
+    () =>
+      isGitRepo && activeProject
+        ? {
+            projectCwd: activeProject.workspaceRoot,
+            canChangeWorktree:
+              multipleModelSelections === null &&
+              (isLocalDraftThread || canOverrideServerThreadEnvMode),
+            envMode,
+            branch: runContextBranch,
+            isBranchPending: activeThreadBranch === null && gitStatusQuery.isPending,
+            worktreePath: activeWorktreePath,
+            select: selectRunContext,
+          }
+        : null,
+    [
+      activeProject,
+      activeThreadBranch,
+      activeWorktreePath,
+      canOverrideServerThreadEnvMode,
+      envMode,
+      gitStatusQuery.isPending,
+      isGitRepo,
+      isLocalDraftThread,
+      multipleModelSelections,
+      runContextBranch,
+      selectRunContext,
+    ],
+  );
+  const onActiveThreadBranchOverrideChange = useCallback((branch: string | null) => {
+    const nextOverride = resolveToolbarBranchOverride(branch);
+    setPendingServerThreadBranch(nextOverride.branch);
+    setPendingServerWorktreeBranchName(nextOverride.worktreeBranchName);
+  }, []);
 
   // "Work locally" on the setup card: cancel the bootstrap and remember the
   // draft. The cancelled dispatch deletes the half-made thread and puts the
@@ -10193,6 +10401,7 @@ export default function ChatView(props: ChatViewProps) {
                             timelineOverflows={timelineOverflows}
                             onComposerOverlayHeightChange={publishComposerOverlayHeight}
                             onRestingChange={onComposerRestingChange}
+                            runContext={composerRunContext}
                             promptRef={promptRef}
                             composerImagesRef={composerImagesRef}
                             composerFilesRef={composerFilesRef}
@@ -10253,8 +10462,7 @@ export default function ChatView(props: ChatViewProps) {
                                 {...(canOverrideServerThreadEnvMode
                                   ? {
                                       activeThreadBranchOverride: activeThreadBranch,
-                                      onActiveThreadBranchOverrideChange:
-                                        setPendingServerThreadBranch,
+                                      onActiveThreadBranchOverrideChange,
                                     }
                                   : {})}
                                 envLocked={envLocked}

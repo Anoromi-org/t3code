@@ -10,7 +10,22 @@ import {
 } from "./composer-editor-mentions";
 
 export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+export type ComposerSlashCommand =
+  | "model"
+  | "plan"
+  | "default"
+  | "reasoning"
+  | "branch"
+  | "worktree";
+export type ComposerMenuSlashCommand = Extract<
+  ComposerSlashCommand,
+  "reasoning" | "branch" | "worktree"
+>;
+
+export interface ParsedComposerMenuSlashCommandQuery {
+  command: ComposerMenuSlashCommand;
+  valueQuery: string;
+}
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
 
 export interface ComposerTrigger {
@@ -22,6 +37,24 @@ export interface ComposerTrigger {
 
 export function formatAssistantCitationForComposer(citation: AssistantCitation, comment = "") {
   return `${serializeAssistantCitation(withAssistantCitationComment(citation, comment))} `;
+}
+
+/** Splits a `/reasoning|branch|worktree <value>` trigger query into command and value. */
+export function parseComposerMenuSlashCommandQuery(
+  query: string,
+): ParsedComposerMenuSlashCommandQuery | null {
+  const match = /^(reasoning|branch|worktree)(?:\s+(.*))?$/i.exec(query.trim());
+  const command = match?.[1]?.toLowerCase();
+  if (command !== "reasoning" && command !== "branch" && command !== "worktree") {
+    return null;
+  }
+  const valueQuery = (match?.[2] ?? "").trim();
+  // Ref names cannot contain `*`, but a rich-text draft rebuilt from Markdown
+  // serializes `_` emphasis as `*`. Read those markers back as underscores.
+  return {
+    command,
+    valueQuery: command === "reasoning" ? valueQuery : valueQuery.replaceAll("*", "_"),
+  };
 }
 
 export function composerSubmissionIntentForEnter(input: {
@@ -231,6 +264,20 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
         rangeEnd: cursor,
       };
     }
+
+    // Keyboard composer actions take a value after the command, so their menu
+    // stays open across the space that would end an ordinary slash trigger.
+    const menuSlashMatch = /^\/(reasoning|branch|worktree)(?:\s+(.*))?$/i.exec(linePrefix);
+    if (menuSlashMatch) {
+      const command = menuSlashMatch[1]?.toLowerCase() ?? "reasoning";
+      const valueQuery = menuSlashMatch[2] ?? "";
+      return {
+        kind: "slash-command",
+        query: `${command}${linePrefix.endsWith(" ") ? ` ${valueQuery}` : valueQuery ? ` ${valueQuery}` : ""}`,
+        rangeStart: lineStart,
+        rangeEnd: cursor,
+      };
+    }
   }
 
   const tokenStart = tokenStartForCursor(text, cursor);
@@ -279,7 +326,7 @@ export function composerStateAtPromptEnd(text: string): {
 
 export function parseStandaloneComposerSlashCommand(
   text: string,
-): Exclude<ComposerSlashCommand, "model"> | null {
+): Extract<ComposerSlashCommand, "plan" | "default"> | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;

@@ -165,6 +165,8 @@ const ComposerCitationCommentContext = createContext<{
 
 const RichComposerSkillsContext = createContext<ReadonlyArray<ServerProviderSkill>>([]);
 
+const RICH_TEXT_MARKER_CHARACTERS = new Set(["*", "_", "~", "`"]);
+
 const SURROUND_CLOSE: Record<string, string> = {
   "(": ")",
   "[": "]",
@@ -914,6 +916,16 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
         },
         handleTextInput: (view, from, to, text) => {
           if (text.length !== 1) return false;
+          // Slash-command lines take literal arguments such as ref names
+          // (`/worktree _wip_`). Inserting the marker here keeps the markdown
+          // input rules from styling it and re-serializing `_` as `*`.
+          if (richText && from === to && RICH_TEXT_MARKER_CHARACTERS.has(text)) {
+            const $from = view.state.doc.resolve(from);
+            if ($from.parent.textBetween(0, $from.parentOffset, undefined, " ").startsWith("/")) {
+              view.dispatch(view.state.tr.insertText(text, from, to));
+              return true;
+            }
+          }
           const closer = SURROUND_CLOSE[text];
           if (!closer || from === to) return false;
           // Never wrap chips or other atoms, and never wrap styled text: the
