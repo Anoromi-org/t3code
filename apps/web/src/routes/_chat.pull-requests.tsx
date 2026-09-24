@@ -119,7 +119,7 @@ import {
 } from "../components/WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../components/WorkspacePageContainer";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
-import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import { isElectron } from "../env";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -2055,7 +2055,7 @@ function PullRequestsRouteView() {
   });
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isCommandPaletteOpen()) return;
+      if (event.defaultPrevented || isAnyCommandSurfaceOpen()) return;
       const command = resolveShortcutCommand(event, keybindings, {
         context: getShortcutContext(),
       });

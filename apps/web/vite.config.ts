@@ -4,6 +4,7 @@ import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import compression from "compression";
+import { playwright } from "vite-plus/test/browser-playwright";
 import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/test/config";
 import "vite-plus/test/config";
 import { defineConfig, type Connect, type Plugin } from "vite-plus";
@@ -82,6 +83,35 @@ const unitTestProject = {
     hookTimeout: 15_000,
     testTimeout: 15_000,
     setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
+  },
+} satisfies TestProjectInlineConfiguration;
+
+// Point at a system Chromium (e.g. on NixOS) instead of Playwright's download.
+const configuredBrowserExecutablePath =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined;
+
+const browserTestProject = {
+  extends: true,
+  server: {
+    strictPort: false,
+  },
+  test: {
+    name: "browser",
+    include: ["src/**/*.browser.{ts,tsx}"],
+    browser: {
+      enabled: true,
+      provider: playwright(
+        configuredBrowserExecutablePath
+          ? { launchOptions: { executablePath: configuredBrowserExecutablePath } }
+          : undefined,
+      ),
+      instances: [{ browser: "chromium" }],
+      headless: true,
+      api: { strictPort: false },
+    },
+    hookTimeout: 30_000,
+    testTimeout: 30_000,
+    fileParallelism: false,
   },
 } satisfies TestProjectInlineConfiguration;
 
@@ -193,6 +223,8 @@ export default defineConfig(() => {
         "effect/Array",
         "effect/Order",
         "react-dom/client",
+        "vite-plus/test",
+        "vite-plus/test/browser",
       ],
     },
     define: {
@@ -284,7 +316,7 @@ export default defineConfig(() => {
       sourcemap: buildSourcemap,
     },
     test: {
-      projects: [defineProject(unitTestProject)],
+      projects: [defineProject(unitTestProject), defineProject(browserTestProject)],
     },
   };
 });

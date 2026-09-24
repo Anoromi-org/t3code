@@ -175,7 +175,7 @@ import {
   attachmentUploadBlockReason,
   formatAttachmentUploadProgress,
 } from "../../lib/attachmentUploadState";
-import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../../commandSurface";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../../keybindings";
@@ -5215,7 +5215,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       // even when the composer is in a state that can't stash.
       event.preventDefault();
       event.stopPropagation();
-      if (isCommandPaletteOpen() || isRevertingCheckpoint) {
+      if (isAnyCommandSurfaceOpen() || isRevertingCheckpoint) {
         return;
       }
       if (pendingUserInputs.length > 0 && !isComposerApprovalState) {

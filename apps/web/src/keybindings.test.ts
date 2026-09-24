@@ -127,6 +127,11 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
+    shortcut: modShortcut("e"),
+    command: "navigation.commandMenu",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
     shortcut: modShortcut("p"),
     command: "filePicker.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
@@ -432,6 +437,10 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "commandPalette.toggle", "MacIntel"),
       "⌘K",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "navigation.commandMenu", "MacIntel"),
+      "⌘E",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "filePicker.toggle", "MacIntel"),
@@ -747,6 +756,23 @@ describe("chat/editor shortcuts", () => {
         { platform: "Win32" },
       ),
       "themeEditor.toggle",
+    );
+  });
+
+  it("matches navigation.commandMenu shortcut outside terminal focus", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "e", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "navigation.commandMenu",
+    );
+    assert.notStrictEqual(
+      resolveShortcutCommand(event({ key: "e", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
+      }),
+      "navigation.commandMenu",
     );
   });
 

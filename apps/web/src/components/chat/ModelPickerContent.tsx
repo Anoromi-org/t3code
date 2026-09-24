@@ -27,7 +27,7 @@ import {
   ComboboxListVirtualized,
 } from "../ui/combobox";
 import { ModelEsque } from "./providerIconUtils";
-import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../../commandSurface";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import {
   modelPickerJumpCommandForIndex,
@@ -737,7 +737,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
 
   useEffect(() => {
     const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || isCommandPaletteOpen()) {
+      if (event.defaultPrevented || event.repeat || isAnyCommandSurfaceOpen()) {
         return;
       }
 

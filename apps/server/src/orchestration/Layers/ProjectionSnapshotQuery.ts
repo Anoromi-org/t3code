@@ -55,7 +55,10 @@ import {
 } from "../../persistence/Errors.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
 import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
-import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
+import {
+  ProjectHyprnavOverrideJsonColumn,
+  ProjectionProject,
+} from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionThreadMessages.ts";
@@ -107,6 +110,7 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
     autoPull: Schema.Number,
     projectIcon: Schema.NullOr(Schema.fromJsonString(ProjectIconOverride)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+    hyprnav: ProjectHyprnavOverrideJsonColumn,
   }),
 );
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
@@ -406,6 +410,7 @@ function mapProjectShellRow(
     faviconPath: row.faviconPath ?? null,
     projectIcon: row.projectIcon ?? null,
     scripts: row.scripts,
+    hyprnav: row.hyprnav,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -548,6 +553,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           favicon_path AS "faviconPath",
           project_icon_json AS "projectIcon",
           scripts_json AS "scripts",
+          hyprnav_json AS "hyprnav",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -1139,6 +1145,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           favicon_path AS "faviconPath",
           project_icon_json AS "projectIcon",
           scripts_json AS "scripts",
+          hyprnav_json AS "hyprnav",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -1165,6 +1172,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           favicon_path AS "faviconPath",
           project_icon_json AS "projectIcon",
           scripts_json AS "scripts",
+          hyprnav_json AS "hyprnav",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -2309,6 +2317,7 @@ pending_approval_requests AS (
                 faviconPath: row.faviconPath ?? null,
                 projectIcon: row.projectIcon ?? null,
                 scripts: row.scripts,
+                hyprnav: row.hyprnav,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
                 deletedAt: row.deletedAt,
@@ -2477,6 +2486,7 @@ pending_approval_requests AS (
                   faviconPath: row.faviconPath ?? null,
                   projectIcon: row.projectIcon ?? null,
                   scripts: row.scripts,
+                  hyprnav: row.hyprnav,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   deletedAt: row.deletedAt,
@@ -3031,6 +3041,7 @@ pending_approval_requests AS (
                     faviconPath: option.value.faviconPath ?? null,
                     projectIcon: option.value.projectIcon ?? null,
                     scripts: option.value.scripts,
+                    hyprnav: option.value.hyprnav,
                     createdAt: option.value.createdAt,
                     updatedAt: option.value.updatedAt,
                     deletedAt: option.value.deletedAt,

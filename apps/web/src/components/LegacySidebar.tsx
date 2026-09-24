@@ -173,7 +173,8 @@ import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
 } from "../threadSelectionStore";
-import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
+import { openCommandPalette } from "../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
@@ -3544,7 +3545,12 @@ export default function LegacySidebar() {
     const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
       const shortcutContext = getCurrentSidebarShortcutContext();
 
-      if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
+      if (
+        event.defaultPrevented ||
+        event.repeat ||
+        isAnyCommandSurfaceOpen() ||
+        isModelPickerOpen()
+      ) {
         return;
       }
 

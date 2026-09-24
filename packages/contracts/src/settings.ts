@@ -41,6 +41,7 @@ import {
   type ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
+import { DEFAULT_PROJECT_HYPRNAV_SETTINGS, ProjectHyprnavSettings } from "./hyprnav.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -284,6 +285,17 @@ export const BrowserLinkTarget = Schema.Literals(["system", "app"]);
 export type BrowserLinkTarget = typeof BrowserLinkTarget.Type;
 export const DEFAULT_BROWSER_LINK_TARGET: BrowserLinkTarget = "system";
 
+// "same" shares one Hyprnav override across a grouped project's checkouts;
+// "separate" keeps an override per checkout.
+const GroupedProjectHyprnavMode = Schema.Literals(["same", "separate"]);
+const DEFAULT_GROUPED_PROJECT_HYPRNAV_MODE: typeof GroupedProjectHyprnavMode.Type = "same";
+const GroupedProjectHyprnavState = Schema.Struct({
+  mode: GroupedProjectHyprnavMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GROUPED_PROJECT_HYPRNAV_MODE)),
+  ),
+  defaultProjectKey: Schema.optionalKey(TrimmedNonEmptyString),
+});
+
 export const LoadBalancingWeights = Schema.Record(
   TrimmedNonEmptyString,
   Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
@@ -394,6 +406,9 @@ export const ClientSettingsSchema = Schema.Struct({
   // Grayscale `-webkit-font-smoothing: antialiased` (thinner strokes);
   // disabling restores the platform's heavier default. No effect off macOS.
   fontSmoothing: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  defaultProjectHyprnavSettings: ProjectHyprnavSettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROJECT_HYPRNAV_SETTINGS)),
+  ),
   // When the first-run welcome wizard finished (or was skipped), as an ISO
   // timestamp. `null` alone does not mean "show the wizard" — every install
   // that predates this field decodes to `null` — so the gate also requires an
@@ -461,6 +476,10 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarProjectGroupingOverrides: Schema.Record(
     TrimmedNonEmptyString,
     SidebarProjectGroupingMode,
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  groupedProjectHyprnavStateByLogicalProjectKey: Schema.Record(
+    TrimmedNonEmptyString,
+    GroupedProjectHyprnavState,
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
@@ -1596,6 +1615,7 @@ export const ClientSettingsPatch = Schema.Struct({
   fontFamilySans: Schema.optionalKey(FontFamilyPreference),
   fontFamilyTerminal: Schema.optionalKey(FontFamilyPreference),
   fontSmoothing: Schema.optionalKey(Schema.Boolean),
+  defaultProjectHyprnavSettings: Schema.optionalKey(ProjectHyprnavSettings),
   favorites: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
@@ -1632,6 +1652,9 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
+  ),
+  groupedProjectHyprnavStateByLogicalProjectKey: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, GroupedProjectHyprnavState),
   ),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),

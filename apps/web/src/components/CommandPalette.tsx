@@ -180,6 +180,7 @@ import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../sta
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -515,7 +516,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || isAnyCommandSurfaceOpen("command-palette")) return;
       // Resolve with the complete shortcut context so customized bindings
       // using any documented `when` condition (e.g. previewFocus) work.
       const command = resolveShortcutCommand(event, keybindings, {
@@ -651,7 +652,7 @@ function CommandPaletteDialog(props: {
             : "Command palette"
       }
       className={cn("overflow-hidden", props.mode === "content" && "h-105")}
-      data-command-palette="true"
+      data-command-surface="command-palette"
       data-palette-mode={props.mode}
       data-testid="command-palette"
       finalFocus={() => {

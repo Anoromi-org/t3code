@@ -254,6 +254,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           faviconPath: null,
           projectIcon: null,
           scripts: [],
+          hyprnav: null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -319,6 +320,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.faviconPath !== undefined ? { faviconPath: command.faviconPath } : {}),
           ...(command.projectIcon !== undefined ? { projectIcon: command.projectIcon } : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
+          ...(command.hyprnav !== undefined ? { hyprnav: command.hyprnav } : {}),
           updatedAt: occurredAt,
         },
       };

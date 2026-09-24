@@ -119,6 +119,62 @@ function hasSameShortcutContext(left: KeybindingRule, right: KeybindingRule): bo
   return leftContext === rightContext;
 }
 
+/**
+ * The complete file this fork generated in July 2026, when `mod+e` opened the
+ * command palette. Frozen as a literal so later default changes cannot widen
+ * the exact-match repair below.
+ */
+const LEGACY_GENERATED_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
+  { key: "mod+b", command: "sidebar.toggle" },
+  { key: "mod+j", command: "terminal.toggle" },
+  { key: "mod+alt+b", command: "rightPanel.toggle" },
+  { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+  { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
+  { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
+  { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
+  { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+  { key: "mod+shift+j", command: "preview.toggle" },
+  { key: "mod+r", command: "preview.refresh", when: "previewFocus" },
+  { key: "mod+l", command: "preview.focusUrl", when: "previewFocus" },
+  { key: "mod+=", command: "preview.zoomIn", when: "previewFocus" },
+  { key: "mod++", command: "preview.zoomIn", when: "previewFocus" },
+  { key: "mod+-", command: "preview.zoomOut", when: "previewFocus" },
+  { key: "mod+0", command: "preview.resetZoom", when: "previewFocus" },
+  { key: "mod+e", command: "commandPalette.toggle", when: "!terminalFocus" },
+  { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
+  { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
+  { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+  { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },
+  { key: "mod+o", command: "editor.openFavorite" },
+  { key: "mod+shift+[", command: "thread.previous" },
+  { key: "mod+shift+]", command: "thread.next" },
+  ...Array.makeBy(9, (index) => ({
+    key: `mod+${index + 1}`,
+    command: `thread.jump.${index + 1}` as KeybindingRule["command"],
+  })),
+  ...Array.makeBy(9, (index) => ({
+    key: `mod+${index + 1}`,
+    command: `modelPicker.jump.${index + 1}` as KeybindingRule["command"],
+    when: "modelPickerOpen",
+  })),
+];
+
+/** Replaces only an untouched legacy generated file; any edit keeps the user's rules. */
+function migrateLegacyGeneratedCommandPaletteRule(
+  keybindings: ReadonlyArray<KeybindingRule>,
+): ReadonlyArray<KeybindingRule> {
+  if (
+    keybindings.length !== LEGACY_GENERATED_KEYBINDINGS.length ||
+    !keybindings.every((rule, index) => {
+      const legacyRule = LEGACY_GENERATED_KEYBINDINGS[index];
+      return legacyRule !== undefined && isSameKeybindingRule(rule, legacyRule);
+    })
+  ) {
+    return keybindings;
+  }
+  return DEFAULT_KEYBINDINGS;
+}
+
 function keybindingRuleFromUpsertInput(input: ServerUpsertKeybindingInput): KeybindingRule {
   return input.when === undefined
     ? { key: input.key, command: input.command }
@@ -469,7 +525,8 @@ const make = Effect.gen(function* () {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }
-      const customConfig = runtimeConfig.keybindings;
+      const customConfig = migrateLegacyGeneratedCommandPaletteRule(runtimeConfig.keybindings);
+      const didMigrateLegacyGeneratedConfig = customConfig !== runtimeConfig.keybindings;
       const existingCommands = new Set(customConfig.map((entry) => entry.command));
       const missingDefaults: KeybindingRule[] = [];
       const shortcutConflictWarnings: Array<{
@@ -507,6 +564,9 @@ const make = Effect.gen(function* () {
         });
       }
       if (missingDefaults.length === 0) {
+        if (didMigrateLegacyGeneratedConfig) {
+          yield* writeConfigAtomically(customConfig);
+        }
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }

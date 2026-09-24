@@ -99,6 +99,47 @@ it.effect("reads project shells without loading threads or resolving excluded pr
   }).pipe(Effect.provide(layer));
 });
 
+it.effect("keeps projects whose Hyprnav override no longer decodes", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const query = yield* ProjectionSnapshotQuery;
+    yield* sql`INSERT INTO projection_projects
+      (project_id, title, workspace_root, scripts_json, hyprnav_json, created_at, updated_at, deleted_at)
+      VALUES
+      ('p-bad', 'Bad', '/bad', '[]', '{"bindings":"nope"}', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z', NULL),
+      ('p-empty', 'Empty', '/empty', '[]', '', '2026-09-02T00:00:00Z', '2026-09-02T00:00:00Z', NULL)`;
+
+    const shells = yield* query.getProjectShells();
+    assert.deepStrictEqual(
+      shells.map((project) => [project.id, project.hyprnav]),
+      [
+        [asProjectId("p-bad"), null],
+        [asProjectId("p-empty"), null],
+      ],
+    );
+    const byRoot = yield* query.getActiveProjectByWorkspaceRoot("/bad");
+    assert.strictEqual(Option.getOrNull(byRoot)?.hyprnav, null);
+    const snapshot = yield* query.getShellSnapshot();
+    assert.deepStrictEqual(
+      snapshot.projects.map((project) => project.id),
+      [asProjectId("p-bad"), asProjectId("p-empty")],
+    );
+  }).pipe(
+    Effect.provide(
+      OrchestrationProjectionSnapshotQueryLive.pipe(
+        Layer.provide(ThreadBackgroundLiveness.layer),
+        Layer.provide(ThreadPlanProgress.layer),
+        Layer.provide(
+          Layer.succeed(RepositoryIdentityResolver.RepositoryIdentityResolver, {
+            resolve: () => Effect.succeed(null),
+          }),
+        ),
+        Layer.provideMerge(SqlitePersistenceMemory),
+      ),
+    ),
+  ),
+);
+
 const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(
     Layer.provide(ThreadBackgroundLiveness.layer),
@@ -442,6 +483,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             },
           ],
           defaultThreadEnvMode: null,
+          hyprnav: null,
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
           deletedAt: null,
@@ -569,6 +611,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             },
           ],
           defaultThreadEnvMode: null,
+          hyprnav: null,
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
         },
@@ -1232,6 +1275,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           workspace_root,
           default_model_selection_json,
           scripts_json,
+          hyprnav_json,
           created_at,
           updated_at,
           deleted_at
@@ -1243,6 +1287,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '/tmp/workspace',
             '{"provider":"codex","model":"gpt-5-codex"}',
             '[]',
+            '{"bindings":[{"id":"targeted-shell","slot":5,"scope":"project","workspace":{"mode":"managed"},"action":"worktree-terminal"}]}',
             '2026-03-01T00:00:00.000Z',
             '2026-03-01T00:00:01.000Z',
             NULL
@@ -1253,6 +1298,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '/tmp/deleted',
             NULL,
             '[]',
+            'null',
             '2026-03-01T00:00:02.000Z',
             '2026-03-01T00:00:03.000Z',
             '2026-03-01T00:00:04.000Z'
@@ -1333,7 +1379,30 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(project._tag, "Some");
         if (project._tag === "Some") {
           assert.equal(project.value.id, asProjectId("project-active"));
+          assert.deepEqual(project.value.hyprnav, {
+            bindings: [
+              {
+                id: "targeted-shell",
+                slot: 5,
+                scope: "project",
+                workspace: { mode: "managed" },
+                action: "worktree-terminal",
+              },
+            ],
+          });
         }
+
+        const projectShell = yield* snapshotQuery.getProjectShellById(
+          asProjectId("project-active"),
+        );
+        assert.deepEqual(
+          Option.getOrNull(projectShell)?.hyprnav,
+          Option.getOrNull(project)?.hyprnav,
+        );
+        const [listedShell] = yield* snapshotQuery.getProjectShells([
+          asProjectId("project-active"),
+        ]);
+        assert.deepEqual(listedShell?.hyprnav, Option.getOrNull(project)?.hyprnav);
 
         const missingProject = yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/missing");
         assert.equal(missingProject._tag, "None");

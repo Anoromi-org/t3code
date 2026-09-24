@@ -77,6 +77,25 @@ describe("ClientSettings rich text composer", () => {
   });
 });
 
+describe("ClientSettings Hyprnav defaults", () => {
+  it("hydrates project defaults and grouped state for legacy settings", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.defaultProjectHyprnavSettings.bindings.map((binding) => binding.slot)).toEqual([
+      1, 2, 8,
+    ]);
+    expect(decoded.groupedProjectHyprnavStateByLogicalProjectKey).toEqual({});
+  });
+
+  it("defaults grouped Hyprnav state to one shared override", () => {
+    const decoded = decodeClientSettings({
+      groupedProjectHyprnavStateByLogicalProjectKey: { "repo:t3code": {} },
+    });
+    expect(decoded.groupedProjectHyprnavStateByLogicalProjectKey).toEqual({
+      "repo:t3code": { mode: "same" },
+    });
+  });
+});
+
 describe("ServerSettings default permissions", () => {
   it("keeps full access for settings saved before a default was configured", () => {
     expect(decodeServerSettings({}).defaultRuntimeMode).toBe("full-access");

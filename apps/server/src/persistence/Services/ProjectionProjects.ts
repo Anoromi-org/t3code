@@ -9,6 +9,7 @@
 import {
   IsoDateTime,
   ModelSelection,
+  ProjectHyprnavOverride,
   ProjectIconOverride,
   ProjectId,
   ProjectScript,
@@ -17,7 +18,7 @@ import {
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Context from "effect/Context";
-import type * as Effect from "effect/Effect";
+import * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -31,11 +32,24 @@ export const ProjectionProject = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(Schema.String)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   scripts: Schema.Array(ProjectScript),
+  hyprnav: ProjectHyprnavOverride,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectionProject = typeof ProjectionProject.Type;
+
+/**
+ * Codec for the `hyprnav_json` column. An override that no longer decodes falls
+ * back to inheriting the client defaults so one bad value cannot hide its project.
+ */
+export const ProjectHyprnavOverrideJsonColumn = Schema.fromJsonString(ProjectHyprnavOverride).pipe(
+  Schema.catchDecoding((issue) =>
+    Effect.logWarning("Ignoring undecodable project Hyprnav override", {
+      issue: String(issue),
+    }).pipe(Effect.as(Option.some(null))),
+  ),
+);
 
 export const GetProjectionProjectInput = Schema.Struct({
   projectId: ProjectId,

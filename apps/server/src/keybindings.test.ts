@@ -188,6 +188,84 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
+  it.effect("repairs only the exact generated command-palette shortcut config", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const legacyGenerated: KeybindingRule[] = [
+        { key: "mod+b", command: "sidebar.toggle" },
+        { key: "mod+j", command: "terminal.toggle" },
+        { key: "mod+alt+b", command: "rightPanel.toggle" },
+        { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+        { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
+        { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
+        { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
+        { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+        { key: "mod+shift+j", command: "preview.toggle" },
+        { key: "mod+r", command: "preview.refresh", when: "previewFocus" },
+        { key: "mod+l", command: "preview.focusUrl", when: "previewFocus" },
+        { key: "mod+=", command: "preview.zoomIn", when: "previewFocus" },
+        { key: "mod++", command: "preview.zoomIn", when: "previewFocus" },
+        { key: "mod+-", command: "preview.zoomOut", when: "previewFocus" },
+        { key: "mod+0", command: "preview.resetZoom", when: "previewFocus" },
+        { key: "mod+e", command: "commandPalette.toggle", when: "!terminalFocus" },
+        { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
+        { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
+        { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+        { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },
+        { key: "mod+o", command: "editor.openFavorite" },
+        { key: "mod+shift+[", command: "thread.previous" },
+        { key: "mod+shift+]", command: "thread.next" },
+        ...Array.from({ length: 9 }, (_, index) => ({
+          key: `mod+${index + 1}`,
+          command: `thread.jump.${index + 1}` as KeybindingRule["command"],
+        })),
+        ...Array.from({ length: 9 }, (_, index) => ({
+          key: `mod+${index + 1}`,
+          command: `modelPicker.jump.${index + 1}` as KeybindingRule["command"],
+          when: "modelPickerOpen",
+        })),
+      ];
+      yield* writeKeybindingsConfig(keybindingsConfigPath, legacyGenerated);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      assert.deepEqual(
+        yield* readKeybindingsConfig(keybindingsConfigPath),
+        Keybindings.DEFAULT_KEYBINDINGS,
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("preserves a customized command-palette shortcut", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+e", command: "commandPalette.toggle", when: "!terminalFocus" },
+        { key: "mod+shift+t", command: "terminal.toggle" },
+      ]);
+
+      const keybindings = yield* Keybindings.Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some((rule) => rule.command === "commandPalette.toggle" && rule.key === "mod+e"),
+      );
+      assert.isFalse(persisted.some((rule) => rule.command === "navigation.commandMenu"));
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("ships separate navigation and command palette defaults", () =>
+    Effect.sync(() => {
+      const defaultsByCommand = new Map(
+        Keybindings.DEFAULT_KEYBINDINGS.map((rule) => [rule.command, rule.key] as const),
+      );
+      assert.equal(defaultsByCommand.get("commandPalette.toggle"), "mod+k");
+      assert.equal(defaultsByCommand.get("navigation.commandMenu"), "mod+e");
+    }),
+  );
+
   it.effect("uses defaults in runtime when config is malformed without overriding file", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

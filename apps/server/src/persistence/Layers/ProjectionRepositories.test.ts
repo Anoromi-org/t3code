@@ -36,6 +36,58 @@ const projectionRepositoriesLayer = it.layer(
 );
 
 projectionRepositoriesLayer("Projection repositories", (it) => {
+  it.effect("round-trips project Hyprnav overrides", () =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectionProjectRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const hyprnav = {
+        bindings: [
+          {
+            id: "project-shell",
+            slot: 4,
+            scope: "project",
+            workspace: { mode: "absolute", workspaceId: 7 },
+            action: "shell-command",
+            command: "bun run dev",
+          },
+        ],
+      } as const;
+
+      yield* projects.upsert({
+        projectId: ProjectId.make("project-hyprnav"),
+        title: "Hyprnav project",
+        workspaceRoot: "/tmp/project-hyprnav",
+        defaultModelSelection: null,
+        defaultThreadEnvMode: null,
+        autoPull: false,
+        scripts: [],
+        hyprnav,
+        createdAt: "2026-03-24T00:00:00.000Z",
+        updatedAt: "2026-03-24T00:00:00.000Z",
+        deletedAt: null,
+      });
+
+      const rows = yield* sql<{ readonly hyprnav: string }>`
+        SELECT hyprnav_json AS "hyprnav"
+        FROM projection_projects
+        WHERE project_id = 'project-hyprnav'
+      `;
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      assert.strictEqual(rows[0]?.hyprnav, JSON.stringify(hyprnav));
+      const persisted = yield* projects.getById({ projectId: ProjectId.make("project-hyprnav") });
+      assert.deepStrictEqual(Option.getOrNull(persisted)?.hyprnav, hyprnav);
+
+      // Clearing the override writes the inherited marker rather than keeping the old value.
+      yield* projects.upsert({ ...Option.getOrThrow(persisted), hyprnav: null });
+      const cleared = yield* sql<{ readonly hyprnav: string }>`
+        SELECT hyprnav_json AS "hyprnav"
+        FROM projection_projects
+        WHERE project_id = 'project-hyprnav'
+      `;
+      assert.strictEqual(cleared[0]?.hyprnav, "null");
+    }),
+  );
+
   it.effect("selects the latest-turn plan before checking implementation status", () =>
     Effect.gen(function* () {
       const plans = yield* ProjectionThreadProposedPlanRepository;
@@ -297,6 +349,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         defaultThreadEnvMode: null,
         autoPull: false,
         scripts: [],
+        hyprnav: null,
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
         deletedAt: null,

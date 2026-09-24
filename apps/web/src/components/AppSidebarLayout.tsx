@@ -1,7 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
+import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import {
+  useCallback,
   useEffect,
+  useMemo,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -9,7 +12,10 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
+import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { isElectron } from "../env";
+import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
 import {
   isRichTextBoldShortcut,
@@ -22,16 +28,23 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { resolveThreadRouteRef } from "../threadRoutes";
+import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { cn, isMacPlatform } from "../lib/utils";
+import { selectProjectGroupingSettings } from "../logicalProject";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
+import {
+  useClientSettings,
+  useEnvironmentIdentificationMode,
+  useLegacySidebarEnabled,
+} from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
 import LegacyThreadSidebar from "./LegacySidebar";
+import { NavigationCommandMenu } from "./NavigationCommandMenu";
+import { resolveDraftProjectKeys, resolveProjectDraftId } from "./NavigationCommandMenu.logic";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
@@ -39,7 +52,7 @@ import {
   resolveSidebarStageFocusRingOffsetClass,
   useSidebarStageBackdropVariant,
 } from "./SidebarStageBackdrop";
-import { useProjects } from "../state/entities";
+import { useProjects, useThreadShells } from "../state/entities";
 import {
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
@@ -92,7 +105,7 @@ function SidebarControl() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || isAnyCommandSurfaceOpen()) return;
       if (
         event.target instanceof HTMLElement &&
         event.target.closest("[data-keybinding-capture]")
@@ -154,6 +167,28 @@ function SidebarControl() {
   );
 }
 
+type RouteThreadRef = ReturnType<typeof resolveThreadRouteRef>;
+
+/** Shortcut context for layout-level handlers, read from stores at event time. */
+function resolveLayoutShortcutContext(event: KeyboardEvent, routeThreadRef: RouteThreadRef) {
+  return {
+    terminalFocus: isTerminalFocused(),
+    terminalOpen: routeThreadRef
+      ? selectThreadTerminalUiState(
+          useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+          routeThreadRef,
+        ).terminalOpen
+      : false,
+    previewFocus: isPreviewFocused(),
+    previewOpen: routeThreadRef
+      ? selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, routeThreadRef) ===
+        "preview"
+      : false,
+    editableFocus: isEditableFocused(event.target),
+    modelPickerOpen: isModelPickerOpen(),
+  };
+}
+
 // Moves through the app's route history like a browser's back/forward buttons.
 function NavigationHistoryShortcuts() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -164,7 +199,7 @@ function NavigationHistoryShortcuts() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || isAnyCommandSurfaceOpen()) return;
       if (
         event.target instanceof HTMLElement &&
         event.target.closest("[data-keybinding-capture]")
@@ -172,22 +207,7 @@ function NavigationHistoryShortcuts() {
         return;
       }
       const command = resolveShortcutCommand(event, keybindings, {
-        context: {
-          terminalFocus: isTerminalFocused(),
-          terminalOpen: routeThreadRef
-            ? selectThreadTerminalUiState(
-                useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
-                routeThreadRef,
-              ).terminalOpen
-            : false,
-          previewFocus: isPreviewFocused(),
-          previewOpen: routeThreadRef
-            ? selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, routeThreadRef) ===
-              "preview"
-            : false,
-          editableFocus: isEditableFocused(event.target),
-          modelPickerOpen: isModelPickerOpen(),
-        },
+        context: resolveLayoutShortcutContext(event, routeThreadRef),
       });
       if (command !== "navigation.back" && command !== "navigation.forward") return;
 
@@ -210,6 +230,114 @@ function NavigationHistoryShortcuts() {
 function ProjectProjectionRetention() {
   useProjects();
   return null;
+}
+
+export function NavigationCommandMenuControl() {
+  const [open, setOpen] = useState(false);
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const projects = useProjects();
+  const threads = useThreadShells();
+  const navigate = useNavigate();
+  const handleNewThread = useNewThreadHandler();
+  const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const logicalProjectDraftThreadKeyByLogicalProjectKey = useComposerDraftStore(
+    (state) => state.logicalProjectDraftThreadKeyByLogicalProjectKey,
+  );
+  const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
+    (state) => state.getDraftSessionByLogicalProjectKey,
+  );
+  const activeDraftLogicalProjectKeys = useMemo(
+    () =>
+      new Set(
+        Object.keys(logicalProjectDraftThreadKeyByLogicalProjectKey).filter(
+          (logicalProjectKey) => getDraftSessionByLogicalProjectKey(logicalProjectKey) !== null,
+        ),
+      ),
+    [getDraftSessionByLogicalProjectKey, logicalProjectDraftThreadKeyByLogicalProjectKey],
+  );
+  const draftProjectKeys = useMemo(
+    () =>
+      resolveDraftProjectKeys({
+        projects,
+        draftLogicalProjectKeys: activeDraftLogicalProjectKeys,
+        projectGroupingSettings,
+      }),
+    [activeDraftLogicalProjectKeys, projectGroupingSettings, projects],
+  );
+
+  const routeThreadRef = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteRef(params),
+  });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isAnyCommandSurfaceOpen("navigation")) return;
+      if (
+        resolveShortcutCommand(event, keybindings, {
+          context: resolveLayoutShortcutContext(event, routeThreadRef),
+        }) !== "navigation.commandMenu"
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen((current) => !current);
+    };
+    // Capture so the shortcut still closes the menu while its input, which
+    // stops keydown propagation, has focus.
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [keybindings, routeThreadRef]);
+
+  const selectThread = useCallback(
+    async (ref: ScopedThreadRef) => {
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(ref),
+      });
+    },
+    [navigate],
+  );
+  const selectProject = useCallback(
+    async (ref: ScopedProjectRef) => {
+      const draftId = resolveProjectDraftId({
+        projectRef: ref,
+        projects,
+        projectGroupingSettings,
+        getDraftIdByLogicalProjectKey: (logicalProjectKey) =>
+          getDraftSessionByLogicalProjectKey(logicalProjectKey)?.draftId ?? null,
+      });
+      if (draftId) {
+        const validatedDraftId = DraftId.make(draftId);
+        await navigate({
+          to: "/draft/$draftId",
+          params: { draftId: validatedDraftId },
+        });
+        return;
+      }
+      await handleNewThread(ref);
+    },
+    [
+      handleNewThread,
+      getDraftSessionByLogicalProjectKey,
+      navigate,
+      projectGroupingSettings,
+      projects,
+    ],
+  );
+
+  return (
+    <NavigationCommandMenu
+      open={open}
+      onOpenChange={setOpen}
+      projects={projects}
+      threads={threads}
+      draftProjectKeys={draftProjectKeys}
+      onSelectThread={selectThread}
+      onSelectProject={selectProject}
+    />
+  );
 }
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
@@ -327,6 +455,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         {children}
         <SidebarControl />
         <NavigationHistoryShortcuts />
+        <NavigationCommandMenuControl />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );

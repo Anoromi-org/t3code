@@ -24,6 +24,7 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { ProjectHyprnavOverride } from "./hyprnav.ts";
 import {
   PullRequestActor,
   PullRequestChecksState,
@@ -554,6 +555,7 @@ export const OrchestrationProject = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   scripts: Schema.Array(ProjectScript),
+  hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -872,6 +874,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   scripts: Schema.Array(ProjectScript),
+  hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1102,6 +1105,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  hyprnav: Schema.optional(ProjectHyprnavOverride),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -1722,6 +1726,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   scripts: Schema.Array(ProjectScript),
+  hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1737,6 +1742,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  hyprnav: Schema.optional(ProjectHyprnavOverride),
   updatedAt: IsoDateTime,
 });
 
