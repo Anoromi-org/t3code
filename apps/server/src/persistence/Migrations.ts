@@ -9,7 +9,12 @@
  */
 
 import * as Migrator from "effect/unstable/sql/Migrator";
+import * as Cause from "effect/Cause";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Semaphore from "effect/Semaphore";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlError from "effect/unstable/sql/SqlError";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -65,6 +70,10 @@ import Migration0050 from "./Migrations/050_ProjectionThreadPullRequests.ts";
 import Migration0051 from "./Migrations/051_ProjectionThreadMessageContext.ts";
 import Migration0052 from "./Migrations/052_ProjectionThreadTitleState.ts";
 import Migration0053 from "./Migrations/053_PullRequestFilesViewed.ts";
+import {
+  replaySkippedCanonicalEffects,
+  runForkMigrations,
+} from "./Migrations/Fork/ForkMigrations.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -148,10 +157,119 @@ const makeMigrationLoader = (throughId?: number) =>
  * Uses the base Migrator.make without platform dependencies
  */
 const run = Migrator.make({});
+const migrationSemaphore = Semaphore.makeUnsafe(1);
 
 export interface RunMigrationsOptions {
   readonly toMigrationInclusive?: number | undefined;
 }
+
+const SQLITE_BUSY_SNAPSHOT = 517;
+const SQLITE_BUSY = 5;
+const MAX_SNAPSHOT_BUSY_RETRIES = 4;
+
+const isSqliteBusySnapshot = (error: unknown): boolean => {
+  if (SqlError.isSqlError(error)) {
+    return isSqliteBusySnapshot(error.reason.cause);
+  }
+  if (error instanceof Migrator.MigrationError) {
+    return isSqliteBusySnapshot(error.cause);
+  }
+  if (typeof error !== "object" || error === null) return false;
+
+  const sqliteError = error as {
+    readonly code?: unknown;
+    readonly errcode?: unknown;
+    readonly errno?: unknown;
+  };
+  return (
+    sqliteError.code === "SQLITE_BUSY_SNAPSHOT" ||
+    sqliteError.code === "SQLITE_BUSY" ||
+    sqliteError.errcode === SQLITE_BUSY_SNAPSHOT ||
+    sqliteError.errcode === SQLITE_BUSY ||
+    sqliteError.errno === SQLITE_BUSY_SNAPSHOT ||
+    sqliteError.errno === SQLITE_BUSY
+  );
+};
+
+const causeContainsSqliteBusySnapshot = (cause: Cause.Cause<unknown>): boolean =>
+  cause.reasons.some((reason) => {
+    if (Cause.isFailReason(reason)) return isSqliteBusySnapshot(reason.error);
+    if (Cause.isDieReason(reason)) return isSqliteBusySnapshot(reason.defect);
+    return false;
+  });
+
+/** Retries a migration attempt that lost a SQLite write race to another process. */
+export const retryOnSqliteBusySnapshot = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  retriesRemaining = MAX_SNAPSHOT_BUSY_RETRIES,
+  retryDelay: Duration.Input = "25 millis",
+): Effect.Effect<A, E, R> =>
+  effect.pipe(
+    Effect.catchCauseIf(
+      (cause) => retriesRemaining > 0 && causeContainsSqliteBusySnapshot(cause),
+      () =>
+        Effect.logWarning("Retrying migrations after concurrent SQLite contention").pipe(
+          Effect.annotateLogs({ retriesRemaining }),
+          Effect.andThen(Effect.sleep(retryDelay)),
+          Effect.andThen(retryOnSqliteBusySnapshot(effect, retriesRemaining - 1, retryDelay)),
+        ),
+    ),
+  );
+
+const latestRecordedMigrationId = Effect.fn("latestRecordedMigrationId")(function* (
+  sql: SqlClient.SqlClient,
+) {
+  const ledger = yield* sql<{ readonly exists: number }>`
+    SELECT EXISTS (
+      SELECT 1 FROM sqlite_master
+      WHERE type = 'table' AND name = 'effect_sql_migrations'
+    ) AS "exists"
+  `;
+  if (ledger[0]?.exists !== 1) return 0;
+  const latest = yield* sql<{ readonly migrationId: number }>`
+    SELECT COALESCE(MAX(migration_id), 0) AS "migrationId" FROM effect_sql_migrations
+  `;
+  return latest[0]?.migrationId ?? 0;
+});
+
+/**
+ * One migration pass: replay canonical effects skipped by fork ledger rows,
+ * run pending canonical migrations, then (unbounded runs only) fork-only
+ * migrations. See `Migrations/Fork/ForkMigrations.ts`.
+ *
+ * Returns array of [id, name] tuples for canonical migrations that were run.
+ */
+const runMigrationsAttempt = Effect.fn("runMigrationsAttempt")(function* ({
+  toMigrationInclusive,
+}: RunMigrationsOptions = {}) {
+  const sql = yield* SqlClient.SqlClient;
+  const latestMigrationId = yield* latestRecordedMigrationId(sql);
+  const replayThroughId =
+    toMigrationInclusive === undefined
+      ? latestMigrationId
+      : Math.min(latestMigrationId, toMigrationInclusive);
+  if (replayThroughId > 0) {
+    yield* replaySkippedCanonicalEffects(sql, migrationEntries, replayThroughId);
+  }
+
+  const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
+  const forkMigrations = toMigrationInclusive === undefined ? yield* runForkMigrations(sql) : [];
+  const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
+  yield* migrations.length === 0 && forkMigrations.length === 0
+    ? Effect.logDebug("Database schema is current")
+    : Effect.log("Migrations ran successfully").pipe(
+        Effect.annotateLogs({
+          migrations,
+          forkMigrations: forkMigrations.map(([key, name]) => `fork_${key}_${name}`),
+        }),
+      );
+  return executedMigrations;
+});
+
+/** Runs migrations without the in-process lock; for cross-process startup tests. */
+export const runMigrationsUnserialized = Effect.fn("runMigrationsUnserialized")(
+  (options: RunMigrationsOptions = {}) => retryOnSqliteBusySnapshot(runMigrationsAttempt(options)),
+);
 
 /**
  * Run all pending migrations.
@@ -163,13 +281,6 @@ export interface RunMigrationsOptions {
  *
  * @returns Effect containing array of executed migrations
  */
-export const runMigrations = Effect.fn("runMigrations")(function* ({
-  toMigrationInclusive,
-}: RunMigrationsOptions = {}) {
-  const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
-  const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
-  yield* migrations.length === 0
-    ? Effect.logDebug("Database schema is current")
-    : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
-  return executedMigrations;
-});
+export const runMigrations = Effect.fn("runMigrations")((options: RunMigrationsOptions = {}) =>
+  migrationSemaphore.withPermit(runMigrationsUnserialized(options)),
+);

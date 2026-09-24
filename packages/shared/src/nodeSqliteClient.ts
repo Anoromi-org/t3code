@@ -94,11 +94,15 @@ const make = Effect.fn("makeWithDatabase")(function* (
   const makeConnection = Effect.gen(function* () {
     const scope = yield* Effect.scope;
     const db = yield* Effect.try({
-      try: () =>
-        new NodeSqlite.DatabaseSync(options.filename, {
+      try: () => {
+        const database = new NodeSqlite.DatabaseSync(options.filename, {
           readOnly: options.readonly ?? false,
           allowExtension: options.allowExtension ?? false,
-        }),
+        });
+        // Separate processes migrate and write the same file; wait instead of failing with SQLITE_BUSY.
+        database.exec("PRAGMA busy_timeout = 10000");
+        return database;
+      },
       catch: (cause) =>
         new SqlError({
           reason: classifySqliteError(cause, {

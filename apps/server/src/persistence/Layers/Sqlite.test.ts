@@ -61,6 +61,6 @@ it.effect("applies busy_timeout in the shared persistence setup", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const rows = yield* sql<{ readonly timeout: number }>`PRAGMA busy_timeout`;
-    assert.equal(rows[0]?.timeout, 5000);
+    assert.equal(rows[0]?.timeout, 10000);
   }).pipe(Effect.provide(SqlitePersistenceMemory)),
 );
