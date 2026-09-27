@@ -35,11 +35,30 @@ export interface HyprnavPublicationTarget {
   readonly worktreePath: string | null;
   readonly threadId: ScopedThreadRef["threadId"] | null;
   readonly threadTitle: string | null;
+  readonly projectTitle?: string | null;
+  readonly worktreeTitle?: string | null;
+}
+
+/**
+ * Title for the hyprnav worktree environment: the branch when known, else the
+ * directory name of the worktree (or of the project root for root threads).
+ */
+export function hyprnavWorktreeTitle(input: {
+  readonly branch: string | null | undefined;
+  readonly worktreePath: string | null;
+  readonly projectRoot: string;
+}): string | null {
+  const branch = input.branch?.trim();
+  if (branch) return branch;
+  const segments = (input.worktreePath ?? input.projectRoot).split(/[\\/]+/u).filter(Boolean);
+  return segments.at(-1) ?? null;
 }
 
 export interface ActiveHyprnavSyncTarget extends HyprnavPublicationTarget {
   readonly threadId: ScopedThreadRef["threadId"];
   readonly threadTitle: string;
+  readonly projectTitle: string;
+  readonly worktreeTitle: string | null;
 }
 
 export function createActiveHyprnavRequestKey(input: {
@@ -273,6 +292,8 @@ export function hyprnavPublicationTargetFromRequest(
     worktreePath: request.worktreePath ?? null,
     threadId: request.threadId ? (request.threadId as ScopedThreadRef["threadId"]) : null,
     threadTitle: request.threadTitle ?? null,
+    projectTitle: request.projectTitle ?? null,
+    worktreeTitle: request.worktreeTitle ?? null,
   };
 }
 
@@ -315,11 +336,18 @@ export function resolveActiveHyprnavSyncTarget(input: {
   ) {
     return null;
   }
+  const worktreePath = input.thread.worktreePath ?? null;
   return {
     projectRoot: input.project.workspaceRoot,
-    worktreePath: input.thread.worktreePath ?? null,
+    worktreePath,
     threadId: input.thread.id,
     threadTitle: input.thread.title,
+    projectTitle: input.project.title,
+    worktreeTitle: hyprnavWorktreeTitle({
+      branch: input.thread.branch,
+      worktreePath,
+      projectRoot: input.project.workspaceRoot,
+    }),
   };
 }
 

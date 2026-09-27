@@ -69,6 +69,8 @@ const DesktopHyprnavSyncInput = Schema.Struct({
   worktreePath: Schema.optionalKey(NullableString),
   threadId: Schema.optionalKey(NullableString),
   threadTitle: Schema.optionalKey(NullableString),
+  projectTitle: Schema.optionalKey(NullableString),
+  worktreeTitle: Schema.optionalKey(NullableString),
   hyprnav: ProjectHyprnavSettings,
   preferredEditor: Schema.optionalKey(Schema.NullOr(EditorId)),
   clearBindings: Schema.optionalKey(Schema.Array(DesktopHyprnavScopedSlot)),

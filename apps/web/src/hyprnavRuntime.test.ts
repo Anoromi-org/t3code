@@ -45,6 +45,8 @@ describe("hyprnavRuntime", () => {
         worktreePath: "/repo/worktree",
         threadId: ThreadId.make("thread-1"),
         threadTitle: "Thread",
+        projectTitle: "Repo",
+        worktreeTitle: "feature/x",
       },
       settings: { bindings: [] },
       availableEditors: ["zed" as const],
@@ -54,6 +56,19 @@ describe("hyprnavRuntime", () => {
         target: { ...input.target },
         settings: { ...input.settings },
         availableEditors: [...input.availableEditors],
+      }),
+    );
+    // Renaming the project or switching the branch republishes the titles.
+    expect(createActiveHyprnavRequestKey(input)).not.toBe(
+      createActiveHyprnavRequestKey({
+        ...input,
+        target: { ...input.target, projectTitle: "Other" },
+      }),
+    );
+    expect(createActiveHyprnavRequestKey(input)).not.toBe(
+      createActiveHyprnavRequestKey({
+        ...input,
+        target: { ...input.target, worktreeTitle: "main" },
       }),
     );
   });
@@ -798,6 +813,7 @@ describe("hyprnavRuntime", () => {
     const project = {
       environmentId: primaryEnvironmentId,
       id: ProjectId.make("project-1"),
+      title: "Repo",
       workspaceRoot: "/repo",
     };
     const thread = {
@@ -805,6 +821,7 @@ describe("hyprnavRuntime", () => {
       id: ThreadId.make("thread-1"),
       projectId: ProjectId.make("project-1"),
       title: "Thread",
+      branch: "feature/x",
       worktreePath: "/repo/worktree",
     };
     expect(
@@ -814,7 +831,23 @@ describe("hyprnavRuntime", () => {
       worktreePath: "/repo/worktree",
       threadId: ThreadId.make("thread-1"),
       threadTitle: "Thread",
+      projectTitle: "Repo",
+      worktreeTitle: "feature/x",
     });
+    expect(
+      resolveActiveHyprnavSyncTarget({
+        primaryEnvironmentId,
+        project,
+        thread: { ...thread, branch: null },
+      } as never)?.worktreeTitle,
+    ).toBe("worktree");
+    expect(
+      resolveActiveHyprnavSyncTarget({
+        primaryEnvironmentId,
+        project,
+        thread: { ...thread, branch: null, worktreePath: null },
+      } as never)?.worktreeTitle,
+    ).toBe("repo");
     expect(
       resolveActiveHyprnavSyncTarget({
         primaryEnvironmentId,

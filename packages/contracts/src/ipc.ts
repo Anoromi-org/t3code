@@ -1240,6 +1240,10 @@ export interface DesktopHyprnavSyncInput {
   readonly worktreePath?: string | null;
   readonly threadId?: string | null;
   readonly threadTitle?: string | null;
+  /** Stored hyprnav title for the project environment (the project name). */
+  readonly projectTitle?: string | null;
+  /** Stored hyprnav title for the worktree environment (branch, else directory name). */
+  readonly worktreeTitle?: string | null;
   readonly hyprnav: ProjectHyprnavSettings;
   readonly preferredEditor?: EditorId | null;
   readonly clearBindings?: readonly DesktopHyprnavScopedSlot[];

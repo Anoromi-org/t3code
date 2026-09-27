@@ -69,6 +69,8 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
       worktreePath: target.worktreePath,
       threadId: target.threadId,
       threadTitle: target.threadTitle,
+      projectTitle: target.projectTitle,
+      worktreeTitle: target.worktreeTitle,
       hyprnav: effectiveSettings,
       clearBindings: cleanup.clearBindings,
       clearNames: cleanup.clearNames,

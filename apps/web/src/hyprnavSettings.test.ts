@@ -304,6 +304,7 @@ describe("hyprnavSettings", () => {
         threadShells: [
           makeThreadShell({
             id: ThreadId.make("thread-1"),
+            branch: "feature/a",
             worktreePath: "/repo/worktrees/feature-a",
           }),
           makeThreadShell({
@@ -316,6 +317,7 @@ describe("hyprnavSettings", () => {
           environmentId: localEnvironmentId,
           projectId,
           title: "Focused thread",
+          branch: null,
           worktreePath: "/repo/worktrees/feature-a",
         },
         clearBindingsByProjectKey: new Map([[projectKey, [{ scope: "thread", slot: 8 }]]]),
@@ -327,6 +329,8 @@ describe("hyprnavSettings", () => {
         worktreePath: "/repo/worktrees/feature-a",
         threadId: ThreadId.make("thread-1"),
         threadTitle: "Thread",
+        projectTitle: "Project",
+        worktreeTitle: "feature/a",
         hyprnav: {
           bindings: DEFAULT_PROJECT_HYPRNAV_SETTINGS.bindings.filter(
             (binding) => binding.scope === "thread",
@@ -341,6 +345,8 @@ describe("hyprnavSettings", () => {
         worktreePath: "/repo/worktrees/feature-a",
         threadId: ThreadId.make("thread-2"),
         threadTitle: "Focused thread",
+        projectTitle: "Project",
+        worktreeTitle: "feature/a",
         hyprnav: {
           bindings: DEFAULT_PROJECT_HYPRNAV_SETTINGS.bindings.filter(
             (binding) => binding.scope === "thread",
@@ -355,6 +361,8 @@ describe("hyprnavSettings", () => {
         worktreePath: "/repo/worktrees/feature-a",
         threadId: null,
         threadTitle: null,
+        projectTitle: "Project",
+        worktreeTitle: "feature/a",
         hyprnav: {
           bindings: DEFAULT_PROJECT_HYPRNAV_SETTINGS.bindings.filter(
             (binding) => binding.scope !== "thread",
@@ -369,6 +377,8 @@ describe("hyprnavSettings", () => {
         worktreePath: null,
         threadId: null,
         threadTitle: null,
+        projectTitle: "Project",
+        worktreeTitle: "repo",
         hyprnav: {
           bindings: DEFAULT_PROJECT_HYPRNAV_SETTINGS.bindings.filter(
             (binding) => binding.scope !== "thread",
@@ -485,6 +495,8 @@ describe("hyprnavSettings", () => {
         worktreePath: null,
         threadId: null,
         threadTitle: null,
+        projectTitle: "Project",
+        worktreeTitle: "repo",
         hyprnav: {
           bindings: DEFAULT_PROJECT_HYPRNAV_SETTINGS.bindings.filter(
             (binding) => binding.scope !== "thread",
