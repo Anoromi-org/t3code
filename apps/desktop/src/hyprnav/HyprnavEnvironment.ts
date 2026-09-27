@@ -34,6 +34,8 @@ export {
 
 const CLIENT_ID = "t3code";
 const COMMAND_TIMEOUT_MS = 5_000;
+/** Tags T3's lock moves so its own follower can ignore the daemon's `locked` echo. */
+const ORIGIN_ARGS = ["--origin", CLIENT_ID] as const;
 
 interface EnvironmentIds {
   readonly projectEnvId: string;
@@ -337,7 +339,7 @@ export class HyprnavEnvironmentManager {
         message: "Missing environment id.",
       });
     }
-    return this.serialize(() => this.run(["lock", envId]));
+    return this.serialize(() => this.run([...ORIGIN_ARGS, "lock", envId]));
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -580,12 +582,15 @@ export class HyprnavEnvironmentManager {
     }
 
     const syncResult = operations.length
-      ? await this.run(["batch", "--stdin"], JSON.stringify({ atomic: true, operations }))
+      ? await this.run(
+          [...ORIGIN_ARGS, "batch", "--stdin"],
+          JSON.stringify({ atomic: true, operations }),
+        )
       : { status: "ok" as const, message: null };
     if (syncResult.status !== "ok") return bindingError ?? syncResult;
     const appliedScopes = [...scopes];
     if (!input.lock) return bindingError ?? { ...syncResult, appliedScopes };
-    const lockResult = await this.run(["lock", ids.lockEnvId]);
+    const lockResult = await this.run([...ORIGIN_ARGS, "lock", ids.lockEnvId]);
     return (
       bindingError ?? (lockResult.status === "ok" ? { ...lockResult, appliedScopes } : lockResult)
     );
