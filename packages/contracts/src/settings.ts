@@ -301,6 +301,13 @@ export const ClientSettingsSchema = Schema.Struct({
   defaultProjectHyprnavSettings: ProjectHyprnavSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROJECT_HYPRNAV_SETTINGS)),
   ),
+  // Navigate to the thread hyprnav locks. `null` is the platform default: on in
+  // the desktop app, off in a browser (several tabs would all follow).
+  hyprnavFollowLock: Schema.NullOr(Schema.Boolean).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  // Lock the opened thread's hyprnav environment when T3 publishes it.
+  hyprnavPublishLock: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // Model favorites. Historically keyed by provider kind, now
   // widened to `ProviderInstanceId` so users can favorite a specific model
   // on a custom provider instance (e.g. "Codex Personal · gpt-5") without
@@ -1217,6 +1224,8 @@ export const ClientSettingsPatch = Schema.Struct({
   fontFamilyTerminal: Schema.optionalKey(FontFamilyPreference),
   fontSmoothing: Schema.optionalKey(Schema.Boolean),
   defaultProjectHyprnavSettings: Schema.optionalKey(ProjectHyprnavSettings),
+  hyprnavFollowLock: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
+  hyprnavPublishLock: Schema.optionalKey(Schema.Boolean),
   favorites: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
