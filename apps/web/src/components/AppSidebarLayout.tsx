@@ -44,6 +44,7 @@ import {
   buildThreadRouteParams,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
+import { HyprnavLockFollower } from "./HyprnavLockFollower";
 import LegacyThreadSidebar from "./LegacySidebar";
 import { NavigationCommandMenu } from "./NavigationCommandMenu";
 import { resolveDraftProjectKeys, resolveProjectDraftId } from "./NavigationCommandMenu.logic";
@@ -549,6 +550,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <SidebarControl />
         <NavigationCommandMenuControl />
         <RecentThreadSwitcherControl />
+        <HyprnavLockFollower />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );

@@ -1,5 +1,5 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { DesktopHyprnavSyncInput, ScopedThreadRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo } from "react";
 
@@ -21,6 +21,7 @@ import {
   resolveActiveHyprnavSyncTarget,
   resolveEffectiveHyprnavSettings,
 } from "../hyprnavRuntime";
+import { consumeFollowedThread } from "../hyprnavLockFollower";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { useProject, useThreadShell } from "../state/entities";
 import { primaryServerAvailableEditorsAtom } from "../state/server";
@@ -35,6 +36,7 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
     thread ? scopeProjectRef(thread.environmentId, thread.projectId) : null,
   );
   const defaults = useClientSettings((settings) => settings.defaultProjectHyprnavSettings);
+  const publishLock = useClientSettings((settings) => settings.hyprnavPublishLock);
   const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
   const effectiveSettings = useMemo(
     () => resolveEffectiveHyprnavSettings(project?.hyprnav, defaults),
@@ -64,7 +66,7 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
       target,
       settings: effectiveSettings,
     });
-    const request = {
+    const firstRequest: DesktopHyprnavSyncInput = {
       projectRoot: target.projectRoot,
       worktreePath: target.worktreePath,
       threadId: target.threadId,
@@ -74,8 +76,13 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
       hyprnav: effectiveSettings,
       clearBindings: cleanup.clearBindings,
       clearNames: cleanup.clearNames,
-      lock: true,
-    } as const;
+      // A thread the follower opened is already locked; locking it again could
+      // undo a newer lock the user made in hyprnav meanwhile.
+      lock: publishLock && !consumeFollowedThread(threadRef),
+    };
+    // Refreshes only renew credentials; the lock may have moved since.
+    const refreshRequest = { ...firstRequest, lock: false };
+    let request = firstRequest;
     void (async () => {
       for (;;) {
         if (cancelled) return;
@@ -109,6 +116,7 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
             }
             if (credentialRefreshDelay === null) return;
             await delay.wait(credentialRefreshDelay);
+            request = refreshRequest;
             continue;
           }
           if (!warned) {
@@ -141,7 +149,7 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
       cancelled = true;
       delay.cancel();
     };
-  }, [requestKey]);
+  }, [requestKey, publishLock]);
 
   return null;
 }

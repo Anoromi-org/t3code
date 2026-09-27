@@ -25,7 +25,9 @@ import {
   useClientSettingsHydrated,
   usePersistClientSettings,
   usePrimarySettings,
+  useUpdateClientSettings,
 } from "../../hooks/useSettings";
+import { isElectron } from "../../env";
 import { useProject } from "../../state/entities";
 import { usePrimaryEnvironment } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
@@ -68,7 +70,8 @@ import { deduplicateProjectsByPhysicalKey } from "../../sidebarProjectGrouping";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
+import { Switch } from "../ui/switch";
+import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 
 export type HyprnavDraftBinding = {
   readonly id: string;
@@ -661,6 +664,7 @@ export function HyprnavEditor({
   resetSettings,
   context,
   onBusyChange,
+  children,
 }: {
   readonly title: string;
   readonly description: string;
@@ -672,6 +676,8 @@ export function HyprnavEditor({
   readonly resetSettings?: ProjectHyprnavSettings;
   readonly context?: ReactNode;
   readonly onBusyChange?: (busy: boolean) => void;
+  /** Further sections below the bindings. */
+  readonly children?: ReactNode;
 }) {
   const [draft, setDraft] = useState(() => hyprnavDraftFromSettings(initialSettings));
   const [busy, setBusy] = useState(false);
@@ -827,7 +833,45 @@ export function HyprnavEditor({
           </Button>
         </div>
       </SettingsSection>
+      {children}
     </SettingsPageContainer>
+  );
+}
+
+/** Per-device toggles for keeping T3's open thread and hyprnav's lock in step. */
+function HyprnavLockSyncSettings() {
+  const followLock = useClientSettings((settings) => settings.hyprnavFollowLock) ?? isElectron;
+  const publishLock = useClientSettings((settings) => settings.hyprnavPublishLock);
+  const updateClientSettings = useUpdateClientSettings();
+  return (
+    <SettingsSection title="Thread sync">
+      <SettingsRow
+        title="Follow the hyprnav lock"
+        description="Open the thread hyprnav locks, for example from the grid. On this device only."
+        control={
+          <Switch
+            checked={followLock}
+            onCheckedChange={(checked) =>
+              updateClientSettings({ hyprnavFollowLock: Boolean(checked) })
+            }
+            aria-label="Follow the hyprnav lock"
+          />
+        }
+      />
+      <SettingsRow
+        title="Lock the open thread"
+        description="Move the hyprnav lock to a thread when you open it here."
+        control={
+          <Switch
+            checked={publishLock}
+            onCheckedChange={(checked) =>
+              updateClientSettings({ hyprnavPublishLock: Boolean(checked) })
+            }
+            aria-label="Lock the open thread in hyprnav"
+          />
+        }
+      />
+    </SettingsSection>
   );
 }
 
@@ -870,7 +914,9 @@ export function HyprnavDefaultsSettingsPanel() {
           availableEditors,
         });
       }}
-    />
+    >
+      <HyprnavLockSyncSettings />
+    </HyprnavEditor>
   );
 }
 

@@ -5,13 +5,14 @@
  * by hyprnav's event socket, so nothing polls in the steady state. Polling is
  * kept only as a fallback for when EventSource is missing or the stream keeps
  * failing to open. It lives outside any component because three of them read
- * it — the agents panel, the tab badge, and the floating mini player host —
- * and a second subscription would mean a second stream.
+ * it — the agents panel, the tab badge, and the floating mini player host. The
+ * stream itself is the shared one in `hyprnavEventStream`.
  */
 import type { DesktopHyprnavAgent } from "@t3tools/contracts";
 import { useSyncExternalStore } from "react";
 
 import { resolvePrimaryEnvironmentHttpUrl } from "./environments/primary/target";
+import { type HyprnavStreamEventName, subscribeHyprnavEventStream } from "./hyprnavEventStream";
 
 /**
  * Electron exposes hyprnav through the preload bridge. In a browser on the
@@ -73,29 +74,17 @@ export interface DesktopAgentsSnapshot {
 const EMPTY_SNAPSHOT: DesktopAgentsSnapshot = { agents: null, connected: true };
 
 const POLL_INTERVAL_MS = 1500;
-/** Consecutive EventSource failures before giving up on the stream for good. */
-const SSE_FAILURE_LIMIT = 3;
 
 let snapshot: DesktopAgentsSnapshot = EMPTY_SNAPSHOT;
 const storeListeners = new Set<() => void>();
 let subscriberCount = 0;
-let eventSource: EventSource | null = null;
+let releaseStream: (() => void) | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
-let sseFailures = 0;
 
 function publish(next: Partial<DesktopAgentsSnapshot>): void {
   snapshot = { ...snapshot, ...next };
   // Copying is deliberate: a listener may unsubscribe while being notified.
   for (const listener of Array.from(storeListeners)) listener();
-}
-
-function resolveEventsUrl(): string | null {
-  if (typeof window === "undefined" || typeof EventSource === "undefined") return null;
-  try {
-    return resolvePrimaryEnvironmentHttpUrl("/api/hyprnav/events");
-  } catch {
-    return null;
-  }
 }
 
 function startPolling(): void {
@@ -117,57 +106,35 @@ function stopPolling(): void {
   pollTimer = null;
 }
 
-function startStream(url: string): void {
-  const source = new EventSource(url);
-  eventSource = source;
-  source.addEventListener("open", () => {
-    sseFailures = 0;
-    stopPolling();
-  });
-  source.addEventListener("agents", (event: MessageEvent<string>) => {
-    try {
-      const payload = JSON.parse(event.data) as { agents?: ReadonlyArray<DesktopHyprnavAgent> };
+function handleStreamEvent(name: HyprnavStreamEventName, data: string): void {
+  try {
+    if (name === "agents") {
+      const payload = JSON.parse(data) as { agents?: ReadonlyArray<DesktopHyprnavAgent> };
       if (Array.isArray(payload.agents)) publish({ agents: payload.agents });
-    } catch {
-      // A malformed line is the daemon's problem; keep the last good list.
-    }
-  });
-  source.addEventListener("status", (event: MessageEvent<string>) => {
-    try {
-      const payload = JSON.parse(event.data) as { connected?: boolean };
+    } else if (name === "status") {
+      const payload = JSON.parse(data) as { connected?: boolean };
       if (typeof payload.connected === "boolean") publish({ connected: payload.connected });
-    } catch {
-      // ignore
     }
-  });
-  source.addEventListener("error", () => {
-    // EventSource retries on its own; only a run of failures means the route
-    // is not there (old server, no loopback) and polling should take over.
-    sseFailures += 1;
-    if (sseFailures < SSE_FAILURE_LIMIT) return;
-    source.close();
-    if (eventSource === source) eventSource = null;
-    publish({ connected: true });
-    startPolling();
-  });
+  } catch {
+    // A malformed line is the daemon's problem; keep the last good value.
+  }
 }
 
 function openSource(): void {
-  const url = resolveEventsUrl();
-  if (url === null) {
-    startPolling();
-    return;
-  }
-  startStream(url);
+  releaseStream = subscribeHyprnavEventStream({
+    onOpen: stopPolling,
+    onEvent: handleStreamEvent,
+    onUnavailable: () => {
+      publish({ connected: true });
+      startPolling();
+    },
+  });
 }
 
 function closeSource(): void {
   stopPolling();
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
-  }
-  sseFailures = 0;
+  releaseStream?.();
+  releaseStream = null;
   snapshot = EMPTY_SNAPSHOT;
 }
 
