@@ -9,11 +9,17 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
+        "aarch64-darwin"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       mkPkgs = system: import nixpkgs { inherit system; };
       mkPnpm = pkgs: pkgs.callPackage ./nix/pnpm.nix { };
-      mkElectron = pkgs: pkgs.callPackage ./nix/electron.nix { };
+      mkElectron =
+        pkgs:
+        if pkgs.stdenv.hostPlatform.isDarwin then
+          pkgs.electron_44
+        else
+          pkgs.callPackage ./nix/electron.nix { };
       mkRustHelper = pkgs: name: pkgs.callPackage ./nix/rust-helper.nix { inherit name; };
       mkSource =
         pkgs:
@@ -57,11 +63,13 @@
               pkgs.git
               t3codeElectron
               pkgs.nodejs_24
-              pkgs.libsecret
               pkgs.openssl
               pkgs.pkg-config
               pnpm
               pkgs.python3
+            ]
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+              pkgs.libsecret
               pkgs.xdg-utils
             ];
             env = {

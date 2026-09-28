@@ -33,13 +33,17 @@ let
         package = "vite-plus-linux-x64-gnu";
         hash = "sha512-ZHN3RCA422XrGYmSDE9IZqx/eM5PsFCXHn8hUttQEwcSVXsuKBArDyb/uxonn1n0bPNW8c4G4HvNmIS3ckLXzA==";
       };
+      aarch64-darwin = {
+        package = "vite-plus-darwin-arm64";
+        hash = "sha512-1hwUfQGqvzlO+qQ7r1i5XQWkKaWq/JcdAAZOPloMQsZq7P8rgiY1pq/0q4stzcNxFF74k4aEFOlDUKi6D149YA==";
+      };
       aarch64-linux = {
         package = "vite-plus-linux-arm64-gnu";
         hash = "sha512-WC8/kT0/btxnwgYR5QvvelbgUaLQ6lbxs8aMQpjc63p1QdMTNZEbp3vnTV2l9KgoUYeyHnALJVBW9l1CJAM+fA==";
       };
     }
     .${stdenv.hostPlatform.system};
-  vitePlusLinuxBinding = fetchurl {
+  vitePlusBinding = fetchurl {
     url = "https://registry.npmjs.org/@voidzero-dev/${vitePlusBindingInfo.package}/-/${vitePlusBindingInfo.package}-0.3.3.tgz";
     inherit (vitePlusBindingInfo) hash;
   };
@@ -70,17 +74,19 @@ stdenv.mkDerivation (finalAttrs: {
   };
 
   nativeBuildInputs = [
-    autoPatchelfHook
-    copyDesktopItems
     nodejs_24
     openssl
     pkg-config
     pnpm
     pnpmConfigHook
     python3
+  ]
+  ++ lib.optionals stdenv.hostPlatform.isLinux [
+    autoPatchelfHook
+    copyDesktopItems
   ];
 
-  buildInputs = [
+  buildInputs = lib.optionals stdenv.hostPlatform.isLinux [
     libsecret
     # @crowecawcaw/xa11y links libxkbcommon for accessibility key handling.
     libxkbcommon
@@ -98,7 +104,7 @@ stdenv.mkDerivation (finalAttrs: {
     SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
   };
 
-  desktopItems = [
+  desktopItems = lib.optionals stdenv.hostPlatform.isLinux [
     (makeDesktopItem {
       # Matches the app's default Linux desktop id so the portal, window
       # identity, and t3code:// handler all resolve to this entry.
@@ -121,7 +127,7 @@ stdenv.mkDerivation (finalAttrs: {
 
     # The pnpm FOD can omit an optional native package after a registry fetch error.
     mkdir -p node_modules/@voidzero-dev/${vitePlusBindingInfo.package}
-    tar -xzf ${vitePlusLinuxBinding} \
+    tar -xzf ${vitePlusBinding} \
       -C node_modules/@voidzero-dev/${vitePlusBindingInfo.package} \
       --strip-components=1
 
@@ -165,21 +171,24 @@ stdenv.mkDerivation (finalAttrs: {
     # Electron's own resources directory is immutable here, so the launcher
     # points T3CODE_DESKTOP_RESOURCES_PATH at the layout packaged builds expect.
     resources_root="$app_root/resources"
-    install -Dm755 native/browser-secret/build/*/t3-browser-secret \
-      "$resources_root/browser-secret/t3-browser-secret"
+    mkdir -p "$resources_root"
+    ${lib.optionalString stdenv.hostPlatform.isLinux ''
+      install -Dm755 native/browser-secret/build/*/t3-browser-secret \
+        "$resources_root/browser-secret/t3-browser-secret"
+      install -Dm755 ${lib.getExe hyprlandSnapShot} \
+        "$resources_root/hyprland-capture/t3-hyprland-snap-shot"
+      # The protocol XML carries the BSD notices required with the binary.
+      cp -r native/hyprland-snap-shot/protocols "$resources_root/hyprland-capture/protocols"
+      install -Dm755 ${lib.getExe kdeSnapShot} \
+        "$resources_root/kde-capture/t3-kde-snap-shot"
+      mkdir -p "$resources_root/gnome-extension"
+      node -e 'for (const file of require("./apps/desktop/gnome-extension/bundle.json").files) console.log(file)' |
+        while IFS= read -r file; do
+          install -Dm644 "apps/desktop/gnome-extension/$file" "$resources_root/gnome-extension/$file"
+        done
+    ''}
     install -Dm755 ${lib.getExe resourceMonitor} \
       "$resources_root/resource-monitor/t3-resource-monitor"
-    install -Dm755 ${lib.getExe hyprlandSnapShot} \
-      "$resources_root/hyprland-capture/t3-hyprland-snap-shot"
-    # The protocol XML carries the BSD notices required with the binary.
-    cp -r native/hyprland-snap-shot/protocols "$resources_root/hyprland-capture/protocols"
-    install -Dm755 ${lib.getExe kdeSnapShot} \
-      "$resources_root/kde-capture/t3-kde-snap-shot"
-    mkdir -p "$resources_root/gnome-extension"
-    node -e 'for (const file of require("./apps/desktop/gnome-extension/bundle.json").files) console.log(file)' |
-      while IFS= read -r file; do
-        install -Dm644 "apps/desktop/gnome-extension/$file" "$resources_root/gnome-extension/$file"
-      done
     cp -a apps/server/dist "$app_root/apps/server/dist"
 
     cat > "$app_root/package.json" <<EOF
@@ -209,10 +218,17 @@ stdenv.mkDerivation (finalAttrs: {
       cd "$node_pty_dir"
       node ${pnpm}/lib/pnpm/dist/node_modules/node-gyp/bin/node-gyp.js rebuild
     )
+    ${lib.optionalString stdenv.hostPlatform.isDarwin ''
+      cp "$node_pty_dir/build/Release/spawn-helper" "$TMPDIR/spawn-helper"
+    ''}
     cp "$node_pty_dir/build/Release/pty.node" "$TMPDIR/pty.node"
     rm -rf "$node_pty_dir/build"
     find "$node_pty_dir/../.." -maxdepth 1 -type d -name 'node-addon-api@*' -exec rm -rf {} +
     install -Dm755 "$TMPDIR/pty.node" "$node_pty_dir/build/Release/pty.node"
+
+    ${lib.optionalString stdenv.hostPlatform.isDarwin ''
+      install -Dm755 "$TMPDIR/spawn-helper" "$node_pty_dir/build/Release/spawn-helper"
+    ''}
 
     install -Dm644 assets/prod/black-universal-1024.png \
       "$app_root/apps/desktop/resources/icon.png"
@@ -228,7 +244,9 @@ stdenv.mkDerivation (finalAttrs: {
     export T3CODE_DESKTOP_LINUX_URL_HANDLER_EXEC="$out/bin/t3-code"
     export T3CODE_DESKTOP_RESOURCES_PATH="$app_root/resources"
     export T3CODE_DISABLE_AUTO_UPDATE=\''${T3CODE_DISABLE_AUTO_UPDATE:-1}
-    export PATH=${lib.makeBinPath [ xdg-utils ]}:\''${PATH:-}
+    ${lib.optionalString stdenv.hostPlatform.isLinux ''
+      export PATH=${lib.makeBinPath [ xdg-utils ]}:\''${PATH:-}
+    ''}
 
     sandbox_args=()
     if [[ \''${T3CODE_DESKTOP_DISABLE_SANDBOX:-0} == 1 ]]; then
@@ -267,6 +285,6 @@ stdenv.mkDerivation (finalAttrs: {
     homepage = "https://github.com/pingdotgg/t3code";
     license = lib.licenses.mit;
     mainProgram = "t3-code";
-    platforms = lib.platforms.linux;
+    platforms = lib.platforms.linux ++ [ "aarch64-darwin" ];
   };
 })
