@@ -48,7 +48,7 @@ vi.mock("../editorPreferences", () => ({ resolveAndPersistPreferredEditor: () =>
 vi.mock("../env", () => ({ isElectron: true }));
 vi.mock("../hooks/useSettings", () => ({
   useClientSettings: (select: (settings: unknown) => unknown) =>
-    select({ defaultProjectHyprnavSettings: { bindings: [] } }),
+    select({ defaultProjectHyprnavSettings: { bindings: [] }, hyprnavBrowserSlots: [] }),
 }));
 vi.mock("../state/environments", () => ({
   usePrimaryEnvironmentId: () => EnvironmentId.make(state.primaryEnvironmentId),

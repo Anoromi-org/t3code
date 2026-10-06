@@ -1,6 +1,7 @@
 import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import type {
   DesktopBridge,
+  DesktopHyprnavBrowserTab,
   DesktopHyprnavScopedSlot,
   DesktopHyprnavSyncInput,
   DesktopHyprnavSyncResult,
@@ -65,14 +66,20 @@ export function createActiveHyprnavRequestKey(input: {
   readonly target: ActiveHyprnavSyncTarget | null;
   readonly settings: ProjectHyprnavSettings;
   readonly availableEditors: readonly EditorId[];
+  readonly browserTabs?: readonly DesktopHyprnavBrowserTab[];
 }): string | null {
   return input.target
     ? JSON.stringify({
         target: input.target,
         settings: input.settings,
         availableEditors: input.availableEditors,
+        browserTabs: input.browserTabs ?? [],
       })
     : null;
+}
+
+function requestHasBrowserWork(request: DesktopHyprnavSyncInput): boolean {
+  return (request.browserTabs?.length ?? 0) > 0 || (request.clearBrowserTabs?.length ?? 0) > 0;
 }
 
 export interface HyprnavPublicationScopeState {
@@ -373,7 +380,9 @@ export function hyprnavSyncNeedsScopeRetry(
     ...request.hyprnav.bindings.map((binding) => binding.scope),
     ...(request.clearBindings ?? []).map((binding) => binding.scope),
     ...(request.clearNames ?? []).map((binding) => binding.scope),
-    ...(request.lock && request.threadId ? (["thread"] as const) : []),
+    ...((request.lock || requestHasBrowserWork(request)) && request.threadId
+      ? (["thread"] as const)
+      : []),
   ]);
   const appliedScopes = new Set(result.appliedScopes);
   return [...requestedScopes].some((scope) => !appliedScopes.has(scope));
@@ -509,6 +518,7 @@ function requestHasSyncWork(request: DesktopHyprnavSyncInput): boolean {
     request.hyprnav.bindings.length > 0 ||
     (request.clearBindings?.length ?? 0) > 0 ||
     (request.clearNames?.length ?? 0) > 0 ||
+    requestHasBrowserWork(request) ||
     request.lock
   );
 }
@@ -646,7 +656,7 @@ export async function publishHyprnavRequests(input: {
       ...syncRequest.hyprnav.bindings.map((binding) => binding.scope),
       ...(syncRequest.clearBindings ?? []).map((binding) => binding.scope),
       ...(syncRequest.clearNames ?? []).map((binding) => binding.scope),
-      ...(syncRequest.lock ? (["thread"] as const) : []),
+      ...(syncRequest.lock || requestHasBrowserWork(syncRequest) ? (["thread"] as const) : []),
     ];
     for (const scope of result.appliedScopes ?? fallbackScopes) appliedScopes.add(scope);
   }

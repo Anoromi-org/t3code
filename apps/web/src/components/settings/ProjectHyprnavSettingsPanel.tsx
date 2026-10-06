@@ -71,6 +71,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { HyprnavBrowserSlotsSettings } from "./HyprnavBrowserSlotsSettings";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 
 export type HyprnavDraftBinding = {
@@ -916,6 +917,7 @@ export function HyprnavDefaultsSettingsPanel() {
       }}
     >
       <HyprnavLockSyncSettings />
+      <HyprnavBrowserSlotsSettings />
     </HyprnavEditor>
   );
 }
