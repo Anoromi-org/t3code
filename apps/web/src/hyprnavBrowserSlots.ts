@@ -24,9 +24,11 @@ export function hyprnavThreadBindingSlots(settings: ProjectHyprnavSettings): Set
 
 function browserSlotValue(
   slot: HyprnavBrowserSlot,
-  thread: { readonly branch: string | null | undefined },
+  thread: HyprnavBrowserSlotThread,
 ): string | null {
   switch (slot.value) {
+    case "checkout":
+      return thread.checkoutPath?.trim() || null;
     case "branch":
       return thread.branch?.trim() || null;
     default:
@@ -34,13 +36,20 @@ function browserSlotValue(
   }
 }
 
+/** What a browser slot can take its per-thread value from. */
+export interface HyprnavBrowserSlotThread {
+  readonly branch: string | null | undefined;
+  /** The thread's working directory: its worktree, else the project root. */
+  readonly checkoutPath: string | null | undefined;
+}
+
 /**
  * The browser slots one thread should have. A thread without the slot's value
- * (no branch) gets none, so any earlier target for it is cleared.
+ * (for example no branch) gets none, so any earlier target for it is cleared.
  */
 export function resolveHyprnavBrowserTabs(input: {
   readonly slots: readonly HyprnavBrowserSlot[];
-  readonly thread: { readonly branch: string | null | undefined };
+  readonly thread: HyprnavBrowserSlotThread;
   readonly bindingSlots: ReadonlySet<number>;
 }): DesktopHyprnavBrowserTab[] {
   const tabs: DesktopHyprnavBrowserTab[] = [];
@@ -189,7 +198,7 @@ export const hyprnavBrowserTabHistory: HyprnavBrowserTabHistory = loadHyprnavBro
 /**
  * Every primary-environment thread that needs its browser slots changed:
  * threads with a value get the slots, and slots T3 attached earlier but no
- * longer wants (removed entry, archived thread, lost branch) are cleared.
+ * longer wants (removed entry, archived thread, missing value) are cleared.
  */
 export function buildHyprnavBrowserTabThreads(input: {
   readonly localEnvironmentId: EnvironmentId;
@@ -228,7 +237,11 @@ export function buildHyprnavBrowserTabThreads(input: {
     const bindingSlots = bindingSlotsFor(project);
     const browserTabs = thread.archivedAt
       ? []
-      : resolveHyprnavBrowserTabs({ slots: input.slots, thread, bindingSlots });
+      : resolveHyprnavBrowserTabs({
+          slots: input.slots,
+          thread: { branch: thread.branch, checkoutPath: worktreePath ?? project.workspaceRoot },
+          bindingSlots,
+        });
     const clearBrowserTabs = computeHyprnavBrowserTabClears(input.history.get(key), browserTabs);
     if (browserTabs.length === 0 && clearBrowserTabs.length === 0) continue;
     result.push({

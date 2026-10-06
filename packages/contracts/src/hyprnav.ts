@@ -274,10 +274,12 @@ export const HyprnavBrowserKind = Schema.Literals(["chromium", "firefox"]);
 export type HyprnavBrowserKind = typeof HyprnavBrowserKind.Type;
 
 /**
- * Where a browser slot's per-thread query value comes from. `branch` is the
- * thread's worktree branch; threads without one get no browser slot.
+ * Where a browser slot's per-thread query value comes from. `checkout` is the
+ * absolute directory the thread works in (its worktree, else the project
+ * root), which identifies it across projects. `branch` is the thread's branch;
+ * threads without one get no browser slot.
  */
-export const HyprnavBrowserSlotValueSource = Schema.Literals(["branch"]);
+export const HyprnavBrowserSlotValueSource = Schema.Literals(["checkout", "branch"]);
 export type HyprnavBrowserSlotValueSource = typeof HyprnavBrowserSlotValueSource.Type;
 
 /**
@@ -291,9 +293,9 @@ export const HyprnavBrowserSlot = Schema.Struct({
   browser: HyprnavBrowserKind.pipe(Schema.withDecodingDefaultKey(Effect.succeed("chromium"))),
   tabName: TrimmedNonEmptyString,
   url: TrimmedNonEmptyString,
-  param: TrimmedNonEmptyString.pipe(Schema.withDecodingDefaultKey(Effect.succeed("branch"))),
+  param: TrimmedNonEmptyString.pipe(Schema.withDecodingDefaultKey(Effect.succeed("checkout"))),
   value: HyprnavBrowserSlotValueSource.pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed("branch")),
+    Schema.withDecodingDefaultKey(Effect.succeed("checkout")),
   ),
 });
 export type HyprnavBrowserSlot = typeof HyprnavBrowserSlot.Type;

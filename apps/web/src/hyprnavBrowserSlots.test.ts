@@ -35,6 +35,8 @@ const PR_SLOT: HyprnavBrowserSlot = {
   value: "branch",
 };
 
+const CHECKOUT_SLOT: HyprnavBrowserSlot = { ...PR_SLOT, param: "checkout", value: "checkout" };
+
 const PR_TAB = {
   slot: 6,
   workspaceId: 16,
@@ -48,7 +50,7 @@ describe("resolveHyprnavBrowserTabs", () => {
     expect(
       resolveHyprnavBrowserTabs({
         slots: [PR_SLOT],
-        thread: { branch: " feature/a " },
+        thread: { branch: " feature/a ", checkoutPath: "/repo/wt/a" },
         bindingSlots: new Set(),
       }),
     ).toEqual([PR_TAB]);
@@ -58,14 +60,14 @@ describe("resolveHyprnavBrowserTabs", () => {
     expect(
       resolveHyprnavBrowserTabs({
         slots: [PR_SLOT],
-        thread: { branch: null },
+        thread: { branch: null, checkoutPath: "/repo" },
         bindingSlots: new Set(),
       }),
     ).toEqual([]);
     expect(
       resolveHyprnavBrowserTabs({
         slots: [PR_SLOT],
-        thread: { branch: "feature/a" },
+        thread: { branch: "feature/a", checkoutPath: "/repo/wt/a" },
         bindingSlots: hyprnavThreadBindingSlots({
           bindings: [
             {
@@ -79,6 +81,16 @@ describe("resolveHyprnavBrowserTabs", () => {
         }),
       }),
     ).toEqual([]);
+  });
+
+  it("uses the checkout path for checkout slots, even without a branch", () => {
+    expect(
+      resolveHyprnavBrowserTabs({
+        slots: [CHECKOUT_SLOT],
+        thread: { branch: null, checkoutPath: "/repo" },
+        bindingSlots: new Set(),
+      }),
+    ).toEqual([{ ...PR_TAB, value: "/repo" }]);
   });
 
   it("only counts thread-scope bindings as owners", () => {
@@ -178,6 +190,38 @@ describe("buildHyprnavBrowserTabThreads", () => {
       },
       expect.objectContaining({ threadId: "b", browserTabs: [], clearBrowserTabs: [6] }),
     ]);
+  });
+});
+
+describe("buildHyprnavBrowserTabThreads with checkout slots", () => {
+  it("sends the worktree path, else the project root", () => {
+    const localEnvironmentId = EnvironmentId.make("local");
+    const project = {
+      environmentId: localEnvironmentId,
+      id: ProjectId.make("project-1"),
+      title: "Repo",
+      workspaceRoot: "/repo",
+      hyprnav: null,
+    };
+    const base = {
+      environmentId: localEnvironmentId,
+      projectId: project.id,
+      title: "Thread",
+      branch: null,
+      archivedAt: null,
+    };
+    const threads = buildHyprnavBrowserTabThreads({
+      localEnvironmentId,
+      slots: [CHECKOUT_SLOT],
+      threads: [
+        { ...base, id: ThreadId.make("wt"), worktreePath: "/repo/wt/a" },
+        { ...base, id: ThreadId.make("root"), worktreePath: null },
+      ] as never,
+      projects: [project] as never,
+      defaults: DEFAULT_PROJECT_HYPRNAV_SETTINGS,
+      history: new Map(),
+    });
+    expect(threads.map((thread) => thread.browserTabs[0]?.value)).toEqual(["/repo/wt/a", "/repo"]);
   });
 });
 

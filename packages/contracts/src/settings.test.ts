@@ -166,7 +166,7 @@ describe("ClientSettings hyprnav browser slots", () => {
     expect(decodeClientSettings({}).hyprnavBrowserSlots).toEqual([]);
   });
 
-  it("defaults browser, param and value source", () => {
+  it("defaults browser, and param and value to the checkout", () => {
     const decoded = decodeClientSettingsPatch({
       hyprnavBrowserSlots: [
         { slot: 7, workspace: 17, tabName: "pr-review", url: "http://127.0.0.1:4318/" },
@@ -179,9 +179,24 @@ describe("ClientSettings hyprnav browser slots", () => {
         browser: "chromium",
         tabName: "pr-review",
         url: "http://127.0.0.1:4318/",
-        param: "branch",
-        value: "branch",
+        param: "checkout",
+        value: "checkout",
       },
+    ]);
+  });
+
+  it("keeps explicitly saved branch entries", () => {
+    const saved = {
+      slot: 6,
+      workspace: 3,
+      browser: "chromium",
+      tabName: "pr-review",
+      url: "http://127.0.0.1:4318/",
+      param: "branch",
+      value: "branch",
+    };
+    expect(decodeClientSettings({ hyprnavBrowserSlots: [saved] }).hyprnavBrowserSlots).toEqual([
+      saved,
     ]);
   });
 

@@ -2,6 +2,7 @@ import type {
   DesktopHyprnavBrowserTabRegistration,
   HyprnavBrowserKind,
   HyprnavBrowserSlot,
+  HyprnavBrowserSlotValueSource,
 } from "@t3tools/contracts";
 import { AlertTriangleIcon, MinusIcon, PlusIcon, SaveIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -35,7 +36,13 @@ export interface HyprnavBrowserSlotDraft {
   readonly tabName: string;
   readonly url: string;
   readonly param: string;
+  readonly value: HyprnavBrowserSlotValueSource;
 }
+
+const VALUE_LABELS: Record<HyprnavBrowserSlotValueSource, string> = {
+  checkout: "Checkout path",
+  branch: "Branch",
+};
 
 const BROWSER_LABELS: Record<HyprnavBrowserKind, string> = {
   chromium: "Chromium",
@@ -57,6 +64,7 @@ export function browserSlotDraftFromSettings(
     tabName: slot.tabName,
     url: slot.url,
     param: slot.param,
+    value: slot.value,
   }));
 }
 
@@ -83,7 +91,7 @@ export function parseHyprnavBrowserSlotsDraft(draft: readonly HyprnavBrowserSlot
     if (!tabName || !url || !param) {
       return { slots: null, message: "Browser slots need a tab name, URL and parameter." };
     }
-    slots.push({ slot, workspace, browser: item.browser, tabName, url, param, value: "branch" });
+    slots.push({ slot, workspace, browser: item.browser, tabName, url, param, value: item.value });
   }
   return { slots, message: null };
 }
@@ -237,9 +245,10 @@ export function HyprnavBrowserSlotsSettings() {
     <SettingsSection title="Browser slots">
       <div className="border-b border-border/60 px-4 py-3.5 sm:px-5">
         <p className="max-w-[70ch] text-xs text-muted-foreground/80">
-          Every local thread with a branch gets this slot. Going to it switches to the workspace and
-          points the named browser tab at the URL with the thread&apos;s branch as the parameter.
-          Needs the hyprnav browser extension. A thread binding on the same slot takes precedence.
+          Every local thread gets this slot. Going to it switches to the workspace and points the
+          named browser tab at the URL with the thread&apos;s value as the query parameter: its
+          checkout path (worktree, else project folder) or its branch. Needs the hyprnav browser
+          extension. A thread binding on the same slot takes precedence.
         </p>
       </div>
       {draft.length === 0 ? (
@@ -318,7 +327,7 @@ export function HyprnavBrowserSlotsSettings() {
                   <MinusIcon className="size-4" />
                 </Button>
               </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_auto] sm:items-end">
+              <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_9rem_auto] sm:items-end">
                 <label className="grid gap-1.5 text-xs font-medium text-foreground">
                   URL
                   <Input
@@ -331,7 +340,30 @@ export function HyprnavBrowserSlotsSettings() {
                   />
                 </label>
                 <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                  Branch parameter
+                  Value
+                  <Select
+                    value={item.value}
+                    disabled={disabled}
+                    onValueChange={(value) =>
+                      patch(index, { value: value as HyprnavBrowserSlotValueSource })
+                    }
+                  >
+                    <SelectTrigger aria-label={`Value for browser ${label}`}>
+                      <SelectValue>{VALUE_LABELS[item.value]}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {(Object.keys(VALUE_LABELS) as HyprnavBrowserSlotValueSource[]).map(
+                        (value) => (
+                          <SelectItem key={value} value={value}>
+                            {VALUE_LABELS[value]}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectPopup>
+                  </Select>
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                  Query parameter
                   <Input
                     aria-label={`Query parameter for browser ${label}`}
                     className="font-mono text-xs"
@@ -371,7 +403,8 @@ export function HyprnavBrowserSlotsSettings() {
                 browser: "chromium",
                 tabName: "",
                 url: "",
-                param: "branch",
+                param: "checkout",
+                value: "checkout",
               },
             ])
           }

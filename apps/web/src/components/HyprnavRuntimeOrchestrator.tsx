@@ -58,14 +58,15 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
   );
   const browserSlots = useClientSettings((settings) => settings.hyprnavBrowserSlots);
   const branch = thread?.branch ?? null;
+  const checkoutPath = target ? (target.worktreePath ?? target.projectRoot) : null;
   const browserTabs = useMemo(
     () =>
       resolveHyprnavBrowserTabs({
         slots: browserSlots,
-        thread: { branch },
+        thread: { branch, checkoutPath },
         bindingSlots: hyprnavThreadBindingSlots(effectiveSettings),
       }),
-    [browserSlots, branch, effectiveSettings],
+    [browserSlots, branch, checkoutPath, effectiveSettings],
   );
   const requestKey = createActiveHyprnavRequestKey({
     target,
