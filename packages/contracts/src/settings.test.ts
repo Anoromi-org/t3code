@@ -161,6 +161,43 @@ describe("ClientSettings hyprnav lock sync", () => {
   });
 });
 
+describe("ClientSettings hyprnav browser slots", () => {
+  it("is off by default", () => {
+    expect(decodeClientSettings({}).hyprnavBrowserSlots).toEqual([]);
+  });
+
+  it("defaults browser, param and value source", () => {
+    const decoded = decodeClientSettingsPatch({
+      hyprnavBrowserSlots: [
+        { slot: 7, workspace: 17, tabName: "pr-review", url: "http://127.0.0.1:4318/" },
+      ],
+    });
+    expect(decoded.hyprnavBrowserSlots).toEqual([
+      {
+        slot: 7,
+        workspace: 17,
+        browser: "chromium",
+        tabName: "pr-review",
+        url: "http://127.0.0.1:4318/",
+        param: "branch",
+        value: "branch",
+      },
+    ]);
+  });
+
+  it("rejects non-positive slots and unknown browsers", () => {
+    const base = { workspace: 17, tabName: "pr-review", url: "http://127.0.0.1:4318/" };
+    expect(() =>
+      decodeClientSettingsPatch({ hyprnavBrowserSlots: [{ ...base, slot: 0 }] }),
+    ).toThrow();
+    expect(() =>
+      decodeClientSettingsPatch({
+        hyprnavBrowserSlots: [{ ...base, slot: 1, browser: "safari" }],
+      }),
+    ).toThrow();
+  });
+});
+
 describe("ClientSettings proactive panels", () => {
   it("is opt-in and accepts client-local updates", () => {
     expect(decodeClientSettings({}).proactivePanelsEnabled).toBe(false);

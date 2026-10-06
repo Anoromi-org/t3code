@@ -270,6 +270,34 @@ export type ProjectHyprnavSettings = typeof ProjectHyprnavSettings.Type;
 export const ProjectHyprnavOverride = Schema.NullOr(ProjectHyprnavSettings);
 export type ProjectHyprnavOverride = typeof ProjectHyprnavOverride.Type;
 
+export const HyprnavBrowserKind = Schema.Literals(["chromium", "firefox"]);
+export type HyprnavBrowserKind = typeof HyprnavBrowserKind.Type;
+
+/**
+ * Where a browser slot's per-thread query value comes from. `branch` is the
+ * thread's worktree branch; threads without one get no browser slot.
+ */
+export const HyprnavBrowserSlotValueSource = Schema.Literals(["branch"]);
+export type HyprnavBrowserSlotValueSource = typeof HyprnavBrowserSlotValueSource.Type;
+
+/**
+ * A global slot every thread's hyprnav environment gets: going to it switches
+ * to the fixed `workspace` and points the named browser tab at
+ * `url?<param>=<thread value>`.
+ */
+export const HyprnavBrowserSlot = Schema.Struct({
+  slot: PositiveInt,
+  workspace: PositiveInt,
+  browser: HyprnavBrowserKind.pipe(Schema.withDecodingDefaultKey(Effect.succeed("chromium"))),
+  tabName: TrimmedNonEmptyString,
+  url: TrimmedNonEmptyString,
+  param: TrimmedNonEmptyString.pipe(Schema.withDecodingDefaultKey(Effect.succeed("branch"))),
+  value: HyprnavBrowserSlotValueSource.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("branch")),
+  ),
+});
+export type HyprnavBrowserSlot = typeof HyprnavBrowserSlot.Type;
+
 /**
  * hyprnav's `locked` event: the daemon's locked environment changed, or (with
  * `cause: "snapshot"`) the current value on connect. Forwarded verbatim over
