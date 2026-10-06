@@ -40,6 +40,8 @@ import {
   listHyprnavAgents,
   listOpenWorktreeTerminals,
   lockHyprnavEnvironment,
+  registerHyprnavBrowserTab,
+  syncHyprnavBrowserTabs,
   requestHyprnavScreencast,
   gotoHyprnavAgent,
   openExternal,
@@ -110,6 +112,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(listOpenWorktreeTerminals);
   yield* ipc.handle(syncHyprnavEnvironment);
   yield* ipc.handle(lockHyprnavEnvironment);
+  yield* ipc.handle(syncHyprnavBrowserTabs);
+  yield* ipc.handle(registerHyprnavBrowserTab);
   yield* ipc.handle(listHyprnavAgents);
   yield* ipc.handle(requestHyprnavScreencast);
   yield* ipc.handle(gotoHyprnavAgent);

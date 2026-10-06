@@ -10,6 +10,7 @@ import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   REMOTE_CAPABLE_EDITOR_IDS,
   SystemSettingsPaneSchema,
+  HyprnavBrowserKind,
   ProjectHyprnavSettings,
   ThreadId,
   TrimmedNonEmptyString,
@@ -64,6 +65,14 @@ const DesktopHyprnavScopedSlot = Schema.Struct({
   slot: Schema.Int.check(Schema.isGreaterThan(0)),
   scope: Schema.Literals(["project", "worktree", "thread"]),
 });
+const PositiveSlot = Schema.Int.check(Schema.isGreaterThan(0));
+const DesktopHyprnavBrowserTab = Schema.Struct({
+  slot: PositiveSlot,
+  workspaceId: PositiveSlot,
+  browser: HyprnavBrowserKind,
+  tabName: TrimmedNonEmptyString,
+  value: TrimmedNonEmptyString,
+});
 const DesktopHyprnavSyncInput = Schema.Struct({
   projectRoot: TrimmedNonEmptyString,
   worktreePath: Schema.optionalKey(NullableString),
@@ -83,7 +92,29 @@ const DesktopHyprnavSyncInput = Schema.Struct({
       }),
     ),
   ),
+  browserTabs: Schema.optionalKey(Schema.Array(DesktopHyprnavBrowserTab)),
+  clearBrowserTabs: Schema.optionalKey(Schema.Array(PositiveSlot)),
   lock: Schema.Boolean,
+});
+const DesktopHyprnavBrowserTabsSyncInput = Schema.Struct({
+  threads: Schema.Array(
+    Schema.Struct({
+      projectRoot: TrimmedNonEmptyString,
+      worktreePath: NullableString,
+      threadId: TrimmedNonEmptyString,
+      threadTitle: NullableString,
+      projectTitle: NullableString,
+      worktreeTitle: NullableString,
+      browserTabs: Schema.Array(DesktopHyprnavBrowserTab),
+      clearBrowserTabs: Schema.Array(PositiveSlot),
+      bindingSlots: Schema.Array(PositiveSlot),
+    }),
+  ),
+});
+const DesktopHyprnavBrowserTabsSyncResult = Schema.Struct({
+  status: Schema.Literals(["ok", "unavailable", "error"]),
+  message: NullableString,
+  appliedThreadIds: Schema.Array(Schema.String),
 });
 const DesktopHyprnavResult = Schema.Struct({
   status: Schema.Literals(["ok", "unavailable", "error"]),
@@ -494,6 +525,31 @@ export const syncHyprnavEnvironment = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.syncHyprnavEnvironment")(function* (input) {
     const hyprnav = yield* HyprnavEnvironment.HyprnavEnvironment;
     return yield* hyprnav.sync(input);
+  }),
+});
+
+export const syncHyprnavBrowserTabs = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SYNC_HYPRNAV_BROWSER_TABS_CHANNEL,
+  payload: DesktopHyprnavBrowserTabsSyncInput,
+  result: DesktopHyprnavBrowserTabsSyncResult,
+  handler: Effect.fn("desktop.ipc.window.syncHyprnavBrowserTabs")(function* (input) {
+    const hyprnav = yield* HyprnavEnvironment.HyprnavEnvironment;
+    return yield* hyprnav.syncBrowserTabs(input);
+  }),
+});
+
+export const registerHyprnavBrowserTab = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.REGISTER_HYPRNAV_BROWSER_TAB_CHANNEL,
+  payload: Schema.Struct({
+    browser: HyprnavBrowserKind,
+    tabName: TrimmedNonEmptyString,
+    url: TrimmedNonEmptyString,
+    param: TrimmedNonEmptyString,
+  }),
+  result: DesktopHyprnavResult,
+  handler: Effect.fn("desktop.ipc.window.registerHyprnavBrowserTab")(function* (input) {
+    const hyprnav = yield* HyprnavEnvironment.HyprnavEnvironment;
+    return yield* hyprnav.registerBrowserTab(input);
   }),
 });
 

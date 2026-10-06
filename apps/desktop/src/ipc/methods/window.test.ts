@@ -217,6 +217,9 @@ describe("syncHyprnavEnvironment", () => {
                 appliedScopes: ["project"],
               }),
             lock: () => Effect.succeed({ status: "ok", message: null }),
+            syncBrowserTabs: () =>
+              Effect.succeed({ status: "ok", message: null, appliedThreadIds: [] }),
+            registerBrowserTab: () => Effect.succeed({ status: "ok", message: null }),
           }),
         ),
       ),

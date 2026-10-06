@@ -139,6 +139,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         lockHyprnavEnvironment: (
           input: Parameters<NonNullable<DesktopBridge["lockHyprnavEnvironment"]>>[0],
         ) => ipcRenderer.invoke(IpcChannels.LOCK_HYPRNAV_ENVIRONMENT_CHANNEL, input),
+        syncHyprnavBrowserTabs: (
+          input: Parameters<NonNullable<DesktopBridge["syncHyprnavBrowserTabs"]>>[0],
+        ) => ipcRenderer.invoke(IpcChannels.SYNC_HYPRNAV_BROWSER_TABS_CHANNEL, input),
+        registerHyprnavBrowserTab: (
+          input: Parameters<NonNullable<DesktopBridge["registerHyprnavBrowserTab"]>>[0],
+        ) => ipcRenderer.invoke(IpcChannels.REGISTER_HYPRNAV_BROWSER_TAB_CHANNEL, input),
         listHyprnavAgents: () => ipcRenderer.invoke(IpcChannels.LIST_HYPRNAV_AGENTS_CHANNEL),
         requestHyprnavScreencast: (input: { readonly address: string }) =>
           ipcRenderer.invoke(IpcChannels.REQUEST_HYPRNAV_SCREENCAST_CHANNEL, input),
