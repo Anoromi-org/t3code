@@ -79,6 +79,10 @@
 
       checks = forAllSystems (system: {
         desktop = self.packages.${system}.desktop;
+        home-manager-local = import ./nix/tests/home-manager-local.nix {
+          inherit self;
+          pkgs = mkPkgs system;
+        };
       });
 
       formatter = forAllSystems (system: (mkPkgs system).nixfmt);
