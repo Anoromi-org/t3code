@@ -23,7 +23,9 @@ import {
   useClientSettings,
   useClientSettingsHydrated,
   usePersistClientSettings,
+  useUpdateClientSettings,
 } from "../../hooks/useSettings";
+import { isElectron } from "../../env";
 import { usePrimaryEnvironment } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -69,6 +71,7 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import {
   SettingResetButton,
   SettingsPageContainer,
@@ -879,6 +882,43 @@ export function HyprnavEditor({
   );
 }
 
+/** Per-device toggles for keeping T3's open thread and hyprnav's lock in step. */
+function HyprnavLockSyncSettings() {
+  const followLock = useClientSettings((settings) => settings.hyprnavFollowLock) ?? isElectron;
+  const publishLock = useClientSettings((settings) => settings.hyprnavPublishLock);
+  const updateClientSettings = useUpdateClientSettings();
+  return (
+    <SettingsSection title="Thread sync">
+      <SettingsRow
+        {...searchableSetting("hyprnav-follow-lock")}
+        description="Open the thread Hyprnav locks, for example from the grid. On this device only."
+        control={
+          <Switch
+            checked={followLock}
+            onCheckedChange={(checked) =>
+              updateClientSettings({ hyprnavFollowLock: Boolean(checked) })
+            }
+            aria-label="Follow the Hyprnav lock"
+          />
+        }
+      />
+      <SettingsRow
+        {...searchableSetting("hyprnav-publish-lock")}
+        description="Move the Hyprnav lock to a thread when you open it here."
+        control={
+          <Switch
+            checked={publishLock}
+            onCheckedChange={(checked) =>
+              updateClientSettings({ hyprnavPublishLock: Boolean(checked) })
+            }
+            aria-label="Lock the open thread in Hyprnav"
+          />
+        }
+      />
+    </SettingsSection>
+  );
+}
+
 /** `/settings/hyprnav`: device-local defaults for every project without an override. */
 export function HyprnavDefaultsSettingsPanel() {
   const hydrated = useClientSettingsHydrated();
@@ -921,6 +961,7 @@ export function HyprnavDefaultsSettingsPanel() {
           });
         }}
       />
+      <HyprnavLockSyncSettings />
     </SettingsPageContainer>
   );
 }

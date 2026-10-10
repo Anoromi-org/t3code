@@ -2,7 +2,10 @@
 import type * as NodeChildProcess from "node:child_process";
 import * as NodeEvents from "node:events";
 
-import { DEFAULT_PROJECT_HYPRNAV_WORKSPACE_TARGET } from "@t3tools/contracts";
+import {
+  DEFAULT_PROJECT_HYPRNAV_WORKSPACE_TARGET,
+  parseHyprnavEnvironmentId,
+} from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -77,6 +80,28 @@ describe("Hyprnav helpers", () => {
       { scope: "project", slot: 1 },
       { scope: "worktree", slot: 2 },
     ]);
+  });
+
+  it("builds ids that parseHyprnavEnvironmentId reads back", () => {
+    const ids = buildHyprnavEnvironmentIds({
+      projectRoot: "/repo",
+      worktreePath: "/repo/wt/a",
+      threadId: "thread.with.dots-1",
+    });
+    expect(parseHyprnavEnvironmentId(ids.projectEnvId)).toEqual({ scope: "project" });
+    expect(parseHyprnavEnvironmentId(ids.worktreeEnvId)).toEqual({ scope: "worktree" });
+    expect(parseHyprnavEnvironmentId(ids.threadEnvId!)).toEqual({
+      scope: "thread",
+      threadId: "thread.with.dots-1",
+    });
+    expect(
+      parseHyprnavEnvironmentId(
+        buildHyprnavEnvironmentIds({ projectRoot: "/repo", worktreePath: null, threadId: null })
+          .lockEnvId,
+      ),
+    ).toEqual({ scope: "worktree" });
+    expect(parseHyprnavEnvironmentId("/home/me/repo")).toBeNull();
+    expect(parseHyprnavEnvironmentId("p.xyz")).toBeNull();
   });
 
   it("rejects unavailable command placeholders", () => {
@@ -226,7 +251,12 @@ describe("HyprnavEnvironmentManager", () => {
     );
     harness.children[0]!.succeed();
     await vi.waitFor(() => expect(harness.calls).toHaveLength(2));
-    expect(harness.calls[1]!.args[0]).toBe("lock");
+    expect(harness.calls[1]!.args).toEqual([
+      "--origin",
+      "t3code",
+      "lock",
+      expect.stringMatching(/\.t\./u),
+    ]);
     harness.children[1]!.succeed();
     await expect(result).resolves.toEqual({
       status: "ok",
@@ -327,13 +357,23 @@ describe("HyprnavEnvironmentManager", () => {
     await vi.waitFor(() => expect(harness.calls).toHaveLength(1));
     harness.children[0]!.succeed();
     await vi.waitFor(() => expect(harness.calls).toHaveLength(2));
-    expect(harness.calls[1]!.args).toEqual(["lock", expect.stringMatching(/\.t\.thread-old$/u)]);
+    expect(harness.calls[1]!.args).toEqual([
+      "--origin",
+      "t3code",
+      "lock",
+      expect.stringMatching(/\.t\.thread-old$/u),
+    ]);
     harness.children[1]!.succeed();
     await vi.waitFor(() => expect(harness.calls).toHaveLength(3));
-    expect(harness.calls[2]!.args).toEqual(["batch", "--stdin"]);
+    expect(harness.calls[2]!.args).toEqual(["--origin", "t3code", "batch", "--stdin"]);
     harness.children[2]!.succeed();
     await vi.waitFor(() => expect(harness.calls).toHaveLength(4));
-    expect(harness.calls[3]!.args).toEqual(["lock", expect.stringMatching(/\.t\.thread-new$/u)]);
+    expect(harness.calls[3]!.args).toEqual([
+      "--origin",
+      "t3code",
+      "lock",
+      expect.stringMatching(/\.t\.thread-new$/u),
+    ]);
     harness.children[3]!.succeed();
 
     await expect(Promise.all([first, second])).resolves.toEqual([
@@ -463,7 +503,7 @@ describe("HyprnavEnvironmentManager", () => {
     expect(unlinkSocket).toHaveBeenCalledOnce();
     expect(harness.spawn).toHaveBeenLastCalledWith(
       "hyprnav",
-      ["batch", "--stdin"],
+      ["--origin", "t3code", "batch", "--stdin"],
       expect.anything(),
     );
     harness.children[1]!.succeed();

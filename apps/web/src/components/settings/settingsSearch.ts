@@ -714,6 +714,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hyprland workspace navigation slots bindings terminal editor corkdiff device"],
   },
   {
+    id: "hyprnav-follow-lock",
+    title: "Follow the Hyprnav lock",
+    to: "/settings/hyprnav",
+    searchTerms: ["hyprland thread sync grid open locked thread device"],
+  },
+  {
+    id: "hyprnav-publish-lock",
+    title: "Lock the open thread",
+    to: "/settings/hyprnav",
+    searchTerms: ["hyprland thread sync move lock environment"],
+  },
+  {
     id: "project-hyprnav",
     title: "Project Hyprnav bindings",
     to: "/settings/projects",

@@ -436,6 +436,15 @@ describe("ClientSettings window capture", () => {
   });
 });
 
+describe("ClientSettings hyprnav lock sync", () => {
+  it("leaves following to the platform default and keeps publishing on", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.hyprnavFollowLock).toBeNull();
+    expect(decoded.hyprnavPublishLock).toBe(true);
+    expect(decodeClientSettingsPatch({ hyprnavFollowLock: false }).hyprnavFollowLock).toBe(false);
+  });
+});
+
 describe("ClientSettings proactive panels", () => {
   it("is opt-in and accepts client-local updates", () => {
     expect(decodeClientSettings({}).proactivePanelsEnabled).toBe(false);

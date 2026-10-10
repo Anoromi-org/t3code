@@ -10,8 +10,9 @@
  *
  * It ignores input, accepts many subscribers, and on connect writes
  * `hello`, then `agents` (the full list, same shape as /api/hyprnav/agents),
- * then `slots`. Afterwards it writes `agents` on any agent change and `slots`
- * on slot changes, coalescing bursts itself.
+ * then `slots`, then `locked`. Afterwards it writes `agents` on any agent change
+ * and `slots` on slot changes, coalescing bursts itself, and `locked` whenever
+ * the locked environment changes.
  *
  * Exactly one upstream connection is opened per server process, lazily on the
  * first subscriber and closed when the last one goes away, so an idle server
@@ -37,7 +38,7 @@ export interface HyprnavStatusEvent {
 /** A line the daemon wrote, forwarded verbatim. */
 export interface HyprnavDaemonEvent {
   readonly kind: "daemon";
-  readonly event: "agents" | "slots";
+  readonly event: "agents" | "slots" | "locked";
   readonly data: string;
 }
 
@@ -92,7 +93,7 @@ const RECONNECT_MAX_MS = 10_000;
 const MAX_LINE_BYTES = 8 << 20;
 
 function isForwardedEvent(value: string): value is HyprnavDaemonEvent["event"] {
-  return value === "agents" || value === "slots";
+  return value === "agents" || value === "slots" || value === "locked";
 }
 
 /**

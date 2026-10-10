@@ -53,6 +53,7 @@ import {
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
+import { HyprnavLockFollower } from "./HyprnavLockFollower";
 import LegacyThreadSidebar from "./LegacySidebar";
 import { NavigationCommandMenu } from "./NavigationCommandMenu";
 import { resolveDraftProjectKeys, resolveProjectDraftId } from "./NavigationCommandMenu.logic";
@@ -618,6 +619,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <NavigationHistoryShortcuts />
         <NavigationCommandMenuControl />
         {isElectron ? <RecentThreadSwitcherControl /> : null}
+        <HyprnavLockFollower />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );
