@@ -8,6 +8,7 @@ import type {
   ProjectHyprnavSettings,
   ProjectHyprnavWorkspaceTarget,
 } from "@t3tools/contracts";
+import { hyprnavWorktreeTitle } from "./hyprnavRuntime";
 import { derivePhysicalProjectKey, type ProjectGroupingSettings } from "./logicalProject";
 import { deduplicateProjectsByPhysicalKey } from "./sidebarProjectGrouping";
 import type { Project, Thread, ThreadShell } from "./types";
@@ -183,6 +184,8 @@ export interface ProjectHyprnavSyncJob {
   worktreePath: string | null;
   threadId: string | null;
   threadTitle: string | null;
+  projectTitle: string | null;
+  worktreeTitle: string | null;
   hyprnav: ProjectHyprnavSettings;
   clearBindings: DesktopHyprnavScopedSlot[];
   clearNames: DesktopHyprnavScopedSlot[];
@@ -211,13 +214,13 @@ function filterScopedSlotsByScopes(
 
 export function buildProjectHyprnavSyncJobs(input: {
   localEnvironmentId: EnvironmentId;
-  projects: readonly (Pick<Project, "environmentId" | "id" | "workspaceRoot"> & {
+  projects: readonly (Pick<Project, "environmentId" | "id" | "workspaceRoot" | "title"> & {
     hyprnav: ProjectHyprnavSettings;
   })[];
   knownProjects: readonly Pick<Project, "environmentId" | "id" | "workspaceRoot">[];
   threadShells: readonly ThreadShell[];
   activeThread:
-    | Pick<Thread, "id" | "environmentId" | "projectId" | "worktreePath" | "title">
+    | Pick<Thread, "id" | "environmentId" | "projectId" | "worktreePath" | "title" | "branch">
     | null
     | undefined;
   clearBindingsByProjectKey: ReadonlyMap<string, readonly DesktopHyprnavScopedSlot[]>;
@@ -272,11 +275,29 @@ export function buildProjectHyprnavSyncJobs(input: {
     };
   };
 
+  // One branch per worktree target so every job touching the same hyprnav
+  // worktree environment publishes the same title.
+  const branchKey = (projectKey: string, targetPath: string) => `${projectKey}\u0000${targetPath}`;
+  const branchByWorktree = new Map<string, string>();
+  const rememberBranch = (
+    thread: Pick<Thread, "environmentId" | "projectId" | "worktreePath" | "branch">,
+    override: boolean,
+  ) => {
+    if (thread.environmentId !== input.localEnvironmentId || !thread.branch) return;
+    const target = resolveTargetProject(thread.environmentId, thread.projectId);
+    if (!target) return;
+    const key = branchKey(target.projectKey, thread.worktreePath ?? target.project.workspaceRoot);
+    if (override || !branchByWorktree.has(key)) branchByWorktree.set(key, thread.branch);
+  };
+  for (const thread of input.threadShells) rememberBranch(thread, false);
+  if (input.activeThread) rememberBranch(input.activeThread, true);
+
   const jobsByKey = new Map<string, ProjectHyprnavSyncJob>();
 
   const addJob = (jobInput: {
     projectKey: string;
     projectRoot: string;
+    projectTitle: string;
     worktreePath: string | null;
     threadId: string | null;
     threadTitle: string | null;
@@ -321,6 +342,14 @@ export function buildProjectHyprnavSyncJobs(input: {
       worktreePath: jobInput.worktreePath,
       threadId: jobInput.threadId,
       threadTitle: jobInput.threadTitle,
+      projectTitle: jobInput.projectTitle,
+      worktreeTitle: hyprnavWorktreeTitle({
+        branch: branchByWorktree.get(
+          branchKey(jobInput.projectKey, jobInput.worktreePath ?? jobInput.projectRoot),
+        ),
+        worktreePath: jobInput.worktreePath,
+        projectRoot: jobInput.projectRoot,
+      }),
       hyprnav: jobInput.hyprnav,
       clearBindings,
       clearNames,
@@ -364,6 +393,7 @@ export function buildProjectHyprnavSyncJobs(input: {
     addJob({
       projectKey,
       projectRoot: project.workspaceRoot,
+      projectTitle: project.title,
       worktreePath: thread.worktreePath ?? null,
       threadId: thread.id,
       threadTitle: thread.title,
@@ -393,6 +423,7 @@ export function buildProjectHyprnavSyncJobs(input: {
     addJob({
       projectKey,
       projectRoot: project.workspaceRoot,
+      projectTitle: project.title,
       worktreePath,
       threadId: null,
       threadTitle: null,
@@ -426,6 +457,7 @@ export function buildProjectHyprnavSyncJobs(input: {
       addJob({
         projectKey,
         projectRoot: project.workspaceRoot,
+        projectTitle: project.title,
         worktreePath: activeThread.worktreePath ?? null,
         threadId: activeThread.id,
         threadTitle: activeThread.title,
@@ -449,6 +481,7 @@ export function buildProjectHyprnavSyncJobs(input: {
     addJob({
       projectKey,
       projectRoot: project.workspaceRoot,
+      projectTitle: project.title,
       worktreePath: null,
       threadId: null,
       threadTitle: null,

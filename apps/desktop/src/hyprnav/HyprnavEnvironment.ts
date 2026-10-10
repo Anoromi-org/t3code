@@ -58,6 +58,8 @@ interface CanonicalSyncInput extends Omit<DesktopHyprnavSyncInput, "projectRoot"
   readonly worktreePath: string | null;
   readonly threadId: string | null;
   readonly threadTitle: string | null;
+  readonly projectTitle: string | null;
+  readonly worktreeTitle: string | null;
   readonly clearBindings: readonly DesktopHyprnavScopedSlot[];
   readonly clearNames: readonly DesktopHyprnavScopedSlot[];
   readonly corkdiffConnection: DesktopHyprnavCorkdiffConnectionInput | null;
@@ -373,6 +375,8 @@ export class HyprnavEnvironmentManager {
       worktreePath,
       threadId: staleWorktree ? null : input.threadId?.trim() || null,
       threadTitle: staleWorktree ? null : input.threadTitle?.trim() || null,
+      projectTitle: input.projectTitle?.trim() || null,
+      worktreeTitle: staleWorktree ? null : input.worktreeTitle?.trim() || null,
       hyprnav: { bindings: input.hyprnav.bindings.filter(retainScope) },
       clearBindings: normalizeClearBindings(input.clearBindings).filter(retainScope),
       clearNames: normalizeClearBindings(input.clearNames).filter(retainScope),
@@ -515,21 +519,25 @@ export class HyprnavEnvironmentManager {
     ]);
     if (input.lock && input.threadId) scopes.add("thread");
 
+    // Ensure every touched environment together with its ancestors, so the
+    // hyprnav breadcrumb for a thread row can show project and worktree titles
+    // even when only thread-scoped slots are published.
     const operations: BatchOperation[] = [];
-    for (const [scope, env, cwd] of [
-      ["project", ids.projectEnvId, input.projectRoot],
-      ["worktree", ids.worktreeEnvId, ids.targetPath],
-      ["thread", ids.threadEnvId, ids.targetPath],
-    ] as const) {
-      if (!scopes.has(scope) || env === null) continue;
+    const chain = [
+      ["project", ids.projectEnvId, input.projectRoot, input.projectTitle],
+      ["worktree", ids.worktreeEnvId, ids.targetPath, input.worktreeTitle],
+      ["thread", ids.threadEnvId, ids.targetPath, input.threadTitle],
+    ] as const;
+    chain.forEach(([, env, cwd, title], index) => {
+      if (env === null || !chain.slice(index).some(([scope]) => scopes.has(scope))) return;
       operations.push({
         op: "env_ensure",
         env,
         cwd,
         client: CLIENT_ID,
-        ...(scope === "thread" && input.threadTitle ? { title: input.threadTitle } : {}),
+        ...(title ? { title } : {}),
       });
-    }
+    });
 
     const cleared = new Set(
       input.clearBindings.map((item) => `${item.scope}:${String(item.slot)}`),

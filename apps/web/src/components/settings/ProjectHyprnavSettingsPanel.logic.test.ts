@@ -601,6 +601,8 @@ describe("ProjectHyprnavSettingsPanel logic", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       projectRoot: "/repo",
+      projectTitle: "Project",
+      worktreeTitle: "repo",
       clearBindings: [{ scope: "project", slot: 1 }],
       clearNames: [{ scope: "worktree", slot: 2 }],
     });

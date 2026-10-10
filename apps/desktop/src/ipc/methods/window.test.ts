@@ -9,6 +9,7 @@ import * as Option from "effect/Option";
 import { vi } from "vite-plus/test";
 
 import type * as Electron from "electron";
+import type { DesktopHyprnavSyncInput } from "@t3tools/contracts";
 
 const { focusedWebContents, ownerWindow } = vi.hoisted(() => ({
   focusedWebContents: vi.fn(),
@@ -302,6 +303,39 @@ it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
 );
 
 describe("syncHyprnavEnvironment", () => {
+  it.effect("forwards project and worktree titles to the hyprnav environment", () => {
+    const received: Array<DesktopHyprnavSyncInput> = [];
+    return Effect.gen(function* () {
+      yield* syncHyprnavEnvironment.handler({
+        projectRoot: "/repo",
+        worktreePath: "/repo/wt",
+        threadId: "thread-1",
+        threadTitle: "Thread",
+        projectTitle: "Repo",
+        worktreeTitle: "feature/a",
+        hyprnav: { bindings: [] },
+        lock: false,
+      });
+
+      assert.strictEqual(received.length, 1);
+      assert.strictEqual(received[0]?.projectTitle, "Repo");
+      assert.strictEqual(received[0]?.worktreeTitle, "feature/a");
+    }).pipe(
+      Effect.provide(
+        Layer.succeed(
+          HyprnavEnvironment.HyprnavEnvironment,
+          HyprnavEnvironment.HyprnavEnvironment.of({
+            sync: (input) => {
+              received.push(input);
+              return Effect.succeed({ status: "ok", message: null, appliedScopes: ["thread"] });
+            },
+            lock: () => Effect.succeed({ status: "ok", message: null }),
+          }),
+        ),
+      ),
+    );
+  });
+
   it.effect("preserves applied scopes through IPC result encoding", () =>
     Effect.gen(function* () {
       const result = yield* syncHyprnavEnvironment.handler({

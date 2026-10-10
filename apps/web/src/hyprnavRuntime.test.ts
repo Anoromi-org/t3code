@@ -14,6 +14,7 @@ import {
   createActiveHyprnavRequestKey,
   HYPRNAV_CREDENTIAL_REFRESH_DELAY_MS,
   hyprnavCredentialRefreshDelay,
+  hyprnavPublicationTargetFromRequest,
   hyprnavSyncNeedsScopeRetry,
   type HyprnavPublicationHistory,
   isHyprnavDesktopRuntimeAvailable,
@@ -38,6 +39,23 @@ const request = {
 } as const;
 
 describe("hyprnavRuntime", () => {
+  it("keeps published titles when restoring a publication target from a request", () => {
+    expect(
+      hyprnavPublicationTargetFromRequest({
+        ...request,
+        projectTitle: "Repo",
+        worktreeTitle: "feature/x",
+      }),
+    ).toEqual({
+      projectRoot: "/repo",
+      worktreePath: "/repo/worktree",
+      threadId: "thread-1",
+      threadTitle: "Thread",
+      projectTitle: "Repo",
+      worktreeTitle: "feature/x",
+    });
+  });
+
   it("keys publication by semantic inputs instead of projection object identity", () => {
     const input = {
       target: {
@@ -45,6 +63,8 @@ describe("hyprnavRuntime", () => {
         worktreePath: "/repo/worktree",
         threadId: ThreadId.make("thread-1"),
         threadTitle: "Thread",
+        projectTitle: "Repo",
+        worktreeTitle: "feature/x",
       },
       settings: { bindings: [] },
       availableEditors: ["zed" as const],
@@ -58,6 +78,19 @@ describe("hyprnavRuntime", () => {
         preferredEditor: input.preferredEditor,
       }),
     );
+    // Renaming the project or switching the branch republishes the titles.
+    expect(createActiveHyprnavRequestKey(input)).not.toBe(
+      createActiveHyprnavRequestKey({
+        ...input,
+        target: { ...input.target, projectTitle: "Other" },
+      }),
+    );
+    expect(createActiveHyprnavRequestKey(input)).not.toBe(
+      createActiveHyprnavRequestKey({
+        ...input,
+        target: { ...input.target, worktreeTitle: "main" },
+      }),
+    );
   });
 
   it("republishes on preferred-editor changes only when a binding opens the editor", () => {
@@ -67,6 +100,8 @@ describe("hyprnavRuntime", () => {
         worktreePath: null,
         threadId: ThreadId.make("thread-1"),
         threadTitle: "Thread",
+        projectTitle: "Repo",
+        worktreeTitle: "main",
       },
       availableEditors: ["zed" as const, "vscode" as const],
     };
@@ -834,6 +869,7 @@ describe("hyprnavRuntime", () => {
     const project = {
       environmentId: primaryEnvironmentId,
       id: ProjectId.make("project-1"),
+      title: "Repo",
       workspaceRoot: "/repo",
     };
     const thread = {
@@ -841,6 +877,7 @@ describe("hyprnavRuntime", () => {
       id: ThreadId.make("thread-1"),
       projectId: ProjectId.make("project-1"),
       title: "Thread",
+      branch: "feature/x",
       worktreePath: "/repo/worktree",
     };
     expect(
@@ -850,7 +887,23 @@ describe("hyprnavRuntime", () => {
       worktreePath: "/repo/worktree",
       threadId: ThreadId.make("thread-1"),
       threadTitle: "Thread",
+      projectTitle: "Repo",
+      worktreeTitle: "feature/x",
     });
+    expect(
+      resolveActiveHyprnavSyncTarget({
+        primaryEnvironmentId,
+        project,
+        thread: { ...thread, branch: null },
+      } as never)?.worktreeTitle,
+    ).toBe("worktree");
+    expect(
+      resolveActiveHyprnavSyncTarget({
+        primaryEnvironmentId,
+        project,
+        thread: { ...thread, branch: null, worktreePath: null },
+      } as never)?.worktreeTitle,
+    ).toBe("repo");
     expect(
       resolveActiveHyprnavSyncTarget({
         primaryEnvironmentId,

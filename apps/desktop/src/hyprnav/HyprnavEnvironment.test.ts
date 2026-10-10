@@ -235,6 +235,68 @@ describe("HyprnavEnvironmentManager", () => {
     });
   });
 
+  it("ensures titled ancestor environments when publishing a thread scope", async () => {
+    const harness = spawnHarness();
+    const manager = new HyprnavEnvironmentManager({
+      spawn: harness.spawn as unknown as typeof NodeChildProcess.spawn,
+      resolvePath: (path) => path,
+      realpathSync: (path) => path,
+    });
+    const result = manager.sync({
+      projectRoot: "/repo",
+      worktreePath: "/repo/wt/a",
+      threadId: "thread-1",
+      threadTitle: " Implement runtime ",
+      projectTitle: "Repo",
+      worktreeTitle: "feature/a",
+      hyprnav: {
+        bindings: [
+          {
+            id: "nothing",
+            slot: 3,
+            scope: "thread",
+            workspace: DEFAULT_PROJECT_HYPRNAV_WORKSPACE_TARGET,
+            action: "nothing",
+          },
+        ],
+      },
+      lock: false,
+    });
+
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(1));
+    const payload = JSON.parse(harness.calls[0]!.child.stdin.writes.join("")) as {
+      operations: Array<Record<string, unknown>>;
+    };
+    const ids = buildHyprnavEnvironmentIds({
+      projectRoot: "/repo",
+      worktreePath: "/repo/wt/a",
+      threadId: "thread-1",
+    });
+    expect(payload.operations.filter((operation) => operation.op === "env_ensure")).toEqual([
+      { op: "env_ensure", env: ids.projectEnvId, cwd: "/repo", client: "t3code", title: "Repo" },
+      {
+        op: "env_ensure",
+        env: ids.worktreeEnvId,
+        cwd: "/repo/wt/a",
+        client: "t3code",
+        title: "feature/a",
+      },
+      {
+        op: "env_ensure",
+        env: ids.threadEnvId,
+        cwd: "/repo/wt/a",
+        client: "t3code",
+        title: "Implement runtime",
+      },
+    ]);
+    harness.children[0]!.succeed();
+    await expect(result).resolves.toEqual({
+      status: "ok",
+      message: null,
+      appliedScopes: ["thread"],
+    });
+  });
+
   it("globally orders lock-bearing synchronization across thread switches", async () => {
     const harness = spawnHarness();
     const manager = new HyprnavEnvironmentManager({
@@ -506,6 +568,9 @@ describe("HyprnavEnvironmentManager", () => {
       projectRoot: "/repo",
       worktreePath: "/repo/worktrees/removed",
       threadId: "thread-1",
+      threadTitle: "Thread",
+      projectTitle: "Repo",
+      worktreeTitle: "feature/removed",
       hyprnav: {
         bindings: [
           {
@@ -559,6 +624,9 @@ describe("HyprnavEnvironmentManager", () => {
         (operation) => typeof operation.slot === "number" && [2, 3, 5, 7].includes(operation.slot),
       ),
     ).toEqual([]);
+    expect(payload.operations.filter((operation) => operation.op === "env_ensure")).toEqual([
+      expect.objectContaining({ cwd: "/repo", title: "Repo" }),
+    ]);
     harness.children[0]!.succeed();
     await expect(result).resolves.toEqual({
       status: "ok",

@@ -429,6 +429,8 @@ export function buildHyprnavPublicationRequests(input: {
       worktreePath: job.worktreePath,
       threadId: job.threadId,
       threadTitle: job.threadTitle,
+      projectTitle: job.projectTitle,
+      worktreeTitle: job.worktreeTitle,
       hyprnav: job.hyprnav,
       clearBindings: job.clearBindings,
       clearNames: job.clearNames,
