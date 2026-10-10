@@ -145,6 +145,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
   return (
     <SettingsScreen title={environment?.environmentLabel ?? "Environment"}>
       <ScreenScrollView
+        keyboardAware
         contentInsetAdjustmentBehavior="automatic"
         className="flex-1"
         contentContainerClassName="gap-6 px-5 pt-4"

@@ -70,6 +70,14 @@ vi.mock("expo-sharing", () => ({
 
 vi.mock("./uuid", () => ({ uuidv4: mocks.uuid }));
 vi.mock("./shareFileFromSource", () => ({ shareFileFromSource: mocks.shareFromSource }));
+vi.mock("../connection/cloudflare-access", () => ({
+  cloudflareAccessHeaders: (url: string) =>
+    Promise.resolve(
+      url.startsWith("https://chosen-environment.example/")
+        ? { "CF-Access-Client-Id": "id.access" }
+        : {},
+    ),
+}));
 
 import {
   openAttachmentInViewer,
@@ -123,7 +131,7 @@ describe("downloadAndShareAttachment", () => {
     expect(mocks.download).toHaveBeenCalledWith(
       input.url,
       expect.objectContaining({ uri: expect.stringMatching(/\/report\.pdf$/) }),
-      { signal: controller.signal },
+      { signal: controller.signal, headers: { "CF-Access-Client-Id": "id.access" } },
     );
     expect(mocks.share).toHaveBeenCalledWith(
       expect.stringMatching(/^file:\/\/\/cache\/.+\/report\.pdf$/),

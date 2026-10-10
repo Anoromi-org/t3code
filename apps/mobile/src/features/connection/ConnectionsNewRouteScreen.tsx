@@ -14,6 +14,7 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { AppText as Text } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
+import { CloudflareAccessFields, useCloudflareAccessCredential } from "./CloudflareAccessFields";
 import { ConnectionFormField } from "./ConnectionFormField";
 import { ConnectionSheetButton } from "./ConnectionSheetButton";
 import { buildPairingUrl, extractPairingUrlFromQrPayload, parsePairingUrl } from "./pairing";
@@ -52,6 +53,8 @@ export function ConnectionsNewRouteScreen({
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [scannerLocked, setScannerLocked] = useState(false);
   const attemptedAutoConnectRef = useRef<string | null>(null);
+  const accessCredential = useCloudflareAccessCredential(hostInput);
+  const saveAccessCredential = accessCredential.save;
 
   const headerIconColor = useUniwindTheme()["--color-icon"];
 
@@ -174,8 +177,10 @@ export function ConnectionsNewRouteScreen({
   );
 
   const handleSubmit = useCallback(async () => {
+    // Pairing requests already need the Access headers, so save them first.
+    await saveAccessCredential();
     await connectAndClose(buildPairingUrl(hostInput, codeInput), false);
-  }, [codeInput, connectAndClose, hostInput]);
+  }, [saveAccessCredential, codeInput, connectAndClose, hostInput]);
 
   useEffect(() => {
     if (!shouldAutoConnect || attemptedAutoConnectRef.current === routePairingUrl) {
@@ -206,6 +211,7 @@ export function ConnectionsNewRouteScreen({
       ]}
     >
       <ScrollView
+        keyboardAware
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         className="flex-1"
@@ -260,6 +266,11 @@ export function ConnectionsNewRouteScreen({
                 placeholder="abc-123-xyz"
                 value={codeInput}
                 onChangeText={handleCodeChange}
+              />
+
+              <CloudflareAccessFields
+                credential={accessCredential.credential}
+                onChange={accessCredential.setCredential}
               />
 
               {pairingConnectionError ? <ErrorBanner message={pairingConnectionError} /> : null}

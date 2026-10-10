@@ -11,6 +11,7 @@ import type { FileBackedComposerAttachment } from "./composerImages";
 import { loadLocalAttachmentPreview } from "./localAttachmentPreview";
 import { downloadAndShareAttachment, shareLocalAttachment } from "./attachmentDownload";
 import { useRefreshAssetUrl } from "../state/assets";
+import { cloudflareAccessHeaders } from "../connection/cloudflare-access";
 import { attachmentDocumentPresentation } from "./attachmentDocumentPresentation";
 
 const isLocalUri = (uri: string) => /^(file|content):/.test(uri);
@@ -149,6 +150,7 @@ export function useAttachmentDocument(input: {
           return fetch(target, {
             signal: controller.signal,
             headers: {
+              ...(await cloudflareAccessHeaders(target)),
               ...(sizeBytes > 0 ? { Range: `bytes=0-${FILE_TEXT_PREVIEW_MAX_BYTES}` } : {}),
               ...(revision > 0 ? { "Cache-Control": "no-cache" } : {}),
             },

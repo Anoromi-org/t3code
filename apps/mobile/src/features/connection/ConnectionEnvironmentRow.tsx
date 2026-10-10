@@ -18,6 +18,7 @@ import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { cn } from "../../lib/cn";
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { serverEnvironment } from "../../state/server";
+import { CloudflareAccessFields, useCloudflareAccessCredential } from "./CloudflareAccessFields";
 import { ConnectionFormField } from "./ConnectionFormField";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 
@@ -47,6 +48,8 @@ export function ConnectionEnvironmentRow(props: {
 }) {
   const [label, setLabel] = useState(props.environment.environmentLabel);
   const [url, setUrl] = useState(props.environment.displayUrl);
+  const accessCredential = useCloudflareAccessCredential(url);
+  const saveAccessCredential = accessCredential.save;
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(props.environment.environmentId),
   );
@@ -61,6 +64,8 @@ export function ConnectionEnvironmentRow(props: {
     (props.environment.connectionState === "connecting" ||
       props.environment.connectionState === "reconnecting");
   const handleSave = useCallback(async () => {
+    // Save Access headers before the URL update reconnects with them.
+    await saveAccessCredential();
     const result = await props.onUpdate(props.environment.environmentId, {
       label: label.trim(),
       displayUrl: url.trim(),
@@ -74,7 +79,7 @@ export function ConnectionEnvironmentRow(props: {
       "Could not update environment",
       error instanceof Error ? error.message : "The environment could not be updated.",
     );
-  }, [label, url, props]);
+  }, [saveAccessCredential, label, url, props]);
 
   return (
     <Animated.View layout={LinearTransition.duration(250)} className="bg-grouped-card">
@@ -177,6 +182,11 @@ export function ConnectionEnvironmentRow(props: {
                 placeholder="192.168.1.100:8080"
                 value={url}
                 onChangeText={setUrl}
+              />
+
+              <CloudflareAccessFields
+                credential={accessCredential.credential}
+                onChange={accessCredential.setCredential}
               />
             </>
           )}

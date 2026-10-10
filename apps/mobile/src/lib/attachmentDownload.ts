@@ -5,6 +5,11 @@ import type { SharingOptions } from "expo-sharing";
 import { beginForegroundHandoff } from "./foreground-handoff";
 import { uuidv4 } from "./uuid";
 
+async function accessHeaders(url: string): Promise<Record<string, string>> {
+  const { cloudflareAccessHeaders } = await import("../connection/cloudflare-access");
+  return cloudflareAccessHeaders(url);
+}
+
 const ATTACHMENT_DOWNLOAD_DIRECTORY = "t3-attachment-downloads";
 const DOWNLOAD_RETENTION_MS = 24 * 60 * 60_000;
 const DOWNLOAD_DIRECTORY_NAME = /^(\d+)-[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
@@ -182,7 +187,10 @@ export async function openAttachmentInViewer(input: {
     if (/^(file|content):/.test(input.uri)) {
       await new File(input.uri).copy(cached.file);
     } else {
-      await File.downloadFileAsync(input.uri, cached.file, { signal: input.signal });
+      await File.downloadFileAsync(input.uri, cached.file, {
+        signal: input.signal,
+        headers: await accessHeaders(input.uri),
+      });
     }
     if (input.signal.aborted) return;
     const endHandoff = beginForegroundHandoff();
@@ -216,7 +224,10 @@ export async function downloadAttachmentForPreview(input: {
       cached.preview.dispose();
       return null;
     }
-    await File.downloadFileAsync(input.url, cached.file, { signal: input.signal });
+    await File.downloadFileAsync(input.url, cached.file, {
+      signal: input.signal,
+      headers: await accessHeaders(input.url),
+    });
     if (input.signal.aborted) {
       cached.preview.dispose();
       return null;

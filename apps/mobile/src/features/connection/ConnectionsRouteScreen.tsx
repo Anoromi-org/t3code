@@ -50,6 +50,7 @@ export function ConnectionsRouteScreen() {
         </NativeHeaderToolbar>
       )}
       <ScrollView
+        keyboardAware
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         className="flex-1"
