@@ -27,6 +27,7 @@ usage() {
   cat <<'EOF'
 Usage:
   setup-t3code-cloudflare-tunnel [setup] [T3_PORT]
+  setup-t3code-cloudflare-tunnel rotate-hostnames
   setup-t3code-cloudflare-tunnel rotate-artifacts-password
   setup-t3code-cloudflare-tunnel sync-urls
   setup-t3code-cloudflare-tunnel status
@@ -337,6 +338,48 @@ sync_urls() {
     "$t3_url_file" "$artifacts_url_file" "$interactions_url_file"
 }
 
+# The T3 port setup chose lives in the tunnel config as the T3 hostname's origin.
+configured_t3_port() {
+  local port
+  port="$(awk -v host="$t3_hostname" '
+    $1 == "-" && $2 == "hostname:" { matched = ($3 == host); next }
+    matched && $1 == "service:" { sub(/.*:/, "", $2); print $2; exit }
+  ' "$config_file" 2>/dev/null || true)"
+  [[ "$port" =~ ^[0-9]+$ ]] || {
+    echo "Could not read the T3 port from $config_file; run setup again." >&2
+    exit 1
+  }
+  printf '%s\n' "$port"
+}
+
+# Moves all three services to fresh hostnames on the same tunnel. The old
+# hostnames stop matching any ingress rule, so links to them return 404.
+rotate_hostnames() {
+  local t3_port suffix
+  for command in cloudflared openssl systemctl; do
+    require_command "$command"
+  done
+  read_state
+  t3_port="$(configured_t3_port)"
+
+  suffix="$(openssl rand -hex 16)"
+  t3_hostname="t3-${suffix}.${domain}"
+  artifacts_hostname="artifacts-${suffix}.${domain}"
+  interactions_hostname="interactions-${suffix}.${domain}"
+
+  cloudflared tunnel route dns --overwrite-dns "$tunnel_id" "$t3_hostname"
+  cloudflared tunnel route dns --overwrite-dns "$tunnel_id" "$artifacts_hostname"
+  cloudflared tunnel route dns --overwrite-dns "$tunnel_id" "$interactions_hostname"
+  write_cloudflared_config "$t3_port"
+  printf '%s\n' "$t3_hostname" >"$state_dir/hostname"
+  chmod 600 "$state_dir/hostname"
+  systemctl --user restart "$service_name"
+  write_agent_urls
+
+  printf 'Hostnames rotated:\n  T3:          https://%s\n  Artifacts:   https://%s\n  Interactions: https://%s\n' \
+    "$t3_hostname" "$artifacts_hostname" "$interactions_hostname"
+}
+
 rotate_password() {
   require_docker
   require_command curl
@@ -365,6 +408,9 @@ case "$command_name" in
     ;;
   rotate-artifacts-password)
     rotate_password
+    ;;
+  rotate-hostnames)
+    rotate_hostnames
     ;;
   sync-urls)
     sync_urls
