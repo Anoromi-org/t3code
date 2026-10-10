@@ -14,6 +14,7 @@ import {
   createActiveHyprnavRequestKey,
   HYPRNAV_CREDENTIAL_REFRESH_DELAY_MS,
   hyprnavCredentialRefreshDelay,
+  hyprnavCredentialRefreshRequest,
   hyprnavPublicationTargetFromRequest,
   hyprnavSyncNeedsScopeRetry,
   type HyprnavPublicationHistory,
@@ -39,6 +40,18 @@ const request = {
 } as const;
 
 describe("hyprnavRuntime", () => {
+  it("refreshes credentials without locking and keeps unsettled browser clears", () => {
+    const first = { ...request, browserTabs: [], clearBrowserTabs: [6] };
+    // A `tab clear` failed (warning on an ok result): the refresh retries it.
+    expect(hyprnavCredentialRefreshRequest(first, false)).toEqual({ ...first, lock: false });
+    // Once settled, a refresh has nothing left to clear.
+    expect(hyprnavCredentialRefreshRequest(first, true)).toEqual({
+      ...first,
+      clearBrowserTabs: [],
+      lock: false,
+    });
+  });
+
   it("keeps published titles when restoring a publication target from a request", () => {
     expect(
       hyprnavPublicationTargetFromRequest({

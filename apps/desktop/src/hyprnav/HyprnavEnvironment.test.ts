@@ -3,6 +3,7 @@ import type * as NodeChildProcess from "node:child_process";
 import * as NodeEvents from "node:events";
 
 import {
+  type DesktopHyprnavBrowserTab,
   DEFAULT_PROJECT_HYPRNAV_WORKSPACE_TARGET,
   parseHyprnavEnvironmentId,
 } from "@t3tools/contracts";
@@ -16,6 +17,7 @@ import {
   expandHyprnavCommandTemplate,
   HyprnavEnvironmentManager,
   normalizeClearBindings,
+  planHyprnavBrowserTabs,
 } from "./HyprnavEnvironment.ts";
 
 class MockStream extends NodeEvents.EventEmitter {
@@ -705,6 +707,258 @@ describe("HyprnavEnvironmentManager", () => {
     await expect(unreadableWorktree.sync(request)).resolves.toEqual({
       status: "error",
       message: "worktree denied",
+    });
+  });
+});
+
+const PR_TAB: DesktopHyprnavBrowserTab = {
+  slot: 6,
+  workspaceId: 16,
+  browser: "chromium",
+  tabName: "pr-review",
+  value: "feature/a",
+};
+
+describe("planHyprnavBrowserTabs", () => {
+  it("assigns a fixed local slot per tab and clears dropped slots", () => {
+    const plan = planHyprnavBrowserTabs({
+      envId: "p.a.w.b.t.thread-1",
+      tabs: [PR_TAB, { ...PR_TAB, tabName: "duplicate" }],
+      clearSlots: [6, 4, 3],
+      bindingSlots: new Set([3]),
+    });
+    expect(plan.operations).toEqual([
+      {
+        op: "slot_assign",
+        env: "p.a.w.b.t.thread-1",
+        slot: 6,
+        assignment_mode: { mode: "fixed", workspace_id: 16 },
+        client: "t3code",
+        display_name: "pr-review",
+      },
+      { op: "slot_clear", env: "p.a.w.b.t.thread-1", slot: 4, client: "t3code" },
+    ]);
+    expect(plan.assign).toEqual([PR_TAB]);
+    // Slot 3 belongs to a project binding now: only its browser target goes.
+    expect(plan.tabClears).toEqual([3]);
+    expect(plan.slotClears).toEqual([4]);
+  });
+
+  it("leaves slots owned by thread bindings and drops incomplete tabs", () => {
+    const plan = planHyprnavBrowserTabs({
+      envId: "env",
+      tabs: [PR_TAB, { ...PR_TAB, slot: 7, value: " " }],
+      clearSlots: [],
+      bindingSlots: new Set([6]),
+    });
+    expect(plan).toEqual({ operations: [], assign: [], tabClears: [], slotClears: [] });
+  });
+});
+
+describe("HyprnavEnvironmentManager browser slots", () => {
+  const createManager = () => {
+    const harness = spawnHarness();
+    const manager = new HyprnavEnvironmentManager({
+      spawn: harness.spawn as unknown as typeof NodeChildProcess.spawn,
+      resolvePath: (path) => path,
+      realpathSync: (path) => path,
+    });
+    return { harness, manager };
+  };
+  const threadEnvId = buildHyprnavEnvironmentIds({
+    projectRoot: "/repo",
+    worktreePath: "/repo/wt/a",
+    threadId: "thread-1",
+  }).threadEnvId!;
+  const syncInput = (
+    browserTabs: readonly DesktopHyprnavBrowserTab[],
+    clearBrowserTabs: number[] = [],
+  ) => ({
+    projectRoot: "/repo",
+    worktreePath: "/repo/wt/a",
+    threadId: "thread-1",
+    threadTitle: "Thread",
+    hyprnav: { bindings: [] },
+    browserTabs: [...browserTabs],
+    clearBrowserTabs,
+    lock: false,
+  });
+
+  it("attaches the tab after the batch and skips it while unchanged", async () => {
+    const { harness, manager } = createManager();
+    const first = manager.sync(syncInput([PR_TAB]));
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(1));
+    const payload = JSON.parse(harness.calls[0]!.child.stdin.writes.join("")) as {
+      operations: Array<Record<string, unknown>>;
+    };
+    expect(payload.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ op: "env_ensure", env: threadEnvId }),
+        expect.objectContaining({
+          op: "slot_assign",
+          env: threadEnvId,
+          slot: 6,
+          assignment_mode: { mode: "fixed", workspace_id: 16 },
+        }),
+      ]),
+    );
+    harness.children[0]!.succeed();
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(2));
+    expect(harness.calls[1]!.args).toEqual([
+      "--origin",
+      "t3code",
+      "tab",
+      "assign",
+      "--browser",
+      "chromium",
+      "--env",
+      threadEnvId,
+      "--slot",
+      "6",
+      "--name",
+      "pr-review",
+      "--workspace",
+      "feature/a",
+    ]);
+    harness.children[1]!.succeed();
+    await expect(first).resolves.toEqual({
+      status: "ok",
+      message: null,
+      appliedScopes: ["thread"],
+    });
+
+    // Same target again: only the batch runs.
+    const second = manager.sync(syncInput([PR_TAB]));
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(3));
+    harness.children[2]!.succeed();
+    await expect(second).resolves.toMatchObject({ status: "ok" });
+    expect(harness.calls).toHaveLength(3);
+
+    // A new branch re-attaches.
+    const third = manager.sync(syncInput([{ ...PR_TAB, value: "feature/b" }]));
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(4));
+    harness.children[3]!.succeed();
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(5));
+    expect(harness.calls[4]!.args.at(-1)).toBe("feature/b");
+    harness.children[4]!.succeed();
+    await expect(third).resolves.toMatchObject({ status: "ok" });
+  });
+
+  it("re-attaches a tab after a binding-only request cleared its slot", async () => {
+    const { harness, manager } = createManager();
+    const first = manager.sync(syncInput([PR_TAB]));
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(1));
+    harness.children[0]!.succeed();
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(2));
+    harness.children[1]!.succeed();
+    await expect(first).resolves.toMatchObject({ status: "ok" });
+
+    // Settings publication sends binding clears without any browser work.
+    const { browserTabs: _tabs, clearBrowserTabs: _clears, ...bindingOnly } = syncInput([]);
+    const cleared = manager.sync({
+      ...bindingOnly,
+      clearBindings: [{ scope: "thread", slot: PR_TAB.slot }],
+    });
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(3));
+    harness.children[2]!.succeed();
+    await expect(cleared).resolves.toMatchObject({ status: "ok" });
+    expect(harness.calls).toHaveLength(3);
+
+    // The slot lost its browser target, so the unchanged tab is assigned again.
+    const again = manager.sync(syncInput([PR_TAB]));
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(4));
+    harness.children[3]!.succeed();
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(5));
+    expect(harness.calls[4]!.args).toContain("assign");
+    harness.children[4]!.succeed();
+    await expect(again).resolves.toMatchObject({ status: "ok" });
+  });
+
+  it("reports a failed tab assign on an ok result and retries it next time", async () => {
+    const { harness, manager } = createManager();
+    const first = manager.sync(syncInput([PR_TAB]));
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(1));
+    harness.children[0]!.succeed();
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(2));
+    harness.children[1]!.stderr.emit("data", "no such slot");
+    harness.children[1]!.emit("exit", 1, null);
+    await expect(first).resolves.toEqual({
+      status: "ok",
+      message: "no such slot",
+      appliedScopes: ["thread"],
+    });
+
+    const second = manager.sync(syncInput([PR_TAB]));
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(3));
+    harness.children[2]!.succeed();
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(4));
+    expect(harness.calls[3]!.args).toContain("assign");
+    harness.children[3]!.succeed();
+    await expect(second).resolves.toMatchObject({ status: "ok", message: null });
+  });
+
+  it("applies many threads with one batch and reports applied threads", async () => {
+    const { harness, manager } = createManager();
+    const thread = (threadId: string) => ({
+      projectRoot: "/repo",
+      worktreePath: "/repo/wt/a",
+      threadId,
+      threadTitle: threadId,
+      projectTitle: "Repo",
+      worktreeTitle: "feature/a",
+      browserTabs: [PR_TAB],
+      clearBrowserTabs: [],
+      bindingSlots: [],
+    });
+    const result = manager.syncBrowserTabs({ threads: [thread("t1"), thread("t2")] });
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(1));
+    const payload = JSON.parse(harness.calls[0]!.child.stdin.writes.join("")) as {
+      operations: Array<Record<string, unknown>>;
+    };
+    // Project and worktree environments are ensured once for both threads.
+    expect(payload.operations.filter((operation) => operation.op === "env_ensure")).toHaveLength(4);
+    expect(payload.operations.filter((operation) => operation.op === "slot_assign")).toHaveLength(
+      2,
+    );
+    harness.children[0]!.succeed();
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(3));
+    harness.children[1]!.succeed();
+    harness.children[2]!.succeed();
+    await expect(result).resolves.toEqual({
+      status: "ok",
+      message: null,
+      appliedThreadIds: ["t1", "t2"],
+    });
+  });
+
+  it("registers a named tab with its url and parameter", async () => {
+    const { harness, manager } = createManager();
+    const result = manager.registerBrowserTab({
+      browser: "chromium",
+      tabName: "pr-review",
+      url: "http://127.0.0.1:4318/",
+      param: "branch",
+    });
+    await vi.waitFor(() => expect(harness.calls).toHaveLength(1));
+    expect(harness.calls[0]!.args).toEqual([
+      "--origin",
+      "t3code",
+      "tab",
+      "open",
+      "--browser",
+      "chromium",
+      "--name",
+      "pr-review",
+      "--url",
+      "http://127.0.0.1:4318/",
+      "--param",
+      "branch",
+    ]);
+    harness.children[0]!.stderr.emit("data", "browser bridge unavailable");
+    harness.children[0]!.emit("exit", 1, null);
+    await expect(result).resolves.toEqual({
+      status: "error",
+      message: "browser bridge unavailable",
     });
   });
 });

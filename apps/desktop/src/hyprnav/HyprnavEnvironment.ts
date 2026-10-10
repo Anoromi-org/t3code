@@ -5,6 +5,10 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import type {
+  DesktopHyprnavBrowserTab,
+  DesktopHyprnavBrowserTabRegistration,
+  DesktopHyprnavBrowserTabsSyncInput,
+  DesktopHyprnavBrowserTabsSyncResult,
   DesktopHyprnavCorkdiffConnectionInput,
   DesktopHyprnavLockInput,
   DesktopHyprnavScopedSlot,
@@ -34,6 +38,10 @@ export {
 
 const CLIENT_ID = "t3code";
 const COMMAND_TIMEOUT_MS = 5_000;
+/** `tab open` may wait on the browser opening a tab. */
+const TAB_OPEN_TIMEOUT_MS = 15_000;
+const BROWSER_TAB_CONCURRENCY = 8;
+const BROWSER_TABS_BATCH_THREADS = 100;
 /** Tags T3's lock moves so its own follower can ignore the daemon's `locked` echo. */
 const ORIGIN_ARGS = ["--origin", CLIENT_ID] as const;
 
@@ -65,6 +73,8 @@ interface CanonicalSyncInput extends Omit<DesktopHyprnavSyncInput, "projectRoot"
   readonly clearBindings: readonly DesktopHyprnavScopedSlot[];
   readonly clearNames: readonly DesktopHyprnavScopedSlot[];
   readonly corkdiffConnection: DesktopHyprnavCorkdiffConnectionInput | null;
+  readonly browserTabs: readonly DesktopHyprnavBrowserTab[];
+  readonly clearBrowserTabs: readonly number[];
 }
 
 export interface HyprnavSocketIdentity {
@@ -127,6 +137,95 @@ export function normalizeClearBindings(
   return [...unique.values()].toSorted((left, right) =>
     left.scope === right.scope ? left.slot - right.slot : left.scope.localeCompare(right.scope),
   );
+}
+
+export interface HyprnavBrowserTabPlan {
+  /** Batch operations: a fixed local slot per tab, `slot_clear` for dropped slots. */
+  readonly operations: BatchOperation[];
+  /** Tabs to attach with `tab assign` (before skipping already-applied ones). */
+  readonly assign: DesktopHyprnavBrowserTab[];
+  /** Dropped slots a project binding still owns: only their browser target goes. */
+  readonly tabClears: number[];
+  /** Dropped slots removed outright; hyprnav deletes their browser target with them. */
+  readonly slotClears: number[];
+}
+
+function normalizeBrowserTab(tab: DesktopHyprnavBrowserTab): DesktopHyprnavBrowserTab | null {
+  const slot = normalizeSlot(tab.slot);
+  const workspaceId = normalizeSlot(tab.workspaceId);
+  const tabName = tab.tabName.trim();
+  const value = tab.value.trim();
+  if (slot === null || workspaceId === null || !tabName || !value) return null;
+  if (tab.browser !== "chromium" && tab.browser !== "firefox") return null;
+  return { slot, workspaceId, browser: tab.browser, tabName, value };
+}
+
+/**
+ * Plans one thread environment's browser slots. A thread-scope project binding
+ * on the same slot wins: hyprnav would otherwise navigate the browser instead
+ * of running the binding's command.
+ */
+export function planHyprnavBrowserTabs(input: {
+  readonly envId: string;
+  readonly tabs: readonly DesktopHyprnavBrowserTab[];
+  readonly clearSlots: readonly number[];
+  readonly bindingSlots: ReadonlySet<number>;
+}): HyprnavBrowserTabPlan {
+  const assign: DesktopHyprnavBrowserTab[] = [];
+  const operations: BatchOperation[] = [];
+  for (const raw of input.tabs) {
+    const tab = normalizeBrowserTab(raw);
+    if (!tab || input.bindingSlots.has(tab.slot)) continue;
+    if (assign.some((existing) => existing.slot === tab.slot)) continue;
+    assign.push(tab);
+    operations.push({
+      op: "slot_assign",
+      env: input.envId,
+      slot: tab.slot,
+      assignment_mode: { mode: "fixed", workspace_id: tab.workspaceId },
+      client: CLIENT_ID,
+      display_name: tab.tabName,
+    });
+  }
+  const tabClears: number[] = [];
+  const slotClears: number[] = [];
+  for (const raw of new Set(input.clearSlots)) {
+    const slot = normalizeSlot(raw);
+    if (slot === null || assign.some((tab) => tab.slot === slot)) continue;
+    if (input.bindingSlots.has(slot)) {
+      tabClears.push(slot);
+      continue;
+    }
+    slotClears.push(slot);
+    operations.push({ op: "slot_clear", env: input.envId, slot, client: CLIENT_ID });
+  }
+  return { operations, assign, tabClears, slotClears };
+}
+
+function browserTargetKey(envId: string, slot: number): string {
+  return `${envId}\0${String(slot)}`;
+}
+
+function browserTargetSignature(tab: DesktopHyprnavBrowserTab): string {
+  return JSON.stringify([tab.browser, tab.tabName, tab.value]);
+}
+
+export function buildHyprnavTabAssignArgs(envId: string, tab: DesktopHyprnavBrowserTab): string[] {
+  return [
+    ...ORIGIN_ARGS,
+    "tab",
+    "assign",
+    "--browser",
+    tab.browser,
+    "--env",
+    envId,
+    "--slot",
+    String(tab.slot),
+    "--name",
+    tab.tabName,
+    "--workspace",
+    tab.value,
+  ];
 }
 
 function hashSegment(value: string): string {
@@ -290,6 +389,23 @@ function isUnavailable(error: unknown): boolean {
   );
 }
 
+/** Runs tasks with bounded parallelism; results keep the tasks' order. */
+async function runConcurrently<T>(tasks: ReadonlyArray<() => Promise<T>>): Promise<T[]> {
+  const results: T[] = Array.from({ length: tasks.length });
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) {
+      const index = next;
+      next += 1;
+      results[index] = await tasks[index]!();
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(BROWSER_TAB_CONCURRENCY, tasks.length) }, worker),
+  );
+  return results;
+}
+
 export class HyprnavEnvironmentManager {
   private readonly spawn: typeof NodeChildProcess.spawn;
   private readonly resolvePath: (...segments: string[]) => string;
@@ -300,6 +416,12 @@ export class HyprnavEnvironmentManager {
   private readonly runtimeEnv: () => NodeJS.ProcessEnv;
   private readonly timeoutMs: number;
   private readonly chains = new Map<string, Promise<unknown>>();
+  /**
+   * Browser targets this process attached, by env and slot. `tab assign` has no
+   * batch op, so this keeps a sync from spawning one per thread when nothing
+   * changed. Starts empty each launch, so targets are re-attached once.
+   */
+  private readonly browserTargets = new Map<string, string>();
 
   constructor(options: HyprnavEnvironmentManagerOptions = {}) {
     this.spawn = options.spawn ?? NodeChildProcess.spawn;
@@ -389,6 +511,8 @@ export class HyprnavEnvironmentManager {
               token: input.corkdiffConnection.token,
             }
           : null,
+      browserTabs: staleWorktree ? [] : (input.browserTabs ?? []),
+      clearBrowserTabs: staleWorktree ? [] : (input.clearBrowserTabs ?? []),
       lock: staleWorktree ? false : input.lock,
     };
   }
@@ -520,6 +644,20 @@ export class HyprnavEnvironmentManager {
       ...input.clearNames.map((binding) => binding.scope),
     ]);
     if (input.lock && input.threadId) scopes.add("thread");
+    const browserPlan =
+      ids.threadEnvId && (input.browserTabs.length > 0 || input.clearBrowserTabs.length > 0)
+        ? planHyprnavBrowserTabs({
+            envId: ids.threadEnvId,
+            tabs: input.browserTabs,
+            clearSlots: input.clearBrowserTabs,
+            bindingSlots: new Set(
+              resolved
+                .filter((binding) => binding.envId === ids.threadEnvId)
+                .map((binding) => binding.slot),
+            ),
+          })
+        : null;
+    if (browserPlan) scopes.add("thread");
 
     // Ensure every touched environment together with its ancestors, so the
     // hyprnav breadcrumb for a thread row can show project and worktree titles
@@ -584,6 +722,21 @@ export class HyprnavEnvironmentManager {
       const env = resolveScopeEnvId(item.scope, ids);
       if (env) operations.push({ op: "slot_name_clear", env, slot: item.slot });
     }
+    if (ids.threadEnvId) {
+      // A cleared slot loses its browser target in hyprnav; forget it here too,
+      // even when this request carries no browser work of its own.
+      for (const item of input.clearBindings) {
+        if (item.scope === "thread") {
+          this.browserTargets.delete(browserTargetKey(ids.threadEnvId, item.slot));
+        }
+      }
+    }
+    if (browserPlan && ids.threadEnvId) {
+      operations.push(...browserPlan.operations);
+      for (const slot of browserPlan.slotClears) {
+        this.browserTargets.delete(browserTargetKey(ids.threadEnvId, slot));
+      }
+    }
 
     const syncResult = operations.length
       ? await this.run(
@@ -593,10 +746,193 @@ export class HyprnavEnvironmentManager {
       : { status: "ok" as const, message: null };
     if (syncResult.status !== "ok") return bindingError ?? syncResult;
     const appliedScopes = [...scopes];
-    if (!input.lock) return bindingError ?? { ...syncResult, appliedScopes };
-    const lockResult = await this.run([...ORIGIN_ARGS, "lock", ids.lockEnvId]);
-    return (
-      bindingError ?? (lockResult.status === "ok" ? { ...lockResult, appliedScopes } : lockResult)
+    let lockResult: DesktopHyprnavSyncResult = syncResult;
+    if (input.lock) lockResult = await this.run([...ORIGIN_ARGS, "lock", ids.lockEnvId]);
+    // After the lock so attaching tabs never delays navigation. A failure here
+    // is reported on an ok result: retrying the whole sync would re-lock.
+    const browserFailure =
+      browserPlan && ids.threadEnvId
+        ? await this.applyBrowserPlan(ids.threadEnvId, browserPlan)
+        : null;
+    if (bindingError) return bindingError;
+    if (lockResult.status !== "ok") return lockResult;
+    return { status: "ok", message: browserFailure, appliedScopes };
+  }
+
+  /** Runs the non-batch half of a browser plan; returns the first failure message. */
+  private async applyBrowserPlan(
+    envId: string,
+    plan: HyprnavBrowserTabPlan,
+  ): Promise<string | null> {
+    const messages = await runConcurrently(this.browserPlanTasks(envId, plan));
+    return messages.find((message) => message !== null) ?? null;
+  }
+
+  /** `tab clear` / `tab assign` calls a plan still needs; unchanged targets are skipped. */
+  private browserPlanTasks(
+    envId: string,
+    plan: HyprnavBrowserTabPlan,
+  ): Array<() => Promise<string | null>> {
+    const tasks: Array<() => Promise<string | null>> = [];
+    for (const slot of plan.tabClears) {
+      tasks.push(async () => {
+        const args = [...ORIGIN_ARGS, "tab", "clear", "--env", envId, "--slot", String(slot)];
+        const result = await this.run(args);
+        if (result.status !== "ok") return result.message ?? "hyprnav tab clear failed.";
+        this.browserTargets.delete(browserTargetKey(envId, slot));
+        return null;
+      });
+    }
+    for (const tab of plan.assign) {
+      const key = browserTargetKey(envId, tab.slot);
+      const signature = browserTargetSignature(tab);
+      if (this.browserTargets.get(key) === signature) continue;
+      tasks.push(async () => {
+        const result = await this.run(buildHyprnavTabAssignArgs(envId, tab));
+        if (result.status !== "ok") {
+          this.browserTargets.delete(key);
+          return result.message ?? "hyprnav tab assign failed.";
+        }
+        this.browserTargets.set(key, signature);
+        return null;
+      });
+    }
+    return tasks;
+  }
+
+  /**
+   * Applies browser slots to many threads at once: one `batch` per chunk of
+   * threads, then `tab assign` only where the attached target changed.
+   */
+  syncBrowserTabs(
+    input: DesktopHyprnavBrowserTabsSyncInput,
+  ): Promise<DesktopHyprnavBrowserTabsSyncResult> {
+    return this.serialize(() => this.performBrowserTabsSync(input));
+  }
+
+  private async performBrowserTabsSync(
+    input: DesktopHyprnavBrowserTabsSyncInput,
+  ): Promise<DesktopHyprnavBrowserTabsSyncResult> {
+    const canonicalPath = (path: string) => this.realpathSync(this.resolvePath(path));
+    const planned: Array<{
+      readonly threadId: string;
+      readonly envId: string;
+      readonly plan: HyprnavBrowserTabPlan;
+      readonly ensures: BatchOperation[];
+    }> = [];
+    const appliedThreadIds: string[] = [];
+    let failure: string | null = null;
+    let unavailable = false;
+    for (const thread of input.threads) {
+      const threadId = thread.threadId.trim();
+      if (!threadId) continue;
+      let projectRoot: string;
+      let worktreePath: string | null;
+      try {
+        projectRoot = canonicalPath(thread.projectRoot);
+        worktreePath = thread.worktreePath ? canonicalPath(thread.worktreePath) : null;
+      } catch (error) {
+        // A removed worktree has no environment worth a browser slot.
+        if (isUnavailable(error)) continue;
+        failure ??= error instanceof Error ? error.message : String(error);
+        continue;
+      }
+      const ids = buildHyprnavEnvironmentIds({ projectRoot, worktreePath, threadId });
+      const envId = ids.threadEnvId!;
+      const plan = planHyprnavBrowserTabs({
+        envId,
+        tabs: thread.browserTabs,
+        clearSlots: thread.clearBrowserTabs,
+        bindingSlots: new Set(thread.bindingSlots),
+      });
+      if (plan.operations.length === 0 && plan.tabClears.length === 0) {
+        appliedThreadIds.push(threadId);
+        continue;
+      }
+      for (const slot of plan.slotClears) this.browserTargets.delete(browserTargetKey(envId, slot));
+      const ensures = [
+        [ids.projectEnvId, projectRoot, thread.projectTitle],
+        [ids.worktreeEnvId, ids.targetPath, thread.worktreeTitle],
+        [envId, ids.targetPath, thread.threadTitle],
+      ].map(([env, cwd, title]) => ({
+        op: "env_ensure",
+        env,
+        cwd,
+        client: CLIENT_ID,
+        ...(title?.trim() ? { title: title.trim() } : {}),
+      }));
+      planned.push({ threadId, envId, plan, ensures });
+    }
+
+    for (let index = 0; index < planned.length; index += BROWSER_TABS_BATCH_THREADS) {
+      const chunk = planned.slice(index, index + BROWSER_TABS_BATCH_THREADS);
+      const ensured = new Map<string, BatchOperation>();
+      for (const item of chunk) {
+        for (const ensure of item.ensures) ensured.set(String(ensure.env), ensure);
+      }
+      const operations = [...ensured.values(), ...chunk.flatMap((item) => item.plan.operations)];
+      const batchResult = await this.run(
+        [...ORIGIN_ARGS, "batch", "--stdin"],
+        JSON.stringify({ atomic: true, operations }),
+      );
+      if (batchResult.status !== "ok") {
+        failure ??= batchResult.message;
+        if (batchResult.status === "unavailable") {
+          unavailable = true;
+          break;
+        }
+        continue;
+      }
+      const messages = await runConcurrently(
+        chunk.map((item) => async () => {
+          for (const task of this.browserPlanTasks(item.envId, item.plan)) {
+            const message = await task();
+            if (message !== null) return message;
+          }
+          return null;
+        }),
+      );
+      chunk.forEach((item, chunkIndex) => {
+        const message = messages[chunkIndex] ?? null;
+        if (message === null) appliedThreadIds.push(item.threadId);
+        else failure ??= message;
+      });
+    }
+    return failure === null
+      ? { status: "ok", message: null, appliedThreadIds }
+      : { status: unavailable ? "unavailable" : "error", message: failure, appliedThreadIds };
+  }
+
+  /** `hyprnav tab open`: adopt a matching open tab under the name, or open one. */
+  registerBrowserTab(
+    input: DesktopHyprnavBrowserTabRegistration,
+  ): Promise<DesktopHyprnavSyncResult> {
+    const tabName = input.tabName.trim();
+    const url = input.url.trim();
+    const param = input.param.trim();
+    if (!tabName || !url || !param) {
+      return Promise.resolve({
+        status: "error",
+        message: "Tab name, URL and parameter are required.",
+      });
+    }
+    return this.run(
+      [
+        ...ORIGIN_ARGS,
+        "tab",
+        "open",
+        "--browser",
+        input.browser,
+        "--name",
+        tabName,
+        "--url",
+        url,
+        "--param",
+        param,
+      ],
+      undefined,
+      "hyprnav",
+      TAB_OPEN_TIMEOUT_MS,
     );
   }
 
@@ -604,14 +940,16 @@ export class HyprnavEnvironmentManager {
     args: readonly string[],
     stdin?: string,
     command = "hyprnav",
+    timeoutMs = this.timeoutMs,
   ): Promise<DesktopHyprnavSyncResult> {
-    return (await this.runDetailed(args, stdin, command)).result;
+    return (await this.runDetailed(args, stdin, command, timeoutMs)).result;
   }
 
   private async runDetailed(
     args: readonly string[],
     stdin?: string,
     command = "hyprnav",
+    timeoutMs = this.timeoutMs,
   ): Promise<{ readonly result: DesktopHyprnavSyncResult; readonly timedOut: boolean }> {
     try {
       const result = await new Promise<{
@@ -628,7 +966,7 @@ export class HyprnavEnvironmentManager {
         const timer = setTimeout(() => {
           timedOut = true;
           child.kill("SIGKILL");
-        }, this.timeoutMs);
+        }, timeoutMs);
         const finish = (callback: () => void) => {
           if (settled) return;
           settled = true;
@@ -680,6 +1018,12 @@ export class HyprnavEnvironment extends Context.Service<
   {
     readonly sync: (input: DesktopHyprnavSyncInput) => Effect.Effect<DesktopHyprnavSyncResult>;
     readonly lock: (input: DesktopHyprnavLockInput) => Effect.Effect<DesktopHyprnavSyncResult>;
+    readonly syncBrowserTabs: (
+      input: DesktopHyprnavBrowserTabsSyncInput,
+    ) => Effect.Effect<DesktopHyprnavBrowserTabsSyncResult>;
+    readonly registerBrowserTab: (
+      input: DesktopHyprnavBrowserTabRegistration,
+    ) => Effect.Effect<DesktopHyprnavSyncResult>;
   }
 >()("@t3tools/desktop/hyprnav/HyprnavEnvironment") {}
 
@@ -688,6 +1032,8 @@ const make = Effect.sync(() => {
   return HyprnavEnvironment.of({
     sync: (input) => Effect.promise(() => manager.sync(input)),
     lock: (input) => Effect.promise(() => manager.lock(input)),
+    syncBrowserTabs: (input) => Effect.promise(() => manager.syncBrowserTabs(input)),
+    registerBrowserTab: (input) => Effect.promise(() => manager.registerBrowserTab(input)),
   });
 });
 

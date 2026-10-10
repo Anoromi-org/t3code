@@ -41,7 +41,11 @@ import {
   type ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
-import { DEFAULT_PROJECT_HYPRNAV_SETTINGS, ProjectHyprnavSettings } from "./hyprnav.ts";
+import {
+  DEFAULT_PROJECT_HYPRNAV_SETTINGS,
+  HyprnavBrowserSlot,
+  ProjectHyprnavSettings,
+} from "./hyprnav.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -424,6 +428,10 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   // Lock the opened thread's hyprnav environment when T3 publishes it.
   hyprnavPublishLock: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // Browser slots every local thread's hyprnav environment gets. Empty = off.
+  hyprnavBrowserSlots: Schema.Array(HyprnavBrowserSlot).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   // Model favorites. Historically keyed by provider kind, now
   // widened to `ProviderInstanceId` so users can favorite a specific model
   // on a custom provider instance (e.g. "Codex Personal · gpt-5") without
@@ -1626,6 +1634,7 @@ export const ClientSettingsPatch = Schema.Struct({
   defaultProjectHyprnavSettings: Schema.optionalKey(ProjectHyprnavSettings),
   hyprnavFollowLock: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
   hyprnavPublishLock: Schema.optionalKey(Schema.Boolean),
+  hyprnavBrowserSlots: Schema.optionalKey(Schema.Array(HyprnavBrowserSlot)),
   favorites: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({

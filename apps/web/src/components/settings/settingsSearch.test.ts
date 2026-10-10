@@ -349,6 +349,20 @@ describe("searchSettings", () => {
     expect(getSettingsSearchTargetScope("hyprnav")?.scope).toBeNull();
     expect(getSettingsSearchTargetScope("project-hyprnav")?.scope).toBe("project");
   });
+  it("finds the Hyprnav thread sync and browser slot settings", () => {
+    expect(searchSettings("follow lock")[0]).toMatchObject({
+      id: "hyprnav-follow-lock",
+      to: "/settings/hyprnav",
+    });
+    expect(searchSettings("lock open thread")[0]).toMatchObject({
+      id: "hyprnav-publish-lock",
+      to: "/settings/hyprnav",
+    });
+    expect(searchSettings("browser slots")[0]).toMatchObject({
+      id: "hyprnav-browser-slots",
+      to: "/settings/hyprnav",
+    });
+  });
 });
 
 describe("settings search targets", () => {

@@ -23,7 +23,7 @@ import { AdvertisedEndpoint } from "./remoteAccess.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
-import type { ProjectHyprnavScope, ProjectHyprnavSettings } from "./hyprnav.ts";
+import type { HyprnavBrowserKind, ProjectHyprnavScope, ProjectHyprnavSettings } from "./hyprnav.ts";
 
 import type {
   DesktopAppActivationRequest,
@@ -1255,6 +1255,14 @@ export interface DesktopBridge {
   /** Hyprland-only, primary local environment navigation integration. */
   syncHyprnavEnvironment?: (input: DesktopHyprnavSyncInput) => Promise<DesktopHyprnavSyncResult>;
   lockHyprnavEnvironment?: (input: DesktopHyprnavLockInput) => Promise<DesktopHyprnavSyncResult>;
+  /** Apply browser slots to many thread environments in a few hyprnav calls. */
+  syncHyprnavBrowserTabs?: (
+    input: DesktopHyprnavBrowserTabsSyncInput,
+  ) => Promise<DesktopHyprnavBrowserTabsSyncResult>;
+  /** Name (or open) the browser tab a browser slot drives: `hyprnav tab open`. */
+  registerHyprnavBrowserTab?: (
+    input: DesktopHyprnavBrowserTabRegistration,
+  ) => Promise<DesktopHyprnavSyncResult>;
   /** Hyprland-only: desktop agents (cua MCP processes) tracked by hyprnav. */
   listHyprnavAgents?: () => Promise<ReadonlyArray<DesktopHyprnavAgent>>;
   /** Pre-answer the next screen-share picker so getDisplayMedia shows this window without a dialog. */
@@ -1336,7 +1344,52 @@ export interface DesktopHyprnavSyncInput {
   readonly clearBindings?: readonly DesktopHyprnavScopedSlot[];
   readonly clearNames?: readonly DesktopHyprnavScopedSlot[];
   readonly corkdiffConnection?: DesktopHyprnavCorkdiffConnectionInput | null;
+  /** Thread-scope browser slots to ensure on the thread environment. */
+  readonly browserTabs?: readonly DesktopHyprnavBrowserTab[];
+  /** Thread-scope slots whose browser target T3 set earlier and must remove. */
+  readonly clearBrowserTabs?: readonly number[];
   readonly lock: boolean;
+}
+
+/** One resolved browser slot for a thread: `value` is already the thread's query value. */
+export interface DesktopHyprnavBrowserTab {
+  readonly slot: number;
+  readonly workspaceId: number;
+  readonly browser: HyprnavBrowserKind;
+  readonly tabName: string;
+  readonly value: string;
+}
+
+/** One thread's browser slots for a bulk apply; titles name newly created environments. */
+export interface DesktopHyprnavBrowserTabsThread {
+  readonly projectRoot: string;
+  readonly worktreePath: string | null;
+  readonly threadId: string;
+  readonly threadTitle: string | null;
+  readonly projectTitle: string | null;
+  readonly worktreeTitle: string | null;
+  readonly browserTabs: readonly DesktopHyprnavBrowserTab[];
+  readonly clearBrowserTabs: readonly number[];
+  /** Thread-scope slots a project binding owns; browser slots never take them over. */
+  readonly bindingSlots: readonly number[];
+}
+
+export interface DesktopHyprnavBrowserTabsSyncInput {
+  readonly threads: readonly DesktopHyprnavBrowserTabsThread[];
+}
+
+export interface DesktopHyprnavBrowserTabsSyncResult {
+  readonly status: "ok" | "unavailable" | "error";
+  readonly message: string | null;
+  /** Threads whose browser slots now match the request. */
+  readonly appliedThreadIds: readonly string[];
+}
+
+export interface DesktopHyprnavBrowserTabRegistration {
+  readonly browser: HyprnavBrowserKind;
+  readonly tabName: string;
+  readonly url: string;
+  readonly param: string;
 }
 
 export interface DesktopHyprnavLockInput {

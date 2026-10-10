@@ -55,6 +55,8 @@ vi.mock("../hooks/useSettings", () => ({
       defaultProjectHyprnavSettings: { bindings: [] },
       sidebarProjectGroupingMode: "repository",
       sidebarProjectGroupingOverrides: {},
+      hyprnavBrowserSlots: [],
+      hyprnavPublishLock: true,
     }),
 }));
 vi.mock("../state/environments", () => ({

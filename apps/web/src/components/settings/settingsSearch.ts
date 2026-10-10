@@ -726,6 +726,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hyprland thread sync move lock environment"],
   },
   {
+    id: "hyprnav-browser-slots",
+    title: "Browser slots",
+    to: "/settings/hyprnav",
+    searchTerms: ["hyprland browser tab preview url branch checkout query workspace"],
+  },
+  {
     id: "project-hyprnav",
     title: "Project Hyprnav bindings",
     to: "/settings/projects",

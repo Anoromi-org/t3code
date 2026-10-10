@@ -9,7 +9,11 @@ import * as Option from "effect/Option";
 import { vi } from "vite-plus/test";
 
 import type * as Electron from "electron";
-import type { DesktopHyprnavSyncInput } from "@t3tools/contracts";
+import type {
+  DesktopHyprnavBrowserTabRegistration,
+  DesktopHyprnavBrowserTabsSyncInput,
+  DesktopHyprnavSyncInput,
+} from "@t3tools/contracts";
 
 const { focusedWebContents, ownerWindow } = vi.hoisted(() => ({
   focusedWebContents: vi.fn(),
@@ -33,6 +37,8 @@ import {
   pasteAsText,
   pickProjectFavicon,
   probeRemoteEditors,
+  registerHyprnavBrowserTab,
+  syncHyprnavBrowserTabs,
   syncHyprnavEnvironment,
 } from "./window.ts";
 
@@ -330,6 +336,9 @@ describe("syncHyprnavEnvironment", () => {
               return Effect.succeed({ status: "ok", message: null, appliedScopes: ["thread"] });
             },
             lock: () => Effect.succeed({ status: "ok", message: null }),
+            syncBrowserTabs: () =>
+              Effect.succeed({ status: "ok", message: null, appliedThreadIds: [] }),
+            registerBrowserTab: () => Effect.succeed({ status: "ok", message: null }),
           }),
         ),
       ),
@@ -362,9 +371,124 @@ describe("syncHyprnavEnvironment", () => {
                 appliedScopes: ["project"],
               }),
             lock: () => Effect.succeed({ status: "ok", message: null }),
+            syncBrowserTabs: () =>
+              Effect.succeed({ status: "ok", message: null, appliedThreadIds: [] }),
+            registerBrowserTab: () => Effect.succeed({ status: "ok", message: null }),
           }),
         ),
       ),
     ),
   );
+});
+
+describe("hyprnav browser slots IPC", () => {
+  const recordingHyprnav = () => {
+    const calls = {
+      sync: [] as DesktopHyprnavSyncInput[],
+      syncBrowserTabs: [] as DesktopHyprnavBrowserTabsSyncInput[],
+      registerBrowserTab: [] as DesktopHyprnavBrowserTabRegistration[],
+    };
+    const layer = Layer.succeed(
+      HyprnavEnvironment.HyprnavEnvironment,
+      HyprnavEnvironment.HyprnavEnvironment.of({
+        sync: (input) => {
+          calls.sync.push(input);
+          return Effect.succeed({ status: "ok", message: null, appliedScopes: ["thread"] });
+        },
+        lock: () => Effect.succeed({ status: "ok", message: null }),
+        syncBrowserTabs: (input) => {
+          calls.syncBrowserTabs.push(input);
+          return Effect.succeed({
+            status: "ok",
+            message: null,
+            appliedThreadIds: input.threads.map((thread) => thread.threadId),
+          });
+        },
+        registerBrowserTab: (input) => {
+          calls.registerBrowserTab.push(input);
+          return Effect.succeed({ status: "ok", message: null });
+        },
+      }),
+    );
+    return { calls, layer };
+  };
+
+  const browserTab = {
+    slot: 7,
+    workspaceId: 12,
+    browser: "firefox",
+    tabName: "Preview",
+    value: "feature/a",
+  } as const;
+
+  it.effect("decodes browser tabs on the thread sync and forwards them", () => {
+    const { calls, layer } = recordingHyprnav();
+    return Effect.gen(function* () {
+      yield* syncHyprnavEnvironment.handler({
+        projectRoot: "/repo",
+        worktreePath: "/repo/wt",
+        threadId: "thread-1",
+        hyprnav: { bindings: [] },
+        browserTabs: [browserTab],
+        clearBrowserTabs: [3],
+        lock: false,
+      });
+      assert.deepEqual(calls.sync[0]?.browserTabs, [browserTab]);
+      assert.deepEqual(calls.sync[0]?.clearBrowserTabs, [3]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("rejects a browser tab without a usable slot", () => {
+    const { calls, layer } = recordingHyprnav();
+    return Effect.gen(function* () {
+      const result = yield* Effect.exit(
+        syncHyprnavEnvironment.handler({
+          projectRoot: "/repo",
+          hyprnav: { bindings: [] },
+          browserTabs: [{ ...browserTab, slot: 0 }],
+          lock: false,
+        }),
+      );
+      assert.isTrue(result._tag === "Failure");
+      assert.strictEqual(calls.sync.length, 0);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("applies browser tabs to a batch of threads", () => {
+    const { calls, layer } = recordingHyprnav();
+    return Effect.gen(function* () {
+      const result = yield* syncHyprnavBrowserTabs.handler({
+        threads: [
+          {
+            projectRoot: "/repo",
+            worktreePath: "/repo/wt",
+            threadId: "thread-1",
+            threadTitle: "Thread",
+            projectTitle: "Repo",
+            worktreeTitle: "feature/a",
+            browserTabs: [browserTab],
+            clearBrowserTabs: [],
+            bindingSlots: [1, 2],
+          },
+        ],
+      });
+      assert.deepEqual(result, { status: "ok", message: null, appliedThreadIds: ["thread-1"] });
+      assert.strictEqual(calls.syncBrowserTabs[0]?.threads[0]?.worktreeTitle, "feature/a");
+      assert.deepEqual(calls.syncBrowserTabs[0]?.threads[0]?.bindingSlots, [1, 2]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("registers the browser tab a slot drives", () => {
+    const { calls, layer } = recordingHyprnav();
+    return Effect.gen(function* () {
+      const registration = {
+        browser: "firefox",
+        tabName: "Preview",
+        url: "https://example.test/review",
+        param: "branch",
+      } as const;
+      yield* registerHyprnavBrowserTab.handler(registration);
+      assert.deepEqual(calls.registerBrowserTab, [registration]);
+    }).pipe(Effect.provide(layer));
+  });
 });

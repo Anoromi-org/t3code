@@ -1,6 +1,7 @@
 import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import type {
   DesktopBridge,
+  DesktopHyprnavBrowserTab,
   DesktopHyprnavScopedSlot,
   DesktopHyprnavSyncInput,
   DesktopHyprnavSyncResult,
@@ -66,6 +67,7 @@ export function createActiveHyprnavRequestKey(input: {
   readonly settings: ProjectHyprnavSettings;
   readonly availableEditors: readonly EditorId[];
   readonly preferredEditor: EditorId | null;
+  readonly browserTabs?: readonly DesktopHyprnavBrowserTab[];
 }): string | null {
   // The preferred editor only matters to favorite-editor bindings; leave it out
   // otherwise so unrelated editor switches do not republish.
@@ -78,8 +80,13 @@ export function createActiveHyprnavRequestKey(input: {
         settings: input.settings,
         availableEditors: input.availableEditors,
         preferredEditor: needsEditor ? input.preferredEditor : null,
+        browserTabs: input.browserTabs ?? [],
       })
     : null;
+}
+
+function requestHasBrowserWork(request: DesktopHyprnavSyncInput): boolean {
+  return (request.browserTabs?.length ?? 0) > 0 || (request.clearBrowserTabs?.length ?? 0) > 0;
 }
 
 export interface HyprnavPublicationScopeState {
@@ -291,6 +298,22 @@ export function persistHyprnavPublicationHistory(
 /** Shared renderer history used by active-thread and settings-triggered publication. */
 export const hyprnavPublicationHistory: HyprnavPublicationHistory = loadHyprnavPublicationHistory();
 
+/**
+ * The request a credential refresh republishes. It never locks: the lock may
+ * have moved since. Browser tab clears stay until a sync has settled them, so
+ * a failed `tab clear` is retried instead of forgotten.
+ */
+export function hyprnavCredentialRefreshRequest(
+  request: DesktopHyprnavSyncInput,
+  browserTabsSettled: boolean,
+): DesktopHyprnavSyncInput {
+  return {
+    ...request,
+    clearBrowserTabs: browserTabsSettled ? [] : (request.clearBrowserTabs ?? []),
+    lock: false,
+  };
+}
+
 export function isHyprnavDesktopRuntimeAvailable(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -380,7 +403,9 @@ export function hyprnavSyncNeedsScopeRetry(
     ...request.hyprnav.bindings.map((binding) => binding.scope),
     ...(request.clearBindings ?? []).map((binding) => binding.scope),
     ...(request.clearNames ?? []).map((binding) => binding.scope),
-    ...(request.lock && request.threadId ? (["thread"] as const) : []),
+    ...((request.lock || requestHasBrowserWork(request)) && request.threadId
+      ? (["thread"] as const)
+      : []),
   ]);
   const appliedScopes = new Set(result.appliedScopes);
   return [...requestedScopes].some((scope) => !appliedScopes.has(scope));
@@ -516,6 +541,7 @@ function requestHasSyncWork(request: DesktopHyprnavSyncInput): boolean {
     request.hyprnav.bindings.length > 0 ||
     (request.clearBindings?.length ?? 0) > 0 ||
     (request.clearNames?.length ?? 0) > 0 ||
+    requestHasBrowserWork(request) ||
     request.lock
   );
 }
@@ -653,7 +679,7 @@ export async function publishHyprnavRequests(input: {
       ...syncRequest.hyprnav.bindings.map((binding) => binding.scope),
       ...(syncRequest.clearBindings ?? []).map((binding) => binding.scope),
       ...(syncRequest.clearNames ?? []).map((binding) => binding.scope),
-      ...(syncRequest.lock ? (["thread"] as const) : []),
+      ...(syncRequest.lock || requestHasBrowserWork(syncRequest) ? (["thread"] as const) : []),
     ];
     for (const scope of result.appliedScopes ?? fallbackScopes) appliedScopes.add(scope);
   }

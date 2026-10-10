@@ -11,6 +11,7 @@ import {
   computeActiveHyprnavCleanup,
   createActiveHyprnavRequestKey,
   hyprnavCredentialRefreshDelay,
+  hyprnavCredentialRefreshRequest,
   hyprnavPublicationHistory,
   hyprnavSyncNeedsScopeRetry,
   isHyprnavDesktopRuntimeAvailable,
@@ -21,6 +22,16 @@ import {
   resolveActiveHyprnavSyncTarget,
   resolveEffectiveHyprnavSettings,
 } from "../hyprnavRuntime";
+import {
+  computeHyprnavBrowserTabClears,
+  hyprnavBrowserTabHistory,
+  hyprnavBrowserTabHistoryKey,
+  hyprnavThreadBindingSlots,
+  markHyprnavBrowserTabAttempt,
+  persistHyprnavBrowserTabHistory,
+  recordHyprnavBrowserTabs,
+  resolveHyprnavBrowserTabs,
+} from "../hyprnavBrowserSlots";
 import { consumeFollowedThread } from "../hyprnavLockFollower";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { resolveRetainedHyprnavProject } from "../hyprnavSettings";
@@ -63,11 +74,24 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
     () => resolveActiveHyprnavSyncTarget({ primaryEnvironmentId, project, thread }),
     [primaryEnvironmentId, project, thread],
   );
+  const browserSlots = useClientSettings((settings) => settings.hyprnavBrowserSlots);
+  const branch = thread?.branch ?? null;
+  const checkoutPath = target ? (target.worktreePath ?? target.projectRoot) : null;
+  const browserTabs = useMemo(
+    () =>
+      resolveHyprnavBrowserTabs({
+        slots: browserSlots,
+        thread: { branch, checkoutPath },
+        bindingSlots: hyprnavThreadBindingSlots(effectiveSettings),
+      }),
+    [browserSlots, branch, checkoutPath, effectiveSettings],
+  );
   const requestKey = createActiveHyprnavRequestKey({
     target,
     settings: effectiveSettings,
     availableEditors,
     preferredEditor,
+    browserTabs,
   });
 
   // requestKey fingerprints every semantic input below. Projection upserts replace
@@ -84,6 +108,11 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
       target,
       settings: effectiveSettings,
     });
+    const browserTabKey = hyprnavBrowserTabHistoryKey(target);
+    const clearBrowserTabs = computeHyprnavBrowserTabClears(
+      hyprnavBrowserTabHistory.get(browserTabKey),
+      browserTabs,
+    );
     const firstRequest: DesktopHyprnavSyncInput = {
       projectRoot: target.projectRoot,
       worktreePath: target.worktreePath,
@@ -94,13 +123,15 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
       hyprnav: effectiveSettings,
       clearBindings: cleanup.clearBindings,
       clearNames: cleanup.clearNames,
+      browserTabs,
+      clearBrowserTabs,
       // A thread the follower opened is already locked; locking it again could
       // undo a newer lock the user made in hyprnav meanwhile.
       lock: publishLock && !consumeFollowedThread(threadRef),
     };
-    // Refreshes only renew credentials; the lock may have moved since.
-    const refreshRequest = { ...firstRequest, lock: false };
     let request = firstRequest;
+    let browserTabsSettled = false;
+    let browserTabWarning: string | null = null;
     void (async () => {
       for (;;) {
         if (cancelled) return;
@@ -117,6 +148,14 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
                 settings: effectiveSettings,
               });
               persistHyprnavPublicationHistory(hyprnavPublicationHistory);
+              markHyprnavBrowserTabAttempt(hyprnavBrowserTabHistory, browserTabKey, browserTabs);
+              persistHyprnavBrowserTabHistory(hyprnavBrowserTabHistory);
+            },
+            onAfterSync: (_request, syncResult) => {
+              // Browser tab failures ride on an ok result so the lock is not retried.
+              if (syncResult.status === "ok" && syncResult.message) {
+                browserTabWarning = syncResult.message;
+              }
             },
           });
           if (cancelled) return;
@@ -128,13 +167,27 @@ export function HyprnavRuntimeOrchestrator({ threadRef }: { readonly threadRef: 
               ...(result.appliedScopes ? { appliedScopes: result.appliedScopes } : {}),
             });
             persistHyprnavPublicationHistory(hyprnavPublicationHistory);
+            if (browserTabWarning === null && result.appliedScopes?.includes("thread") !== false) {
+              recordHyprnavBrowserTabs(hyprnavBrowserTabHistory, browserTabKey, browserTabs);
+              persistHyprnavBrowserTabHistory(hyprnavBrowserTabHistory);
+              browserTabsSettled = true;
+            }
+            if (browserTabWarning !== null && !warned) {
+              warned = true;
+              toastManager.add({
+                type: "warning",
+                title: "Hyprnav browser slot failed",
+                description: browserTabWarning,
+              });
+            }
+            browserTabWarning = null;
             if (hyprnavSyncNeedsScopeRetry(request, result)) {
               await delay.wait(HYPRNAV_BACKGROUND_RETRY_DELAY_MS);
               continue;
             }
             if (credentialRefreshDelay === null) return;
             await delay.wait(credentialRefreshDelay);
-            request = refreshRequest;
+            request = hyprnavCredentialRefreshRequest(firstRequest, browserTabsSettled);
             continue;
           }
           if (!warned) {
