@@ -3907,10 +3907,22 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     const keySequence = makePreviewAutomationKeySequence(input, {
       isMac: hostPlatform === "darwin",
     });
-    const previouslyFocused = yield* attempt(
-      { operation: "automationPress.getFocusedWebContents", tabId, webContentsId: wc.id },
-      () => webContents.getFocusedWebContents(),
+    // Moving native focus into the guest only works without side effects
+    // while the app already has the foreground. Otherwise Chromium turns the
+    // focus (and Page.bringToFront) into a window activation request, and a
+    // compositor with focus-on-activate switches the user to this app in the
+    // middle of their own work. Focus emulation alone then makes the page
+    // treat itself as focused for the key.
+    const appFocused = yield* attempt(
+      { operation: "automationPress.getFocusedWindow", tabId, webContentsId: wc.id },
+      () => BrowserWindow.getFocusedWindow() !== null,
     );
+    const previouslyFocused = appFocused
+      ? yield* attempt(
+          { operation: "automationPress.getFocusedWebContents", tabId, webContentsId: wc.id },
+          () => webContents.getFocusedWebContents(),
+        )
+      : null;
     let keyDownAttempted = false;
     const releaseInput = Effect.gen(function* () {
       if (keyDownAttempted) {
@@ -3936,11 +3948,13 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     // changing which thread is mounted in the UI. Restore the previous renderer
     // after dispatch so automation never leaves the app's input focus behind.
     yield* Effect.gen(function* () {
-      yield* attempt(
-        { operation: "automationPress.focusWebContents", tabId, webContentsId: wc.id },
-        () => wc.focus(),
-      );
-      yield* send("Page.bringToFront");
+      if (appFocused) {
+        yield* attempt(
+          { operation: "automationPress.focusWebContents", tabId, webContentsId: wc.id },
+          () => wc.focus(),
+        );
+        yield* send("Page.bringToFront");
+      }
       yield* send("Emulation.setFocusEmulationEnabled", { enabled: true });
       yield* expectAgentInput(tabId, keySequence.signal);
       keyDownAttempted = true;

@@ -116,6 +116,7 @@ const {
   createFromPath,
   fromId,
   getFocusedWebContents,
+  getFocusedWindow,
   mkdir,
   showItemInFolder,
   webviewSend,
@@ -126,6 +127,7 @@ const {
   createFromPath: vi.fn((): { readonly isEmpty: () => boolean } => ({ isEmpty: () => false })),
   fromId: vi.fn<(_id?: number) => Electron.WebContents | null>((_id?: number) => null),
   getFocusedWebContents: vi.fn(() => null),
+  getFocusedWindow: vi.fn((): unknown => ({})),
   mkdir: vi.fn((_path: string) => undefined),
   showItemInFolder: vi.fn(),
   webviewSend: vi.fn(),
@@ -134,7 +136,7 @@ const {
 }));
 
 vi.mock("electron", () => ({
-  BrowserWindow: browserWindowConstructor,
+  BrowserWindow: Object.assign(browserWindowConstructor, { getFocusedWindow }),
   clipboard: {
     writeImage,
   },
@@ -468,6 +470,8 @@ describe("PreviewManager", () => {
     fromId.mockClear();
     getFocusedWebContents.mockReset();
     getFocusedWebContents.mockReturnValue(null);
+    getFocusedWindow.mockReset();
+    getFocusedWindow.mockReturnValue({});
     mkdir.mockClear();
     writeFile.mockClear();
     showItemInFolder.mockClear();
@@ -4104,6 +4108,25 @@ describe("PreviewManager", () => {
           unmodifiedText: "!",
         });
         expect(restoreFocus).toHaveBeenCalledTimes(3);
+
+        // With the app in the background, moving native focus would make the
+        // compositor raise the app; focus emulation alone carries the key.
+        getFocusedWindow.mockReturnValue(null);
+        focus.mockClear();
+        restoreFocus.mockClear();
+        sendCommand.mockClear();
+        yield* manager.automationPress("tab_input", { key: "z" });
+        const backgroundMethods = sendCommand.mock.calls.map(([method]) => method);
+        expect(focus).not.toHaveBeenCalled();
+        expect(restoreFocus).not.toHaveBeenCalled();
+        expect(backgroundMethods).not.toContain("Page.bringToFront");
+        expect(sendCommand).toHaveBeenCalledWith("Emulation.setFocusEmulationEnabled", {
+          enabled: true,
+        });
+        expect(sendCommand).toHaveBeenCalledWith(
+          "Input.dispatchKeyEvent",
+          expect.objectContaining({ type: "keyDown", key: "z" }),
+        );
       }),
     ),
   );
