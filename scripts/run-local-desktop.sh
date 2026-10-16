@@ -26,6 +26,9 @@ if [[ -z ${T3CODE_DESKTOP_OZONE_PLATFORM:-} && -n ${WAYLAND_DISPLAY:-} ]]; then
   export T3CODE_DESKTOP_OZONE_PLATFORM=wayland
 fi
 export T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME="${T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME:-t3-code-alpha.desktop}"
+# The Cloudflare tunnel and learning service expect the backend on 3773. Pin it so a
+# busy port fails startup instead of silently drifting to the next free one.
+export T3CODE_PORT="${T3CODE_PORT:-3773}"
 
 CI=true pnpm install --frozen-lockfile
 

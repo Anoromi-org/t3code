@@ -67,6 +67,7 @@ describe("local desktop launch environment", () => {
         T3CODE_DESKTOP_ELECTRON_PATH: "/nix/store/electron",
         T3CODE_DESKTOP_OZONE_PLATFORM: "wayland",
         T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME: "t3-code-alpha.desktop",
+        T3CODE_PORT: "3773",
       },
     );
 
@@ -75,6 +76,7 @@ describe("local desktop launch environment", () => {
       USER_MARKER: "captured",
       T3CODE_DESKTOP_OZONE_PLATFORM: "wayland",
       T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME: "t3-code-alpha.desktop",
+      T3CODE_PORT: "3773",
     });
   });
 

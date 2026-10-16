@@ -6,6 +6,7 @@ const REQUIRED_LAUNCH_ENV_KEYS = ["HOME", "PATH", "SHELL"];
 const RUNTIME_OVERRIDE_KEYS = [
   "T3CODE_DESKTOP_OZONE_PLATFORM",
   "T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME",
+  "T3CODE_PORT",
 ];
 
 export function parseNullDelimitedLaunchEnvironment(contents) {
