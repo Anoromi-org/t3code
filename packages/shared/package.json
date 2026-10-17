@@ -155,6 +155,10 @@
       "types": "./src/projectSettings.ts",
       "import": "./src/projectSettings.ts"
     },
+    "./hyprland": {
+      "types": "./src/hyprland.ts",
+      "import": "./src/hyprland.ts"
+    },
     "./hyprnav": {
       "types": "./src/hyprnav.ts",
       "import": "./src/hyprnav.ts"

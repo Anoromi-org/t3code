@@ -684,6 +684,24 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
     }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web" }))),
   );
 
+  it.effect("accepts only websocket tickets in Corkdiff's redacted token parameter", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const bearer = yield* serverAuth.issueSession();
+      const { ticket } = yield* serverAuth.issueWebSocketTicket(bearer);
+      const upgrade = (token: string) =>
+        serverAuth.authenticateWebSocketUpgrade({
+          url: `/ws?token=${encodeURIComponent(token)}`,
+          cookies: {},
+          headers: { host: "127.0.0.1:3773" },
+        } as never);
+
+      expect((yield* upgrade(ticket)).sessionId).toBe(bearer.sessionId);
+      const accessToken = yield* Effect.flip(upgrade(bearer.token));
+      expect(accessToken._tag).toBe("ServerAuthInvalidCredentialError");
+    }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "127.0.0.1" }))),
+  );
+
   it.effect("keeps bearer socket upgrades independent of the page origin", () =>
     Effect.gen(function* () {
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;

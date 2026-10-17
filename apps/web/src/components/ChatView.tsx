@@ -164,6 +164,7 @@ import {
 import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
+import { routeDiffShortcut } from "./externalCorkdiffRouting";
 import { useDiffPanelStore } from "../diffPanelStore";
 import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
 import {
@@ -3074,7 +3075,36 @@ export default function ChatView(props: ChatViewProps) {
       useRightPanelStore.getState().toggle(activeThreadRef, "diff");
     }
   };
-  const onToggleDiffStable = useStableCallback(onToggleDiff);
+
+  const openDiffFallback = () => {
+    if (!isServerThread) return;
+    if (!diffOpen) {
+      onDiffPanelOpen?.();
+    }
+    if (activeThreadRef) {
+      useRightPanelStore.getState().open(activeThreadRef, "diff");
+    }
+  };
+
+  // Fork: external Corkdiff runs in a local Ghostty process and Electron main
+  // owns only the primary backend credential. Remote paths and credentials stay
+  // in their environment, so those threads keep the in-app viewer.
+  const onToggleDiffShortcut = () => {
+    void routeDiffShortcut({
+      activeEnvironmentId: activeThread?.environmentId,
+      activeThreadId,
+      activeWorkspaceRoot,
+      isServerThread,
+      openExternalCorkdiff: window.desktopBridge?.openExternalCorkdiff,
+      openInApp: openDiffFallback,
+      primaryEnvironmentId,
+      reportExternalError: (description) => {
+        toastManager.add({ type: "error", title: "Unable to open Corkdiff", description });
+      },
+      toggleInApp: onToggleDiff,
+    });
+  };
+  const onToggleDiffShortcutStable = useStableCallback(onToggleDiffShortcut);
 
   const needsLoadBalancing = automaticEnvironment && !draftThread?.loadBalancedEnvironmentId;
   const loadBalancingCandidates = needsLoadBalancing
@@ -5546,7 +5576,7 @@ export default function ChatView(props: ChatViewProps) {
         openTerminalIfClosed();
         createNewTerminalStable();
       },
-      "diff.toggle": () => onToggleDiffStable(),
+      "diff.toggle": () => onToggleDiffShortcutStable(),
       "modelPicker.toggle": ({ event }) => {
         if (!event.repeat) composerRef.current?.toggleModelPicker();
       },

@@ -60,6 +60,7 @@ export class DesktopLocalEnvironmentAuth extends Context.Service<
   DesktopLocalEnvironmentAuth,
   {
     readonly getBearerToken: Effect.Effect<string, DesktopLocalEnvironmentAuthError>;
+    readonly invalidateBearerToken: Effect.Effect<void>;
   }
 >()("@t3tools/desktop/backend/DesktopLocalEnvironmentAuth") {}
 
@@ -123,7 +124,11 @@ export const make = Effect.gen(function* () {
     )
     .pipe(Effect.withSpan("desktop.localEnvironmentAuth.getBearerToken"));
 
-  return DesktopLocalEnvironmentAuth.of({ getBearerToken });
+  const invalidateBearerToken = mutex
+    .withPermits(1)(Ref.set(tokenRef, Option.none()))
+    .pipe(Effect.withSpan("desktop.localEnvironmentAuth.invalidateBearerToken"));
+
+  return DesktopLocalEnvironmentAuth.of({ getBearerToken, invalidateBearerToken });
 });
 
 export const layer = Layer.effect(DesktopLocalEnvironmentAuth, make);
