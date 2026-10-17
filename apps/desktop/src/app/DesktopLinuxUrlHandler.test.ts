@@ -30,9 +30,11 @@ const makeEnvironment = (path: Path.Path, overrides: Record<string, unknown> = {
     isDevelopment: false,
     displayName: "T3 Code (Alpha)",
     linuxDesktopEntryName: "com.t3tools.T3Code.desktop",
+    linuxDesktopEntryExternal: false,
     linuxWmClass: "t3code",
     linuxApplicationsDir: "/home/alice/.local/share/applications",
     appImagePath: Option.some("/home/alice/Applications/T3-Code.AppImage"),
+    linuxUrlHandlerExecTarget: Option.none(),
     path,
     ...overrides,
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
@@ -317,6 +319,42 @@ describe("DesktopLinuxUrlHandler", () => {
         recorded.commands.map(({ command }) => command),
         ["update-desktop-database", "xdg-mime"],
       );
+    });
+  });
+
+  it.effect("prefers the packaged launcher override to the Electron executable", () => {
+    const recorded = emptyRecording();
+
+    return Effect.gen(function* () {
+      yield* runRegister(recorded, {
+        environment: {
+          appImagePath: Option.none(),
+          linuxUrlHandlerExecTarget: Option.some("/nix/store/t3-code/bin/t3-code"),
+        },
+      });
+
+      assert.include(recorded.files[0]?.content, 'Exec="/nix/store/t3-code/bin/t3-code" %U');
+    });
+  });
+
+  it.effect("claims the scheme for a package-managed entry without overwriting it", () => {
+    const recorded = emptyRecording();
+
+    return Effect.gen(function* () {
+      yield* runRegister(recorded, {
+        environment: {
+          linuxDesktopEntryName: "t3-code-alpha.desktop",
+          linuxDesktopEntryExternal: true,
+        },
+      });
+
+      assert.deepEqual(recorded.files, []);
+      assert.deepEqual(recorded.commands, [
+        {
+          command: "xdg-mime",
+          args: ["default", "t3-code-alpha.desktop", "x-scheme-handler/t3code"],
+        },
+      ]);
     });
   });
 

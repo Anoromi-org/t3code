@@ -40,6 +40,8 @@ export const DesktopConfig = Config.all({
   t3Home: trimmedString("T3CODE_HOME"),
   devServerUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option),
   appUserModelIdOverride: trimmedString("T3CODE_DESKTOP_APP_USER_MODEL_ID"),
+  linuxDesktopEntryNameOverride: trimmedString("T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME"),
+  linuxUrlHandlerExecTarget: trimmedString("T3CODE_DESKTOP_LINUX_URL_HANDLER_EXEC"),
   devRemoteT3ServerEntryPath: trimmedString("T3CODE_DEV_REMOTE_T3_SERVER_ENTRY_PATH"),
   /** Dev only: working directory for the embedded backend, e.g. a project to auto-bootstrap. */
   backendCwdOverride: trimmedString("T3CODE_DESKTOP_BACKEND_CWD"),
