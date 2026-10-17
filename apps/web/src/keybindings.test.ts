@@ -1409,7 +1409,8 @@ describe("composer and pull request shortcuts", () => {
     for (const [key, command] of [
       ["k", "pullRequest.copyNumber"],
       ["8", "thread.copyReference"],
-      ["c", null],
+      // Fork: Mod+Shift+C stops the turn.
+      ["c", "thread.stop"],
       ["y", null],
     ] as const) {
       assert.strictEqual(
@@ -1448,7 +1449,8 @@ describe("composer and pull request shortcuts", () => {
     ["x", "composer.workspace"],
     ["g", "composer.branch"],
     ["l", "composer.previousWorktree"],
-    ["c", "thread.copyReference"],
+    // Fork: Mod+Shift+C stops the turn; copying a reference is Mod+Alt+Shift+C.
+    ["c", "thread.stop"],
     ["k", "pullRequest.copyNumber"],
     ["Enter", "thread.steerQueuedMessage"],
   ] as const;
@@ -1528,7 +1530,8 @@ describe("composer and pull request shortcuts", () => {
 
   for (const platform of ["MacIntel", "Win32", "Linux"]) {
     it.each([
-      ["s", "thread.settle"],
+      // Fork: Mod+Shift+S focuses the composer; settling is Mod+Alt+Shift+S.
+      ["s", "chat.composer.focus"],
       // Fork: Mod+P is project actions, so the file picker takes Mod+Shift+P.
       ["p", "filePicker.toggle"],
     ])(`preserves the existing %s shortcut on ${platform}`, (key, command) => {

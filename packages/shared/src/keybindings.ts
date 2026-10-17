@@ -188,8 +188,12 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+o", command: "editor.openFavorite" },
   { key: "mod+shift+[", command: "thread.previous" },
   { key: "mod+shift+]", command: "thread.next" },
-  { key: "mod+shift+c", command: "thread.copyReference", when: "!terminalFocus" },
-  { key: "mod+shift+s", command: "thread.settle", when: "!terminalFocus" },
+  // Fork: Mod+Shift+C stops the turn and Mod+Shift+S focuses the composer, so
+  // copying a reference and settling move to Mod+Alt+Shift.
+  { key: "mod+shift+c", command: "thread.stop", when: "!terminalFocus" },
+  { key: "mod+alt+shift+c", command: "thread.copyReference", when: "!terminalFocus" },
+  { key: "mod+shift+s", command: "chat.composer.focus", when: "!terminalFocus" },
+  { key: "mod+alt+shift+s", command: "thread.settle", when: "!terminalFocus" },
   { key: "mod+alt+shift+p", command: "thread.pin", when: "!terminalFocus" },
   { key: "mod+z", command: "thread.undo", when: "!terminalFocus && !editableFocus" },
   ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({

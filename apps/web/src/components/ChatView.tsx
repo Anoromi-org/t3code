@@ -5635,6 +5635,11 @@ export default function ChatView(props: ChatViewProps) {
         if (!canInterruptRunningThread) return false;
         if (!event.repeat) void onInterruptStable();
       },
+      // Fork: lets the keys through when there is no composer to focus.
+      "chat.composer.focus": ({ event }) => {
+        if (!composerRef.current) return false;
+        if (!event.repeat) focusComposerStable();
+      },
     },
     fallback: (command) => {
       const scriptId = projectScriptIdFromCommand(command);

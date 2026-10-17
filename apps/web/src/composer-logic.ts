@@ -19,7 +19,8 @@ export type ComposerSlashCommand =
   // Fork: keyboard routes into the composer's branch, workspace and effort pickers.
   | "branch"
   | "worktree"
-  | "reasoning";
+  | "reasoning"
+  | "fast";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
 
 export interface ComposerTrigger {

@@ -66,7 +66,7 @@ describe("KeybindingsSettings.logic", () => {
     (query) => {
       const rows = filterKeybindingRows(buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS), query);
       expect(rows).toContainEqual(
-        expect.objectContaining({ command: "thread.copyReference", key: "mod+shift+c" }),
+        expect.objectContaining({ command: "thread.copyReference", key: "mod+alt+shift+c" }),
       );
     },
   );
@@ -345,7 +345,8 @@ describe("KeybindingsSettings.logic", () => {
         "script.setup-db.run",
       ]),
     );
-    for (const command of ["thread.stop", "composer.cycleHost"]) {
+    // Fork: thread.stop has a default (Mod+Shift+C).
+    for (const command of ["composer.cycleHost"]) {
       expect(DEFAULT_RESOLVED_KEYBINDINGS.some((binding) => binding.command === command)).toBe(
         false,
       );

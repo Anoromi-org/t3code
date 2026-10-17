@@ -1,4 +1,6 @@
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
+import { resolveFastModeDescriptor, toggleFastModeOptionSelection } from "./composerFastMode";
+import { getProviderModelCapabilities } from "../../providerModels";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
@@ -2604,6 +2606,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ? []
       : composerPullRequestsFromLinks(threadPullRequests ?? [], pullRequestProjectId);
 
+  // Fork: `/fast` flips the selected model's fast control when it has one.
+  const fastModeToggle = (() => {
+    if (multipleModelSelections !== null) return null;
+    const capabilities = getProviderModelCapabilities(
+      selectedProviderModels,
+      selectedModel,
+      selectedProvider,
+      settings.planModeEnabled,
+    );
+    const selections = composerModelOptions?.[selectedInstanceId];
+    const descriptor = resolveFastModeDescriptor({ capabilities, selections });
+    const next = toggleFastModeOptionSelection({ capabilities, selections });
+    return descriptor && next ? { enabled: descriptor.currentValue, next } : null;
+  })();
+
   const composerMenuItems = ((): ComposerCommandItem[] => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -2658,6 +2675,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           label: "/reasoning",
           description: "Change reasoning effort",
         },
+        ...(fastModeToggle
+          ? ([
+              {
+                id: "slash:fast",
+                type: "slash-command",
+                command: "fast",
+                label: "/fast",
+                description: fastModeToggle.enabled ? "Turn fast mode off" : "Turn fast mode on",
+              },
+            ] as const)
+          : []),
         ...(planModeUiEnabled
           ? ([
               {
@@ -3823,6 +3851,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return;
     }
     if (item.type === "slash-command") {
+      if (item.command === "fast") {
+        const nextOptions = fastModeToggle?.next;
+        if (!nextOptions) return;
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+        });
+        if (!applied) return;
+        setComposerHighlightedItemId(null);
+        useComposerDraftStore
+          .getState()
+          .setProviderModelOptions(composerDraftTarget, selectedProvider, nextOptions, {
+            instanceId: selectedInstanceId,
+            model: selectedModel,
+            persistSticky: true,
+          });
+        return;
+      }
       if (
         item.command === "branch" ||
         item.command === "worktree" ||

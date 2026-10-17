@@ -11,6 +11,11 @@ still opens the command palette.
 its source control steps, and the editors you can open it in. The file picker
 uses `mod+shift+p`, and pinning a thread uses `mod+alt+shift+p`.
 
+`mod+shift+s` focuses the composer and `mod+shift+c` stops the running turn.
+Settling a thread uses `mod+alt+shift+s`, and copying a thread reference uses
+`mod+alt+shift+c`. Type `/fast` in the composer to turn the selected model's fast
+mode on or off.
+
 ## Composer controls
 
 In **Settings → General → Send shortcut**, choose whether Enter sends, requires
@@ -54,7 +59,7 @@ in Settings.
 
 ## Copy pull request references
 
-With a PR open in the right panel or on the Pull Requests page, use `mod+shift+c`
+With a PR open in the right panel or on the Pull Requests page, use `mod+alt+shift+c`
 to copy its URL and `mod+shift+k` to copy its number with a `#` prefix.
 Both shortcuts can be changed in Settings. Search for “Copy Link or Thread ID”
 or “Copy Number”. They copy the selected PR and leave terminal input alone.
@@ -151,8 +156,8 @@ a shortcut.
 
 ## Commands with special behavior
 
-`thread.stop` interrupts the running turn in the focused thread. It has no default
-shortcut; assign one in **Settings → Keybindings**.
+`thread.stop` (`mod+shift+c` by default) interrupts the running turn in the focused
+thread. When nothing is running, the shortcut does nothing and the keys pass through.
 
 `thread.undo` (`mod+z` by default) reverses the actions shown in the notice at the
 bottom of the sidebar, such as unpin, settle, snooze, archive, or discarding a
