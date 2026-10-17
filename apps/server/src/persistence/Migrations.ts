@@ -2,6 +2,12 @@ import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
+import {
+  FORK_REPLAY_MAX_ID,
+  readCanonicalReplayIds,
+  replaySkippedCanonicalEffects,
+  runForkMigrations,
+} from "./Migrations/Fork/ForkMigrations.ts";
 
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
 import Migration0002 from "./Migrations/002_OrchestrationCommandReceipts.ts";
@@ -185,6 +191,19 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
   });
 });
 
+const latestRecordedMigrationId = Effect.fn("latestRecordedMigrationId")(function* (
+  sql: SqlClient.SqlClient,
+) {
+  const ledger = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (ledger.length === 0) return 0;
+  const latest = yield* sql<{ readonly migrationId: number }>`
+    SELECT COALESCE(MAX(migration_id), 0) AS "migrationId" FROM effect_sql_migrations
+  `;
+  return latest[0]?.migrationId ?? 0;
+});
+
 const run = Migrator.make({});
 
 export interface RunMigrationsOptions {
@@ -194,6 +213,19 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  const sql = yield* SqlClient.SqlClient;
+  // Fork databases recorded fork migrations at canonical ids up to 49. Replay the
+  // upstream effects those rows hid before the Migrator skips past them.
+  const latestRecordedId = yield* latestRecordedMigrationId(sql);
+  const replayThroughId = Math.min(
+    latestRecordedId,
+    toMigrationInclusive ?? latestRecordedId,
+    FORK_REPLAY_MAX_ID,
+  );
+  if (replayThroughId > 0) {
+    yield* replaySkippedCanonicalEffects(sql, migrationEntries, replayThroughId);
+  }
+
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
@@ -204,18 +236,26 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     ...previewMigrations,
     ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
   ];
+  const forkMigrations = toMigrationInclusive === undefined ? yield* runForkMigrations(sql) : [];
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
-  yield* migrations.length === 0
+  yield* migrations.length === 0 && forkMigrations.length === 0
     ? Effect.logDebug("Database schema is current")
-    : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
+    : Effect.log("Migrations ran successfully").pipe(
+        Effect.annotateLogs({
+          migrations,
+          forkMigrations: forkMigrations.map(([key, name]) => `fork_${key}_${name}`),
+        }),
+      );
 
-  const sql = yield* SqlClient.SqlClient;
+  const replayed = yield* readCanonicalReplayIds(sql);
   const recorded = yield* sql<{
     readonly migration_id: number;
     readonly name: string;
   }>`SELECT migration_id, name FROM effect_sql_migrations`;
   const manifestNames = new Map<number, string>(migrationEntries.map(([id, name]) => [id, name]));
   const divergent = recorded.flatMap((row) => {
+    // The fork ledger already replayed the upstream effect hidden by this row.
+    if (replayed.has(row.migration_id)) return [];
     const expected = manifestNames.get(row.migration_id);
     if (expected === undefined) {
       return [`${row.migration_id}:${row.name} (unknown to this build)`];

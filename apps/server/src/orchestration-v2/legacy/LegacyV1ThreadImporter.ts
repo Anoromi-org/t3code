@@ -32,6 +32,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import * as EventSink from "../EventSink.ts";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
+import { readLegacyForkLineage } from "./LegacyV1ForkLineage.ts";
 
 const IMPORT_EVENT_PREFIX = "migration:v1";
 const TRANSCRIPT_EVENT_BATCH_SIZE = 100;
@@ -186,7 +187,10 @@ function nullableDateTime(value: string | null): DateTime.Utc | null {
   return value === null ? null : dateTime(value);
 }
 
-function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
+function importedThread(
+  row: LegacyThreadRow,
+  lineage?: OrchestrationV2AppThread["lineage"],
+): OrchestrationV2AppThread {
   const threadId = ThreadId.make(row.thread_id);
   const modelSelection = modelSelectionFor(row);
   const branch = row.branch?.trim() || null;
@@ -220,7 +224,7 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     activeOrderKey: row.active_order_key?.trim() || null,
     activeProviderThreadId: null,
     historyOrigin: "v1_import",
-    lineage: {
+    lineage: lineage ?? {
       parentThreadId: null,
       relationshipToParent: null,
       rootThreadId: threadId,
@@ -585,8 +589,9 @@ const make = Effect.gen(function* () {
     `;
     let importedThreadCount = repairedThreadCount;
     let importedMessageCount = 0;
+    const forkLineage = rows.length === 0 ? undefined : yield* readLegacyForkLineage(sql);
     for (const row of rows) {
-      const thread = importedThread(row);
+      const thread = importedThread(row, forkLineage?.(row.thread_id));
       const previews = yield* listShellMessages(thread.id);
       const events: Array<OrchestrationV2DomainEvent> = [
         {
