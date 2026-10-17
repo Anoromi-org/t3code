@@ -317,6 +317,10 @@ On web and desktop, right-click media to save it or copy its path or URL. On mob
 touch and hold an image or video thumbnail and choose **Save or share**. On iOS,
 return to the thumbnail to open this menu after watching a full-screen video.
 
+On web and desktop, clicking a file link in chat opens it in your preferred editor.
+Images, video, PDFs, and folders open in T3 Code, and right-clicking a link offers
+**Open in file preview**.
+
 File links refer to the environment's machine, including when you connect remotely.
 Previews use the original file, even outside the workspace. Moving or deleting it
 can break the preview, so save a copy if you need to keep it.
