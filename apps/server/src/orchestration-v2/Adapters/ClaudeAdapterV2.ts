@@ -1,3 +1,4 @@
+import { withThreadAttributionEnvironment } from "../../provider/threadAttribution.ts";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
 import { claudeTaskOutputRoot, tailClaudeTaskOutput } from "./ClaudeTaskOutputTail.ts";
 import {
@@ -1186,6 +1187,8 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_thread_transfers",
   "mcp__t3-code__t3_worktree_status",
   "mcp__t3-code__t3_worktree_list",
+  "mcp__t3-code__get_current_thread",
+  "mcp__t3-code__list_worktree_threads",
   "mcp__t3-code__t3_project_list",
   "mcp__t3-code__t3_project_read",
   "mcp__t3-code__t3_thread_search",
@@ -8037,8 +8040,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           nativeThreadId: string,
         ) {
           const queryPolicy = claudeRuntimeQueryPolicyForRuntimePolicy(turnInput.runtimePolicy);
+          const turnMcpSession = yield* mcpSessions.read(turnInput.threadId);
           const mcpOverrides = claudeMcpQueryOverrides({
-            mcpSession: yield* mcpSessions.read(turnInput.threadId),
+            mcpSession: turnMcpSession,
             readOnlySandbox:
               sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",
             ...(queryPolicy.allowedTools === undefined
@@ -8134,7 +8138,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             cwd: turnInput.runtimePolicy.cwd,
             attachmentsDir,
             settings: adapterOptions.settings,
-            environment: adapterOptions.environment,
+            environment: withThreadAttributionEnvironment(adapterOptions.environment, {
+              threadId: turnInput.threadId,
+              environmentId: turnMcpSession?.environmentId,
+            }),
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
             ...(mcpOverrides.allowedTools === undefined
               ? {}

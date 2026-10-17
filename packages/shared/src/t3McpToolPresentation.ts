@@ -163,6 +163,12 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "worktree-handoff",
   ),
   t3_worktree_status: tool(["Get", "Getting", "Got", "thread worktree status"], "worktree-status"),
+  // Fork: thread context tools.
+  get_current_thread: tool(["Get", "Getting", "Got", "the current T3 thread"], "worktree-status"),
+  list_worktree_threads: tool(
+    ["List", "Listing", "Listed", "threads in this worktree"],
+    "worktree-status",
+  ),
   preview_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),
   preview_open: tool(
     ["Open", "Opening", "Opened", "a page in the preview browser"],

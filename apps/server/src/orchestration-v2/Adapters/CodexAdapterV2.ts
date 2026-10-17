@@ -1,3 +1,8 @@
+import {
+  codexThreadMcpAttributionConfig,
+  T3CODE_CODEX_THREAD_MCP_SERVER_ENV,
+  withThreadAttributionEnvironment,
+} from "../../provider/threadAttribution.ts";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
@@ -1311,6 +1316,12 @@ export function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...codexThreadMcpAttributionConfig(
+        process.env[T3CODE_CODEX_THREAD_MCP_SERVER_ENV],
+        mcpSession === undefined
+          ? null
+          : { threadId: mcpSession.threadId, environmentId: mcpSession.environmentId },
+      ),
       ...(mcpSession === undefined
         ? {}
         : {
@@ -1704,13 +1715,19 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     }),
                 ),
               );
+        const attributionSession = yield* readMcpSession(input.threadId ?? null);
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,
           threadId: input.threadId,
           providerSessionId: input.providerSessionId,
           runtimePolicy: input.runtimePolicy,
           settings: resolvedRuntime?.config ?? adapterOptions.settings,
-          environment: resolvedRuntime?.environment ?? adapterOptions.environment,
+          environment: withThreadAttributionEnvironment(
+            resolvedRuntime?.environment ?? adapterOptions.environment,
+            input.threadId
+              ? { threadId: input.threadId, environmentId: attributionSession?.environmentId }
+              : null,
+          ),
         });
         const additionalContextByThread = yield* Ref.make(
           new Map<

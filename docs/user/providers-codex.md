@@ -92,6 +92,13 @@ in the thread on web, desktop, or mobile. Some tools offer access for one reques
 the current session, or permanently. See [Permission modes](./permission-modes.md)
 for command and file approvals.
 
+## Pass thread IDs to your own MCP server
+
+Codex and Claude processes T3 Code starts see `T3CODE_THREAD_ID` (and
+`T3CODE_ENVIRONMENT_ID`) in their environment. Set `T3CODE_CODEX_THREAD_MCP_SERVER` on
+the T3 Code server to the name of an MCP server in your Codex config, and Codex starts
+that server with the same variables, so its work can be attributed to the owning thread.
+
 ## Codex says I hit a usage limit
 
 When Codex stops on a usage limit, the thread names the window that ran out and

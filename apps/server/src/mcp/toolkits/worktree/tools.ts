@@ -7,6 +7,9 @@ import {
   WorktreeMcpHandoffResult,
   WorktreeMcpStatusResult,
   ThreadId,
+  McpCurrentThread,
+  McpListWorktreeThreadsInput,
+  McpListWorktreeThreadsResult,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
@@ -81,8 +84,47 @@ const WorktreeListTool = Tool.make("t3_worktree_list", {
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
+// Fork: which T3 Code thread this agent belongs to, and which threads share
+// its working directory.
+const threadContextDependencies = [
+  McpInvocationContext.McpInvocationContext,
+  ThreadManagementService.ThreadManagementService,
+  ProjectService.ProjectService,
+];
+
+const GetCurrentThreadTool = Tool.make("get_current_thread", {
+  description:
+    "Needs an agent running inside a T3 thread. Report the T3 Code thread this agent belongs to: its id, project, title, branch, worktree, effective working directory, and status.",
+  success: McpCurrentThread,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: threadContextDependencies,
+})
+  .annotate(Tool.Title, "Get the current T3 Code thread")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const ListWorktreeThreadsTool = Tool.make("list_worktree_threads", {
+  description:
+    "Needs an agent running inside a T3 thread. List T3 Code threads in this agent's project that work in the same directory (the same worktree, or the project root when there is none), newest first. Archived threads are omitted unless includeArchived is true.",
+  parameters: McpListWorktreeThreadsInput,
+  success: McpListWorktreeThreadsResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: threadContextDependencies,
+})
+  .annotate(Tool.Title, "List threads sharing this worktree")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const WorktreeToolkit = Toolkit.make(
   WorktreeHandoffTool,
   WorktreeStatusTool,
   WorktreeListTool,
+  GetCurrentThreadTool,
+  ListWorktreeThreadsTool,
 );
