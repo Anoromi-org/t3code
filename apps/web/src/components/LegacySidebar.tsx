@@ -223,6 +223,7 @@ import {
 } from "../sidebarProjectGrouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
+import { projectHyprnavSettingsRoute } from "./settings/projectHyprnavNavigation";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -1680,6 +1681,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           params: { projectKey: project.projectKey },
         });
       });
+      actionHandlers.set("project-hyprnav", () => {
+        if (isMobile) setOpenMobile(false);
+        void router.navigate(projectHyprnavSettingsRoute({ projectKey: project.projectKey }));
+      });
 
       const clicked = await api.contextMenu.show(
         [
@@ -1690,6 +1695,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           buildTargetedItem("grouping", "Group into..."),
           buildTargetedItem("copy-path", "Copy Path"),
           { id: "project-settings", label: "Project settings", icon: "settings" },
+          { id: "project-hyprnav", label: "Hyprnav settings" },
           buildTargetedItem("delete", "Remove", {
             destructive: true,
             isDisabled: (member) =>

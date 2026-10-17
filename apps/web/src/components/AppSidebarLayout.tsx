@@ -25,6 +25,7 @@ import {
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
+import { HyprnavLockFollower } from "./HyprnavLockFollower";
 import { resolveLayoutShortcutContext } from "./layoutShortcutContext";
 import LegacyThreadSidebar from "./LegacySidebar";
 import { NavigationCommandMenuControl } from "./NavigationCommandMenuControl";
@@ -341,6 +342,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <NavigationHistoryShortcuts />
         <NavigationCommandMenuControl />
         <MainAppLocationTracker />
+        <HyprnavLockFollower />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );

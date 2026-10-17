@@ -1,7 +1,7 @@
 "use client";
 
 import { FILL_PREVIEW_VIEWPORT, type ScopedThreadRef } from "@t3tools/contracts";
-import { PanelRightIcon, PictureInPicture2, XIcon } from "lucide-react";
+import { MoveRight, PanelRightIcon, PictureInPicture2, XIcon } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -32,6 +32,9 @@ import {
 import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { useDesktopAgentMiniPlayerStore } from "~/desktopAgentMiniPlayerStore";
+import { desktopAgentStateVisual, hyprnavClient, useDesktopAgents } from "~/desktopAgentsStore";
+import { resolvePrimaryEnvironmentHttpUrl } from "~/environments/primary/target";
 import { cn } from "~/lib/utils";
 import { useThreadPreviewState } from "~/previewStateStore";
 import {
@@ -44,6 +47,7 @@ import {
 import { useRightPanelStore } from "~/rightPanelStore";
 import { useDeviceState } from "~/state/device";
 
+import { HyprnavVideoView } from "../desktop/HyprnavVideoView";
 import { DeviceStreamView } from "../device/DeviceStreamView";
 import type { DeviceScreenSize } from "@t3tools/client-runtime/device/stream";
 import type { PreviewStreamViewport } from "@t3tools/client-runtime/preview/server-browser-stream";
@@ -56,6 +60,7 @@ import {
   PREVIEW_MINI_PLAYER_WEBVIEW_Z_INDEX,
   type PreviewMiniPlayerFrame,
   resizePreviewMiniPlayer,
+  resolveDesktopAgentMiniPlayerSourceSize,
   resolveDeviceMiniPlayerCornerRadius,
   resolveDeviceMiniPlayerSourceSize,
   resolvePreviewMiniPlayerSourceSize,
@@ -94,23 +99,38 @@ const RESIZE_HANDLES: ReadonlyArray<{
   { direction: "southeast", className: "-bottom-2 -right-2 size-4 cursor-nwse-resize" },
 ];
 
+/** Floats the thread's browser tab, device stream or desktop agent's window over chat. */
 export function ThreadPreviewMiniPlayer({ threadRef, miniPlayer }: Props) {
   const { source } = miniPlayer;
-  return source.kind === "browser" ? (
-    <BrowserMiniPlayer
-      key={source.tabId}
-      threadRef={threadRef}
-      tabId={source.tabId}
-      miniPlayer={miniPlayer}
-    />
-  ) : (
-    <DeviceMiniPlayer
-      key={previewMiniPlayerSourceKey(source)}
-      threadRef={threadRef}
-      source={source}
-      miniPlayer={miniPlayer}
-    />
-  );
+  switch (source.kind) {
+    case "browser":
+      return (
+        <BrowserMiniPlayer
+          key={source.tabId}
+          threadRef={threadRef}
+          tabId={source.tabId}
+          miniPlayer={miniPlayer}
+        />
+      );
+    case "device":
+      return (
+        <DeviceMiniPlayer
+          key={previewMiniPlayerSourceKey(source)}
+          threadRef={threadRef}
+          source={source}
+          miniPlayer={miniPlayer}
+        />
+      );
+    case "desktop-agent":
+      return (
+        <DesktopAgentMiniPlayer
+          key={previewMiniPlayerSourceKey(source)}
+          threadRef={threadRef}
+          source={source}
+          miniPlayer={miniPlayer}
+        />
+      );
+  }
 }
 
 function BrowserMiniPlayer({ threadRef, tabId, miniPlayer }: Props & { readonly tabId: string }) {
@@ -307,6 +327,135 @@ function DeviceMiniPlayer({
 }
 
 /**
+ * Capture width tiers the daemon knows. Asking for an arbitrary width would
+ * give every player its own encoder; two players that agree on a tier share one.
+ */
+const DESKTOP_AGENT_CAPTURE_WIDTH_TIERS = [320, 640, 960] as const;
+/** Frames per second asked of the daemon; a still window sends none of them. */
+const DESKTOP_AGENT_FRAMES_FPS = 8;
+
+function desktopAgentCaptureWidthTier(wanted: number): number {
+  return DESKTOP_AGENT_CAPTURE_WIDTH_TIERS.find((tier) => tier >= wanted) ?? 960;
+}
+
+/**
+ * Fork: the window a hyprnav desktop agent is acting on, streamed over the
+ * local server's loopback frames route (apps/server/src/hyprnavFrames.ts):
+ * WebCodecs video where the browser and daemon agree on a codec, multipart
+ * JPEG otherwise. DesktopAgentMiniPlayerHost opens and closes it.
+ */
+function DesktopAgentMiniPlayer({
+  threadRef,
+  source,
+  miniPlayer,
+}: Props & { readonly source: Extract<PreviewMiniPlayerSource, { kind: "desktop-agent" }> }) {
+  const { agents } = useDesktopAgents();
+  const agent = agents?.find((candidate) => candidate.agent_id === source.agentId) ?? null;
+  const [frameSize, setFrameSize] = useState<PreviewMiniPlayerSize | null>(null);
+  const sourceSize = resolveDesktopAgentMiniPlayerSourceSize(frameSize);
+
+  if (!agent) return null;
+  const visual = desktopAgentStateVisual(agent.state);
+
+  // Closing by hand, or moving to the panel, suppresses this agent until its
+  // state changes; otherwise the host would float it again on the next update.
+  const dismiss = () => {
+    useDesktopAgentMiniPlayerStore.getState().dismiss(agent.agent_id, agent.state);
+    usePreviewMiniPlayerStore.getState().close(threadRef);
+  };
+  const openInPanel = () => {
+    dismiss();
+    useRightPanelStore.getState().setThreadPanelOpen(threadRef, "inline", true);
+  };
+
+  return (
+    <MiniPlayerShell
+      threadRef={threadRef}
+      miniPlayer={miniPlayer}
+      sourceSize={sourceSize}
+      label={`Live view of ${agent.label}`}
+      onOpenInPanel={openInPanel}
+      onClose={dismiss}
+      pillActions={
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Go to this agent's frame"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => void hyprnavClient?.goto(agent.environment_id, agent.slot_index)}
+              />
+            }
+          >
+            <MoveRight />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Go there</TooltipPopup>
+        </Tooltip>
+      }
+    >
+      {(frame) => (
+        <div
+          className="pointer-events-auto absolute inset-0 overflow-hidden rounded-[inherit]"
+          style={{ zIndex: PREVIEW_MINI_PLAYER_WEBVIEW_Z_INDEX }}
+        >
+          <DesktopAgentFrames
+            address={source.address}
+            // Twice the CSS width covers HiDPI and a little resizing without
+            // renegotiating the stream.
+            captureWidth={desktopAgentCaptureWidthTier(frame.width * 2)}
+            label={`Live view of ${agent.label}`}
+            onFrameSize={setFrameSize}
+          />
+          <div className="pointer-events-none absolute top-2 left-2 flex max-w-[calc(100%-3rem)] items-center gap-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-xs text-white">
+            <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", visual.dotClass)} />
+            <span className="min-w-0 truncate font-medium">{agent.label}</span>
+            <span className="shrink-0 text-white/70">{visual.label}</span>
+          </div>
+        </div>
+      )}
+    </MiniPlayerShell>
+  );
+}
+
+function desktopAgentFramesUrl(address: string, captureWidth: number): string | null {
+  try {
+    return resolvePrimaryEnvironmentHttpUrl("/api/hyprnav/frames", {
+      address,
+      max_width: String(captureWidth),
+      max_fps: String(DESKTOP_AGENT_FRAMES_FPS),
+      // The agent looks at its dialog when it has one, so the view follows.
+      follow: "transient",
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Keyed on the capture tier, not the pixel width, so resizing rarely reconnects. */
+function DesktopAgentFrames({
+  address,
+  captureWidth,
+  label,
+  onFrameSize,
+}: {
+  readonly address: string;
+  readonly captureWidth: number;
+  readonly label: string;
+  readonly onFrameSize: (size: PreviewMiniPlayerSize) => void;
+}) {
+  return (
+    <HyprnavVideoView
+      url={desktopAgentFramesUrl(address, captureWidth)}
+      label={label}
+      showStats={import.meta.env.DEV}
+      onFrameSize={onFrameSize}
+    />
+  );
+}
+
+/**
  * Native clipping and the DOM frame use the same radius so their separately
  * composited edges stay aligned.
  */
@@ -316,6 +465,7 @@ function MiniPlayerShell({
   sourceSize,
   label,
   onOpenInPanel,
+  onClose,
   pillActions,
   recording = false,
   cornerRadius = frameCornerRadius,
@@ -326,6 +476,8 @@ function MiniPlayerShell({
   readonly sourceSize: PreviewMiniPlayerSize;
   readonly label: string;
   readonly onOpenInPanel: () => void;
+  /** Replaces the plain close, e.g. to remember that the user dismissed it. */
+  readonly onClose?: () => void;
   readonly pillActions?: ReactNode;
   readonly recording?: boolean;
   readonly cornerRadius?: (frame: PreviewMiniPlayerSize) => number;
@@ -376,9 +528,11 @@ function MiniPlayerShell({
   const radius = frame ? cornerRadius(frame) : PREVIEW_MINI_PLAYER_CORNER_RADIUS;
   const pillInset = Math.max(8, Math.round(radius * 0.55));
 
-  const close = () => {
-    usePreviewMiniPlayerStore.getState().close(threadRef);
-  };
+  const close =
+    onClose ??
+    (() => {
+      usePreviewMiniPlayerStore.getState().close(threadRef);
+    });
 
   const beginGesture = (
     event: ReactPointerEvent<HTMLElement>,

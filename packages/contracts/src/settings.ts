@@ -45,7 +45,11 @@ import {
   ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
-import { DEFAULT_PROJECT_HYPRNAV_SETTINGS, ProjectHyprnavSettings } from "./hyprnav.ts";
+import {
+  DEFAULT_PROJECT_HYPRNAV_SETTINGS,
+  HyprnavBrowserSlot,
+  ProjectHyprnavSettings,
+} from "./hyprnav.ts";
 
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
@@ -405,6 +409,17 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   persistComposerContextStrip: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  // Navigate to the thread hyprnav locks. `null` is the platform default: on in
+  // the desktop app, off in a browser (several tabs would all follow).
+  hyprnavFollowLock: Schema.NullOr(Schema.Boolean).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  // Lock the opened thread's hyprnav environment when T3 publishes it.
+  hyprnavPublishLock: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // Browser slots every local thread's hyprnav environment gets. Empty = off.
+  hyprnavBrowserSlots: Schema.Array(HyprnavBrowserSlot).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
   ),
 
   favorites: ModelFavorites.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
@@ -1579,6 +1594,9 @@ export const ClientSettingsPatch = Schema.Struct({
   fontSmoothing: Schema.optionalKey(Schema.Boolean),
   defaultProjectHyprnavSettings: Schema.optionalKey(ProjectHyprnavSettings),
   persistComposerContextStrip: Schema.optionalKey(Schema.Boolean),
+  hyprnavFollowLock: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
+  hyprnavPublishLock: Schema.optionalKey(Schema.Boolean),
+  hyprnavBrowserSlots: Schema.optionalKey(Schema.Array(HyprnavBrowserSlot)),
   favorites: Schema.optionalKey(ModelFavorites),
   providerModelPreferences: Schema.optionalKey(ProviderModelPreferences),
   pullRequestMergeMethodOverrides: Schema.optionalKey(

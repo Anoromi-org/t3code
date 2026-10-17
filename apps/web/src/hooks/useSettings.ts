@@ -242,6 +242,25 @@ export async function persistClientSettingsUpdate(
   });
 }
 
+/**
+ * Fork: an awaited client-settings patch. A function patch resolves against the
+ * latest settings, so Hyprnav saves compose with concurrent writes.
+ */
+export type ClientSettingsPatchUpdate =
+  | ClientSettingsPatch
+  | ((current: ClientSettings) => ClientSettingsPatch);
+
+function persistClientSettingsPatchUpdate(update: ClientSettingsPatchUpdate): Promise<void> {
+  return persistClientSettingsUpdate((current) => ({
+    ...current,
+    ...(typeof update === "function" ? update(current) : update),
+  })).then(() => undefined);
+}
+
+export function usePersistClientSettings() {
+  return persistClientSettingsPatchUpdate;
+}
+
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
 
 function splitPatch(patch: UnifiedSettingsPatch): {

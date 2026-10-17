@@ -10,6 +10,8 @@ import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   REMOTE_CAPABLE_EDITOR_IDS,
   SystemSettingsPaneSchema,
+  HyprnavBrowserKind,
+  ProjectHyprnavSettings,
   ThreadId,
   TrimmedNonEmptyString,
   type DesktopEnvironmentBootstrap,
@@ -20,6 +22,7 @@ import { resolveEditorCommand } from "@t3tools/shared/editor";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -33,6 +36,10 @@ import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
 import * as ElectronApp from "../../electron/ElectronApp.ts";
 import * as ExternalCorkdiff from "../../corkdiff/ExternalCorkdiff.ts";
+import * as HyprnavAgents from "../../hyprnav/HyprnavAgents.ts";
+import * as HyprnavScreencast from "../../hyprnav/HyprnavScreencast.ts";
+import * as HyprnavEnvironment from "../../hyprnav/HyprnavEnvironment.ts";
+import * as WorktreeTerminal from "../../hyprnav/WorktreeTerminal.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronMenu from "../../electron/ElectronMenu.ts";
 import * as ElectronShell from "../../electron/ElectronShell.ts";
@@ -57,6 +64,70 @@ const ContextMenuPosition = Schema.Struct({
 const ContextMenuInput = Schema.Struct({
   items: Schema.Array(ContextMenuItemSchema),
   position: Schema.optionalKey(ContextMenuPosition),
+});
+
+const NullableString = Schema.NullOr(Schema.String);
+const DesktopHyprnavScopedSlot = Schema.Struct({
+  slot: Schema.Int.check(Schema.isGreaterThan(0)),
+  scope: Schema.Literals(["project", "worktree", "thread"]),
+});
+const PositiveSlot = Schema.Int.check(Schema.isGreaterThan(0));
+const DesktopHyprnavBrowserTab = Schema.Struct({
+  slot: PositiveSlot,
+  workspaceId: PositiveSlot,
+  browser: HyprnavBrowserKind,
+  tabName: TrimmedNonEmptyString,
+  value: TrimmedNonEmptyString,
+});
+const DesktopHyprnavSyncInput = Schema.Struct({
+  projectRoot: TrimmedNonEmptyString,
+  worktreePath: Schema.optionalKey(NullableString),
+  threadId: Schema.optionalKey(NullableString),
+  threadTitle: Schema.optionalKey(NullableString),
+  projectTitle: Schema.optionalKey(NullableString),
+  worktreeTitle: Schema.optionalKey(NullableString),
+  hyprnav: ProjectHyprnavSettings,
+  preferredEditor: Schema.optionalKey(Schema.NullOr(EditorId)),
+  clearBindings: Schema.optionalKey(Schema.Array(DesktopHyprnavScopedSlot)),
+  clearNames: Schema.optionalKey(Schema.Array(DesktopHyprnavScopedSlot)),
+  corkdiffConnection: Schema.optionalKey(
+    Schema.NullOr(
+      Schema.Struct({
+        serverUrl: TrimmedNonEmptyString,
+        token: NullableString,
+      }),
+    ),
+  ),
+  browserTabs: Schema.optionalKey(Schema.Array(DesktopHyprnavBrowserTab)),
+  clearBrowserTabs: Schema.optionalKey(Schema.Array(PositiveSlot)),
+  lock: Schema.Boolean,
+});
+const DesktopHyprnavBrowserTabsSyncInput = Schema.Struct({
+  threads: Schema.Array(
+    Schema.Struct({
+      projectRoot: TrimmedNonEmptyString,
+      worktreePath: NullableString,
+      threadId: TrimmedNonEmptyString,
+      threadTitle: NullableString,
+      projectTitle: NullableString,
+      worktreeTitle: NullableString,
+      browserTabs: Schema.Array(DesktopHyprnavBrowserTab),
+      clearBrowserTabs: Schema.Array(PositiveSlot),
+      bindingSlots: Schema.Array(PositiveSlot),
+    }),
+  ),
+});
+const DesktopHyprnavBrowserTabsSyncResult = Schema.Struct({
+  status: Schema.Literals(["ok", "unavailable", "error"]),
+  message: NullableString,
+  appliedThreadIds: Schema.Array(Schema.String),
+});
+const DesktopHyprnavResult = Schema.Struct({
+  status: Schema.Literals(["ok", "unavailable", "error"]),
+  message: NullableString,
+  appliedScopes: Schema.optionalKey(
+    Schema.Array(Schema.Literals(["project", "worktree", "thread"])),
+  ),
 });
 
 function toWebSocketBaseUrl(httpBaseUrl: URL): string {
@@ -420,5 +491,103 @@ export const openExternalCorkdiff = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.openExternalCorkdiff")(function* (input) {
     const corkdiff = yield* ExternalCorkdiff.ExternalCorkdiff;
     return yield* corkdiff.openOrFocus(input);
+  }),
+});
+
+export const openWorktreeTerminal = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.OPEN_WORKTREE_TERMINAL_CHANNEL,
+  payload: Schema.Struct({ cwd: TrimmedNonEmptyString }),
+  result: Schema.Struct({ worktreePath: TrimmedNonEmptyString }),
+  handler: Effect.fn("desktop.ipc.window.openWorktreeTerminal")(function* (input) {
+    const terminal = yield* WorktreeTerminal.WorktreeTerminal;
+    return yield* terminal.open(input.cwd);
+  }),
+});
+
+export const listOpenWorktreeTerminals = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.LIST_OPEN_WORKTREE_TERMINALS_CHANNEL,
+  payload: Schema.Void,
+  result: Schema.Array(Schema.Struct({ worktreePath: TrimmedNonEmptyString })),
+  handler: Effect.fn("desktop.ipc.window.listOpenWorktreeTerminals")(function* () {
+    const terminal = yield* WorktreeTerminal.WorktreeTerminal;
+    return yield* terminal.list;
+  }),
+});
+
+export const listHyprnavAgents = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.LIST_HYPRNAV_AGENTS_CHANNEL,
+  payload: Schema.Void,
+  result: Schema.Array(HyprnavAgents.HyprnavAgentSchema),
+  handler: Effect.fn("desktop.ipc.window.listHyprnavAgents")(function* () {
+    return yield* HyprnavAgents.listHyprnavAgentsEffect();
+  }),
+});
+
+/** Pre-answer the next screen-share picker with a window, then the renderer calls getDisplayMedia. */
+export const requestHyprnavScreencast = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.REQUEST_HYPRNAV_SCREENCAST_CHANNEL,
+  payload: Schema.Struct({ address: TrimmedNonEmptyString }),
+  result: Schema.Struct({ ok: Schema.Boolean }),
+  handler: Effect.fn("desktop.ipc.window.requestHyprnavScreencast")(function* (input) {
+    // Armed first: the renderer's getDisplayMedia can arrive before the CLI returns.
+    const now = yield* Clock.currentTimeMillis;
+    HyprnavScreencast.armHyprnavDisplayMedia(now);
+    yield* HyprnavAgents.runHyprnavJson(["screencast", "request", input.address]);
+    return { ok: true };
+  }),
+});
+
+export const gotoHyprnavAgent = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.GOTO_HYPRNAV_AGENT_CHANNEL,
+  payload: Schema.Struct({ env: TrimmedNonEmptyString, slot: Schema.Int }),
+  result: Schema.Struct({ ok: Schema.Boolean }),
+  handler: Effect.fn("desktop.ipc.window.gotoHyprnavAgent")(function* (input) {
+    yield* HyprnavAgents.runHyprnavJson(["goto", "--env", input.env, "--slot", String(input.slot)]);
+    return { ok: true };
+  }),
+});
+
+export const syncHyprnavEnvironment = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SYNC_HYPRNAV_ENVIRONMENT_CHANNEL,
+  payload: DesktopHyprnavSyncInput,
+  result: DesktopHyprnavResult,
+  handler: Effect.fn("desktop.ipc.window.syncHyprnavEnvironment")(function* (input) {
+    const hyprnav = yield* HyprnavEnvironment.HyprnavEnvironment;
+    return yield* hyprnav.sync(input);
+  }),
+});
+
+export const syncHyprnavBrowserTabs = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SYNC_HYPRNAV_BROWSER_TABS_CHANNEL,
+  payload: DesktopHyprnavBrowserTabsSyncInput,
+  result: DesktopHyprnavBrowserTabsSyncResult,
+  handler: Effect.fn("desktop.ipc.window.syncHyprnavBrowserTabs")(function* (input) {
+    const hyprnav = yield* HyprnavEnvironment.HyprnavEnvironment;
+    return yield* hyprnav.syncBrowserTabs(input);
+  }),
+});
+
+export const registerHyprnavBrowserTab = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.REGISTER_HYPRNAV_BROWSER_TAB_CHANNEL,
+  payload: Schema.Struct({
+    browser: HyprnavBrowserKind,
+    tabName: TrimmedNonEmptyString,
+    url: TrimmedNonEmptyString,
+    param: TrimmedNonEmptyString,
+  }),
+  result: DesktopHyprnavResult,
+  handler: Effect.fn("desktop.ipc.window.registerHyprnavBrowserTab")(function* (input) {
+    const hyprnav = yield* HyprnavEnvironment.HyprnavEnvironment;
+    return yield* hyprnav.registerBrowserTab(input);
+  }),
+});
+
+export const lockHyprnavEnvironment = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.LOCK_HYPRNAV_ENVIRONMENT_CHANNEL,
+  payload: Schema.Struct({ envId: TrimmedNonEmptyString }),
+  result: DesktopHyprnavResult,
+  handler: Effect.fn("desktop.ipc.window.lockHyprnavEnvironment")(function* (input) {
+    const hyprnav = yield* HyprnavEnvironment.HyprnavEnvironment;
+    return yield* hyprnav.lock(input);
   }),
 });

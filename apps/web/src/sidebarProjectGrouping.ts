@@ -212,3 +212,24 @@ export function buildSidebarProjectPickerEntries(input: {
     ...entries.slice(preferredIndex + 1),
   ];
 }
+
+/** Fork: one project per physical checkout, preferring the primary environment's record. */
+export function deduplicateProjectsByPhysicalKey(input: {
+  projects: ReadonlyArray<Project>;
+  settings: ProjectGroupingSettings;
+  primaryEnvironmentId: EnvironmentId | null;
+}): Project[] {
+  const projectsByPhysicalKey = new Map<string, Project>();
+  for (const group of buildProjectGroups({
+    projects: input.projects,
+    settings: input.settings,
+    preferredEnvironmentId: input.primaryEnvironmentId,
+  })) {
+    for (const member of group.members) {
+      if (!projectsByPhysicalKey.has(member.physicalProjectKey)) {
+        projectsByPhysicalKey.set(member.physicalProjectKey, member.project);
+      }
+    }
+  }
+  return [...projectsByPhysicalKey.values()];
+}

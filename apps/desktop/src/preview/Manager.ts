@@ -83,6 +83,7 @@ import {
 } from "./GuestProtocol.ts";
 import { isPreviewAnnotationPayload } from "./PickedElementPayload.ts";
 import { captureFavicon, safeHttpOrigin, selectFaviconCandidates } from "./FaviconCapture.ts";
+import { handleHyprnavDisplayMediaRequest } from "../hyprnav/HyprnavScreencast.ts";
 import { DEFAULT_RECORDING_INPUT_OPTIONS, type RecordingInputOptions } from "./RecordingInput.ts";
 
 export type PreviewNavStatus =
@@ -3052,7 +3053,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     session.setDisplayMediaRequestHandler((request, callback) => {
       const armed = pendingRecording;
       if (!armed) {
-        callback({});
+        // Not a tab recording: only an armed desktop-agent Watch may reach the
+        // system portal; anything else is still denied.
+        handleHyprnavDisplayMediaRequest(request, callback);
         return;
       }
       if (armed.webContents.isDestroyed()) {

@@ -19,6 +19,7 @@ export type SettingsPath =
   | "/settings/diagnostics"
   | "/settings/appearance"
   | "/settings/keybindings"
+  | "/settings/hyprnav"
   | "/settings/snap-shot"
   | "/settings/providers"
   | "/settings/integrations"
@@ -77,6 +78,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
+  "/settings/hyprnav": "Hyprnav",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
@@ -603,6 +605,37 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "hyprnav",
+    title: "Hyprnav defaults",
+    to: "/settings/hyprnav",
+    searchTerms: ["hyprland workspace navigation slots bindings terminal editor corkdiff device"],
+  },
+  {
+    id: "hyprnav-follow-lock",
+    title: "Follow the Hyprnav lock",
+    to: "/settings/hyprnav",
+    searchTerms: ["hyprland thread sync grid open locked thread device"],
+  },
+  {
+    id: "hyprnav-publish-lock",
+    title: "Lock the open thread",
+    to: "/settings/hyprnav",
+    searchTerms: ["hyprland thread sync move lock environment"],
+  },
+  {
+    id: "hyprnav-browser-slots",
+    title: "Browser slots",
+    to: "/settings/hyprnav",
+    searchTerms: ["hyprland browser tab preview url branch checkout query workspace"],
+  },
+  {
+    id: "project-hyprnav",
+    title: "Project Hyprnav bindings",
+    to: "/settings/projects",
+    scope: "project",
+    searchTerms: ["hyprland workspace navigation slots override checkout grouped same separate"],
+  },
+  {
     id: "snap-shot-shortcut",
     title: "Capture shortcut",
     to: "/settings/snap-shot",
@@ -994,6 +1027,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/appearance": null,
   "/settings/snap-shot": null,
   "/settings/keybindings": null,
+  "/settings/hyprnav": null,
   "/settings/providers": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",

@@ -21,6 +21,7 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
+import { DesktopAgentsSection } from "../DesktopAgentsSection";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
@@ -181,6 +182,9 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               threadId={props.threadId}
             />
           ) : null}
+
+          {/* Fork: hyprnav desktop agents on this machine; renders nothing without any. */}
+          {density === "full" ? <DesktopAgentsSection /> : null}
         </>
       )}
     </ThreadDetailsCard>

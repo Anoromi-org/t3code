@@ -46,6 +46,8 @@ import * as DesktopBackendConfiguration from "./backend/DesktopBackendConfigurat
 import * as DesktopBackendPool from "./backend/DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "./backend/DesktopLocalEnvironmentAuth.ts";
 import * as ExternalCorkdiff from "./corkdiff/ExternalCorkdiff.ts";
+import * as HyprnavEnvironment from "./hyprnav/HyprnavEnvironment.ts";
+import * as WorktreeTerminal from "./hyprnav/WorktreeTerminal.ts";
 import * as DesktopNetworkInterfaces from "./backend/DesktopNetworkInterfaces.ts";
 import * as DesktopEnvironment from "./app/DesktopEnvironment.ts";
 import * as DesktopLifecycle from "./app/DesktopLifecycle.ts";
@@ -208,6 +210,10 @@ const layerExternalCorkdiff = ExternalCorkdiff.layer.pipe(
   Layer.provideMerge(layerDesktopBackend),
 );
 
+const layerDesktopHyprnav = Layer.mergeAll(HyprnavEnvironment.layer, WorktreeTerminal.layer).pipe(
+  Layer.provideMerge(layerDesktopFoundation),
+);
+
 const layerDesktopApplication = Layer.mergeAll(
   DesktopLifecycle.layer,
   layerDesktopAppActivation,
@@ -222,6 +228,7 @@ const layerDesktopApplication = Layer.mergeAll(
   Layer.provideMerge(layerDesktopWslBackend),
   Layer.provideMerge(layerDesktopLocalEnvironmentAuth),
   Layer.provideMerge(layerExternalCorkdiff),
+  Layer.provideMerge(layerDesktopHyprnav),
 );
 
 // Clerk resolves userData before Electron is ready, so it gets the synchronous FileSystem.

@@ -43,17 +43,26 @@ import {
   getLocalEnvironmentBearerToken,
   getSystemLocale,
   getWindowFullscreenState,
+  gotoHyprnavAgent,
+  listHyprnavAgents,
+  listOpenWorktreeTerminals,
+  lockHyprnavEnvironment,
+  registerHyprnavBrowserTab,
+  syncHyprnavBrowserTabs,
+  requestHyprnavScreencast,
   openExternal,
   openSystemSettings,
   checkSystemPermission,
   pasteAsText,
   probeRemoteEditors,
   openExternalCorkdiff,
+  openWorktreeTerminal,
   pickFolder,
   pickProjectFavicon,
   pickThemeFiles,
   setTheme,
   showContextMenu,
+  syncHyprnavEnvironment,
 } from "./methods/window.ts";
 import {
   acknowledgeSnapShot,
@@ -153,6 +162,15 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(pasteAsText);
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(openExternalCorkdiff);
+  yield* ipc.handle(openWorktreeTerminal);
+  yield* ipc.handle(listOpenWorktreeTerminals);
+  yield* ipc.handle(syncHyprnavEnvironment);
+  yield* ipc.handle(lockHyprnavEnvironment);
+  yield* ipc.handle(syncHyprnavBrowserTabs);
+  yield* ipc.handle(registerHyprnavBrowserTab);
+  yield* ipc.handle(listHyprnavAgents);
+  yield* ipc.handle(requestHyprnavScreencast);
+  yield* ipc.handle(gotoHyprnavAgent);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
   yield* ipc.handle(downloadUpdate);

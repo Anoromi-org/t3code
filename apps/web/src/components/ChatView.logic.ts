@@ -107,6 +107,8 @@ export function shouldRenderPreviewMiniPlayer(
       renderedRightPanelSurface.resourceId === source.tabId
     );
   }
+  // Fork: no panel shows a desktop agent's window itself, so it always floats.
+  if (source.kind === "desktop-agent") return true;
   return !(
     renderedRightPanelSurface?.kind === "device" &&
     renderedRightPanelSurface.target?.hostId === source.hostId &&

@@ -408,6 +408,32 @@ describe("searchSettings", () => {
     expect(searchSettings("writing style", available)[0]?.id).toBe("source-control-writing-style");
     expect(searchSettings("auto-settle", available)).toHaveLength(3);
   });
+  it("exposes Hyprnav through the current settings navigation", () => {
+    expect(searchSettings("hyprnav")[0]).toMatchObject({
+      id: "hyprnav",
+      to: "/settings/hyprnav",
+    });
+    expect(searchSettings("project hyprnav")[0]).toMatchObject({
+      id: "project-hyprnav",
+      to: "/settings/projects",
+    });
+    expect(getSettingsSearchTargetScope("hyprnav")?.scope).toBeNull();
+    expect(getSettingsSearchTargetScope("project-hyprnav")?.scope).toBe("project");
+  });
+  it("finds the Hyprnav thread sync and browser slot settings", () => {
+    expect(searchSettings("follow lock")[0]).toMatchObject({
+      id: "hyprnav-follow-lock",
+      to: "/settings/hyprnav",
+    });
+    expect(searchSettings("lock open thread")[0]).toMatchObject({
+      id: "hyprnav-publish-lock",
+      to: "/settings/hyprnav",
+    });
+    expect(searchSettings("browser slots")[0]).toMatchObject({
+      id: "hyprnav-browser-slots",
+      to: "/settings/hyprnav",
+    });
+  });
 });
 
 describe("settings search targets", () => {

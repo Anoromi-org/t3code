@@ -324,4 +324,15 @@ export function resizePreviewMiniPlayer(input: {
     obstacles,
   );
   return { ...position, ...size };
+} /**
+ * Fork: a desktop agent's window at the aspect of the frames decoded so far,
+ * 16:9 until the first one arrives. The stream is a downscaled capture tier, so
+ * the size is nominal: it sets the shape without capping the player at the tier.
+ */
+export function resolveDesktopAgentMiniPlayerSourceSize(
+  frame: PreviewMiniPlayerSize | null,
+): PreviewMiniPlayerSize {
+  const width = 1_920;
+  if (!frame || !(frame.width > 0) || !(frame.height > 0)) return { width, height: 1_080 };
+  return { width, height: Math.round((width * frame.height) / frame.width) };
 }
