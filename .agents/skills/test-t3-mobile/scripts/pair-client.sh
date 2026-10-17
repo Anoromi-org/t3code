@@ -44,8 +44,15 @@ process.stdout.write(`t3code-dev://connections/new?${query}`);
 NODE
 )"
 
-if ! "$agent_device_command" open com.t3tools.t3code.dev "$deep_link" "$@" \
-  >/dev/null 2>&1; then
+# iOS uses the fork bundle ID; Android keeps upstream's package name.
+opened=0
+for app_id in com.anoromi.t3code.dev com.t3tools.t3code.dev; do
+  if "$agent_device_command" open "$app_id" "$deep_link" "$@" >/dev/null 2>&1; then
+    opened=1
+    break
+  fi
+done
+if [[ "$opened" != 1 ]]; then
   echo "AgentDevice could not open the pairing route. Check the Device panel and retry with a fresh credential." >&2
   exit 1
 fi
