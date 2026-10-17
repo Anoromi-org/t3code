@@ -65,6 +65,7 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
+import { startClientPerformanceTracing } from "../observability/clientPerformanceTracing";
 import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { useHostedPromptLinkLanding } from "../components/promptLinks/HostedPromptLinkLanding";
@@ -493,7 +494,7 @@ function errorReport(error: unknown, pathname: string): string {
 
 function AuthenticatedTracingBootstrap() {
   useEffect(() => {
-    void configureClientTracing();
+    void configureClientTracing().then(startClientPerformanceTracing);
   }, []);
 
   return null;
