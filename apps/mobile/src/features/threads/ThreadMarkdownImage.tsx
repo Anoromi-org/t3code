@@ -6,6 +6,7 @@ import { fetch } from "expo/fetch";
 import { parse, SvgAst, type JsxAST } from "react-native-svg";
 import { ActivityIndicator, Pressable, StyleSheet, View, type ViewStyle } from "react-native";
 
+import { cloudflareAccessHeaders } from "../../connection/cloudflare-access";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { useFilePreviewGallery } from "../../components/FilePreviewGallery";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -215,7 +216,10 @@ function ThreadMarkdownSvg(props: {
             )
           : content;
       }
-      const response = await fetch(props.uri, { signal: controller.signal });
+      const response = await fetch(props.uri, {
+        signal: controller.signal,
+        headers: await cloudflareAccessHeaders(props.uri),
+      });
       if (!response.ok && !(response.status === 0 && props.uri.startsWith("file://")))
         throw new Error(`SVG request failed: ${response.status}`);
       return response.text();

@@ -22,6 +22,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { AppText as Text, AppTextInput, type AppTextInputProps } from "../../components/ui/AppText";
 import { FrostedCutout } from "../../components/ui/FrostedCutout";
+import { CloudflareAccessFields, useCloudflareAccessCredential } from "./CloudflareAccessFields";
 import { buildPairingUrl, extractPairingUrlFromQrPayload, parsePairingUrl } from "./pairing";
 import {
   setPendingConnectionError,
@@ -68,6 +69,8 @@ export function ConnectionsNewRouteScreen({
   // A good scan parks the camera so it can't re-read the code over later edits.
   const [scanComplete, setScanComplete] = useState(false);
   const attemptedAutoConnectRef = useRef<string | null>(null);
+  const accessCredential = useCloudflareAccessCredential(hostInput);
+  const saveAccessCredential = accessCredential.save;
 
   const headerIconColor = useUniwindTheme()["--color-icon"];
 
@@ -182,8 +185,10 @@ export function ConnectionsNewRouteScreen({
   );
 
   const handleSubmit = useCallback(async () => {
+    // Pairing requests already need the Access headers, so save them first.
+    await saveAccessCredential();
     await connectAndClose(buildPairingUrl(hostInput, codeInput));
-  }, [codeInput, connectAndClose, hostInput]);
+  }, [saveAccessCredential, codeInput, connectAndClose, hostInput]);
 
   useEffect(() => {
     if (!shouldAutoConnect || attemptedAutoConnectRef.current === routePairingUrl) {
@@ -213,6 +218,7 @@ export function ConnectionsNewRouteScreen({
     >
       <ScrollView
         nestedScrollEnabled
+        keyboardAware
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -270,6 +276,12 @@ export function ConnectionsNewRouteScreen({
               {pairingConnectionError ??
                 "For machines on your local network or tailnet. The machine keeps its own provider credentials."}
             </Text>
+            <View collapsable={false} className="px-4 pt-2">
+              <CloudflareAccessFields
+                credential={accessCredential.credential}
+                onChange={accessCredential.setCredential}
+              />
+            </View>
           </View>
 
           {hasCloudPublicConfig() ? <T3ConnectSection /> : null}

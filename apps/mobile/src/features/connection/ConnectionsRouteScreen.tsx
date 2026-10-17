@@ -51,6 +51,7 @@ export function ConnectionsRouteScreen() {
         </Toolbar>
       )}
       <ScrollView
+        keyboardAware
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         className="flex-1"

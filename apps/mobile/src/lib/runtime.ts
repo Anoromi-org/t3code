@@ -4,6 +4,10 @@ import * as Socket from "effect/socket/Socket";
 
 import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
 
+import {
+  cloudflareAccessFetch,
+  openCloudflareAccessWebSocket,
+} from "../connection/cloudflare-access";
 import * as Dpop from "../features/cloud/dpop";
 import * as ManagedRelayLayer from "../features/cloud/managedRelayLayer";
 import { resolveCloudPublicConfig } from "../features/cloud/publicConfig";
@@ -17,11 +21,18 @@ function configuredRelayUrl(): string {
   return resolveCloudPublicConfig().relay.url ?? "http://relay.invalid";
 }
 
-const layerHttpClient = layerRemoteHttpClient(fetch);
+const layerHttpClient = layerRemoteHttpClient(cloudflareAccessFetch);
+
+const layerWebSocketConstructor = Layer.succeed(Socket.WebSocketConstructor)((url, options) => {
+  if (options !== undefined && typeof options !== "string" && !Array.isArray(options)) {
+    throw new TypeError("WebSocket client options are not supported on mobile");
+  }
+  return openCloudflareAccessWebSocket(url, options);
+});
 
 type RuntimeLayerSource =
   | ReturnType<typeof ManagedRelayLayer.layer>
-  | typeof Socket.layerWebSocketConstructorGlobal
+  | typeof layerWebSocketConstructor
   | typeof Dpop.layer
   | typeof layerHttpClient
   | typeof Persistence.layer
@@ -29,7 +40,7 @@ type RuntimeLayerSource =
 
 const layerRuntime = Layer.merge(
   ManagedRelayLayer.layer(configuredRelayUrl()),
-  Socket.layerWebSocketConstructorGlobal,
+  layerWebSocketConstructor,
 ).pipe(
   Layer.provideMerge(Dpop.layer),
   Layer.provideMerge(layerHttpClient),

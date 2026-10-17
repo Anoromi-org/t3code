@@ -27,6 +27,12 @@ export class PairingQrPayloadEmptyError extends Schema.TaggedError<PairingQrPayl
   }
 }
 
+/** Parses a typed host, defaulting to http for IP literals and https otherwise. */
+export function parseHostInput(host: string): URL {
+  const h = host.trim();
+  return new URL(h.includes("://") ? h : `${isIpLiteral(h) ? "http" : "https"}://${h}`);
+}
+
 export function buildPairingUrl(host: string, code: string): string {
   const h = host.trim();
   const c = code.trim();
@@ -34,7 +40,7 @@ export function buildPairingUrl(host: string, code: string): string {
   if (!c) return h;
 
   try {
-    const url = new URL(h.includes("://") ? h : `${isIpLiteral(h) ? "http" : "https"}://${h}`);
+    const url = parseHostInput(h);
     url.hash = new URLSearchParams([["token", c]]).toString();
     return url.toString();
   } catch {
