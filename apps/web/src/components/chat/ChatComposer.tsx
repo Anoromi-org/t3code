@@ -1480,6 +1480,8 @@ export interface ChatComposerHandle {
 }
 
 export interface ChatComposerProps {
+  /** Fork: opens the branch picker for `/branch`; omitted where there is no branch toolbar. */
+  onOpenBranchPicker?: (() => void) | undefined;
   composerDraftTarget: ScopedThreadRef | DraftId;
   environmentId: EnvironmentId;
   canOperateThread: boolean;
@@ -1984,6 +1986,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     editingQueuedAttachments,
     onRemoveEditingQueuedAttachment,
   } = props;
+  const { onOpenBranchPicker } = props;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
   const {
@@ -2629,6 +2632,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           command: "model",
           label: "/model",
           description: "Switch response model for this thread",
+        },
+        ...(onOpenBranchPicker
+          ? ([
+              {
+                id: "slash:branch",
+                type: "slash-command",
+                command: "branch",
+                label: "/branch",
+                description: "Pick the branch for this thread",
+              },
+            ] as const)
+          : []),
+        {
+          id: "slash:worktree",
+          type: "slash-command",
+          command: "worktree",
+          label: "/worktree",
+          description: "Work locally or in a new worktree",
+        },
+        {
+          id: "slash:reasoning",
+          type: "slash-command",
+          command: "reasoning",
+          label: "/reasoning",
+          description: "Change reasoning effort",
         },
         ...(planModeUiEnabled
           ? ([
@@ -3746,6 +3774,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   };
 
+  // Opens a composer-owned control the way its keyboard shortcut does.
+  const composerHandleOpenControl = (command: KeybindingCommand) => {
+    if (composerBlurFrameRef.current !== null) {
+      window.cancelAnimationFrame(composerBlurFrameRef.current);
+      composerBlurFrameRef.current = null;
+    }
+    flushSync(() => {
+      setIsComposerScrollCollapsed(false);
+      setIsComposerFocused(true);
+    });
+    const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
+    const trigger = Array.from(
+      shell?.querySelectorAll<HTMLButtonElement>(
+        `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
+      ) ?? [],
+    ).find(
+      (element) =>
+        !element.closest("[inert]") && element.checkVisibility({ visibilityProperty: true }),
+    );
+    if (!trigger) return;
+    trigger.focus({ preventScroll: true });
+    trigger.click();
+  };
+
   const { onUsageLimitsCommand } = props;
   const onSelectComposerItem = (item: ComposerCommandItem) => {
     if (composerSelectLockRef.current) return;
@@ -3771,6 +3823,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return;
     }
     if (item.type === "slash-command") {
+      if (
+        item.command === "branch" ||
+        item.command === "worktree" ||
+        item.command === "reasoning"
+      ) {
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          focusEditorAfterReplace: false,
+        });
+        if (!applied) return;
+        setComposerHighlightedItemId(null);
+        if (item.command === "branch") onOpenBranchPicker?.();
+        else
+          composerHandleOpenControl(
+            item.command === "worktree" ? "composer.workspace" : "composer.effort",
+          );
+        return;
+      }
       if (item.command === "model") {
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -6096,28 +6166,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           openModelPickerStable();
         }
       },
-      openControl: (command) => {
-        if (composerBlurFrameRef.current !== null) {
-          window.cancelAnimationFrame(composerBlurFrameRef.current);
-          composerBlurFrameRef.current = null;
-        }
-        flushSync(() => {
-          setIsComposerScrollCollapsed(false);
-          setIsComposerFocused(true);
-        });
-        const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
-        const trigger = Array.from(
-          shell?.querySelectorAll<HTMLButtonElement>(
-            `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
-          ) ?? [],
-        ).find(
-          (element) =>
-            !element.closest("[inert]") && element.checkVisibility({ visibilityProperty: true }),
-        );
-        if (!trigger) return;
-        trigger.focus({ preventScroll: true });
-        trigger.click();
-      },
+      openControl: composerHandleOpenControl,
       compactContext: compactThreadContextStable,
       isModelPickerOpen: () => isComposerModelPickerOpen,
       isCaretAtStart: () => {
