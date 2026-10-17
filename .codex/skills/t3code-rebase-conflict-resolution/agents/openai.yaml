@@ -1,0 +1,4 @@
+interface:
+  display_name: "T3 Rebase Conflicts"
+  short_description: "Rebase conflicts with persistence-safe validation"
+  default_prompt: "Use $t3code-rebase-conflict-resolution to reconcile this rebase onto upstream behavior and validate persistence, UI, and startup compatibility."
