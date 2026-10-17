@@ -161,5 +161,16 @@ export default defineConfig({
     // desktop integration tests can exceed Vitest's 5 second default there.
     testTimeout: 15_000,
     setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
+    env: {
+      // Importing "electron" downloads its ~100 MB binary when node_modules lacks it, and since
+      // electron 44 its install.js ignores ELECTRON_SKIP_BINARY_DOWNLOAD. Every parallel worker
+      // then downloaded it at once (16 x 100 MB). Tests only need the path string, so point the
+      // package at the Nix Electron (or a placeholder) and it never downloads.
+      // The placeholder never has to exist; nothing in the tests launches the binary.
+      ELECTRON_OVERRIDE_DIST_PATH:
+        process.env.ELECTRON_OVERRIDE_DIST_PATH ??
+        process.env.T3CODE_DESKTOP_ELECTRON_PATH?.replace(/[\\/][^\\/]*$/, "") ??
+        "t3code-test-no-electron-download",
+    },
   },
 });
