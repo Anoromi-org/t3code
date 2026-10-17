@@ -16,6 +16,10 @@ Settling a thread uses `mod+alt+shift+s`, and copying a thread reference uses
 `mod+alt+shift+c`. Type `/fast` in the composer to turn the selected model's fast
 mode on or off.
 
+On desktop, hold Control and press Tab to cycle recent threads. Add Shift to
+cycle backward, release Control to open the highlighted thread, or press Escape
+to cancel.
+
 ## Composer controls
 
 In **Settings → General → Send shortcut**, choose whether Enter sends, requires

@@ -29,6 +29,7 @@ import { HyprnavLockFollower } from "./HyprnavLockFollower";
 import { resolveLayoutShortcutContext } from "./layoutShortcutContext";
 import LegacyThreadSidebar from "./LegacySidebar";
 import { NavigationCommandMenuControl } from "./NavigationCommandMenuControl";
+import { RecentThreadSwitcherControl } from "./RecentThreadSwitcherControl";
 import { useThreadVisitedMigration } from "../hooks/useThreadVisitedMigration";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
@@ -342,6 +343,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <NavigationHistoryShortcuts />
         <NavigationCommandMenuControl />
         <MainAppLocationTracker />
+        {isElectron ? <RecentThreadSwitcherControl /> : null}
         <HyprnavLockFollower />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
