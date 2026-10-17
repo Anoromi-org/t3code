@@ -22,6 +22,7 @@ import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { DesktopAgentsSection } from "../DesktopAgentsSection";
+import type { GitActionRequest } from "../ProjectActionsPanel.logic";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
@@ -62,6 +63,9 @@ export interface ThreadDetailsPanelProps extends Pick<
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  /** Fork: a git step requested from the project actions panel. */
+  requestedGitAction?: GitActionRequest | null;
+  onRequestedGitActionHandled?: (requestId: string) => void;
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
@@ -166,6 +170,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                     activeThreadRef={activeThreadRef}
                     {...(props.draftId ? { draftId: props.draftId } : {})}
                     {...(props.onOpenChanges ? { onOpenChanges: props.onOpenChanges } : {})}
+                    requestedAction={props.requestedGitAction ?? null}
+                    {...(props.onRequestedGitActionHandled
+                      ? { onRequestedActionHandled: props.onRequestedGitActionHandled }
+                      : {})}
                   />
                 ) : null}
               </div>

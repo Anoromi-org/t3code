@@ -165,6 +165,8 @@ import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { routeDiffShortcut } from "./externalCorkdiffRouting";
+import { ProjectActionsPanelControl } from "./ProjectActionsPanelControl";
+import type { GitActionRequest, GitActionRequestKind } from "./ProjectActionsPanel.logic";
 import { useDiffPanelStore } from "../diffPanelStore";
 import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
 import {
@@ -3533,6 +3535,20 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
   const runProjectScriptStable = useStableCallback(runProjectScript);
+  // Fork: git steps chosen in the project actions panel run through the thread
+  // panel's GitActionsControl, which owns their dialogs and toasts, so the panel
+  // opens to run them.
+  const [requestedGitAction, setRequestedGitAction] = useState<GitActionRequest | null>(null);
+  const requestGitActionStable = useStableCallback((action: GitActionRequestKind) => {
+    if (!activeThreadRef) return;
+    setRequestedGitAction({ requestId: randomUUID(), action });
+    useRightPanelStore
+      .getState()
+      .setThreadPanelOpen(activeThreadRef, threadPanelPresentation, true);
+  });
+  const handleRequestedGitActionStable = useStableCallback((requestId: string) => {
+    setRequestedGitAction((current) => (current?.requestId === requestId ? null : current));
+  });
 
   const runProjectScriptRef = useRef(runProjectScriptStable);
   useLayoutEffect(() => {
@@ -8407,6 +8423,17 @@ export default function ChatView(props: ChatViewProps) {
               onConfirm={handleSwitchCheckoutToThreadStable}
             />
 
+            {activeProject ? (
+              <ProjectActionsPanelControl
+                availableEditors={availableEditors}
+                environmentId={activeThread.environmentId}
+                gitCwd={gitCwd}
+                keybindings={keybindings}
+                onRequestGitAction={requestGitActionStable}
+                onRunProjectScript={runProjectScriptStable}
+                scripts={activeProjectScripts}
+              />
+            ) : null}
             <ThreadDetailsPanel
               anchor={threadPanelPopoverAnchorRef}
               handle={threadPanelPopoverHandle}
@@ -8458,6 +8485,8 @@ export default function ChatView(props: ChatViewProps) {
               onAddProjectScript={saveProjectScriptStable}
               onUpdateProjectScript={updateProjectScriptStable}
               onDeleteProjectScript={deleteProjectScriptStable}
+              requestedGitAction={requestedGitAction}
+              onRequestedGitActionHandled={handleRequestedGitActionStable}
             />
 
             <PullRequestThreadDialogHost
