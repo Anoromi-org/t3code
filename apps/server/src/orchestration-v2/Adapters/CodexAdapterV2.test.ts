@@ -3213,6 +3213,125 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ),
   );
 
+  it.effect("recovers turns continued outside T3 Code after a resume", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const scenario = "codex-resume-history";
+        const nativeThreadId = `native-${scenario}-thread`;
+        const preamble = codexReplayPreamble({
+          nativeThreadId,
+          nativeTurnId: "unused-turn",
+          prompt: "unused-prompt",
+        }).slice(0, 5);
+        const codexTurn = (id: string, startedAt: number, text: string) => ({
+          id,
+          status: "completed",
+          startedAt,
+          completedAt: startedAt,
+          items: [
+            { type: "userMessage", id: `${id}-user`, content: [{ type: "text", text }] },
+            { type: "agentMessage", id: `${id}-agent`, text: `reply to ${text}` },
+          ],
+        });
+        const transcript = makeCodexReplayTranscript({
+          scenario,
+          entries: [
+            ...preamble,
+            {
+              type: "expect_outbound",
+              label: "thread/resume",
+              frame: {
+                id: 3,
+                method: "thread/resume",
+                params: {
+                  threadId: nativeThreadId,
+                  excludeTurns: true,
+                  config: CodexAdapterV2.CODEX_THREAD_CONFIG,
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "thread/resume",
+              frame: { id: 3, result: { thread: { id: nativeThreadId, updatedAt: 1782622450 } } },
+            },
+            {
+              type: "expect_outbound",
+              label: "thread/read",
+              frame: {
+                id: 4,
+                method: "thread/read",
+                params: { threadId: nativeThreadId, includeTurns: false },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "thread/read",
+              frame: { id: 4, result: { thread: { historyMode: "paginated" } } },
+            },
+            {
+              type: "expect_outbound",
+              label: "thread/turns/list",
+              frame: {
+                id: 5,
+                method: "thread/turns/list",
+                params: {
+                  threadId: nativeThreadId,
+                  cursor: null,
+                  limit: 100,
+                  sortDirection: "desc",
+                  itemsView: "full",
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "thread/turns/list",
+              frame: {
+                id: 5,
+                result: {
+                  data: [
+                    codexTurn("cli-turn", 1782622400, "from the CLI"),
+                    codexTurn("t3-turn", 1782622300, "from T3"),
+                  ],
+                },
+              },
+            },
+          ],
+        });
+        const events: Array<ProviderAdapter.ProviderAdapterV2Event> = [];
+        const recovered = yield* Deferred.make<void>();
+        const harness = yield* makeCodexReplayHarness(transcript, (event) =>
+          Effect.gen(function* () {
+            events.push(event);
+            if (events.filter((entry) => entry.type === "turn_item.updated").length === 2) {
+              yield* Deferred.succeed(recovered, undefined);
+            }
+          }),
+        );
+        yield* harness.runtime.resumeThread({
+          providerThread: harness.providerThread,
+          modelSelection: CODEX_TEST_MODEL_SELECTION,
+          runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+          reconcileHistory: { knownNativeTurnIds: ["t3-turn"], runId: null, nodeId: null },
+        });
+        yield* Deferred.await(recovered);
+
+        const messages = events.flatMap((event) =>
+          event.type === "message.updated" ? [[event.message.role, event.message.text]] : [],
+        );
+        assert.deepEqual(messages, [
+          ["user", "from the CLI"],
+          ["assistant", "reply to from the CLI"],
+        ]);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
   it.effect.each(
     (
       [

@@ -6,6 +6,7 @@ import {
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2ThreadProjection,
   type OrchestrationV2Run,
   type OrchestrationV2RunAttempt,
   type OrchestrationV2TurnItem,
@@ -55,6 +56,35 @@ import {
   pendingRestartCancelledBackgroundWork,
   restartCancelledBackgroundWorkNote,
 } from "./RestartBackgroundNote.ts";
+
+/**
+ * Fork: what a resume needs to recover turns that happened outside T3 Code —
+ * the native turns already recorded on this provider thread, and the latest
+ * earlier run, which the recovered history follows in the timeline.
+ */
+function resumeHistoryTarget(
+  projection: Pick<OrchestrationV2ThreadProjection, "providerTurns" | "runs">,
+  providerThread: OrchestrationV2ProviderThread,
+  run: OrchestrationV2Run,
+) {
+  const previousRun = projection.runs.reduce<OrchestrationV2Run | undefined>(
+    (previous, candidate) =>
+      candidate.ordinal < run.ordinal &&
+      (previous === undefined || candidate.ordinal > previous.ordinal)
+        ? candidate
+        : previous,
+    undefined,
+  );
+  return {
+    knownNativeTurnIds: projection.providerTurns.flatMap((turn) =>
+      turn.providerThreadId === providerThread.id && turn.nativeTurnRef?.nativeId
+        ? [turn.nativeTurnRef.nativeId]
+        : [],
+    ),
+    runId: previousRun?.id ?? null,
+    nodeId: previousRun?.rootNodeId ?? null,
+  };
+}
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
@@ -671,6 +701,7 @@ export const layer: Layer.Layer<
                 threadId: projection.thread.id,
                 modelSelection: run.modelSelection,
                 runtimePolicy: resolvedRuntimePolicy,
+                reconcileHistory: resumeHistoryTarget(projection, providerThread, run),
               }),
         );
         if (resumed._tag === "Success") {
