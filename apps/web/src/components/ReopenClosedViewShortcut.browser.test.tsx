@@ -107,7 +107,7 @@ function press(target: Element = document.body) {
 
 function openCommandPalette() {
   const palette = document.createElement("div");
-  palette.dataset.commandPalette = "";
+  palette.dataset.commandSurface = "command-palette";
   document.body.append(palette);
   return palette;
 }

@@ -6,7 +6,7 @@ import { isEditableFocused } from "~/lib/editableFocus";
 import { pullRequestEnvironment } from "~/state/pullRequests";
 import { useAtomCommand } from "~/state/use-atom-command";
 
-import { isCommandPaletteOpen } from "~/commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "~/commandSurface";
 
 import { GuideRail } from "./GuideRail";
 import { GuideStop } from "./GuideStop";
@@ -79,7 +79,7 @@ export function GuideTour({
   const step = (delta: 1 | -1) => goTo(stepTourPosition(position, delta, stopCount));
 
   const stepFromKey = useEffectEvent((event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.isComposing || isCommandPaletteOpen()) return;
+    if (event.defaultPrevented || event.isComposing || isAnyCommandSurfaceOpen()) return;
     if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
     if (event.key !== "j" && event.key !== "k") return;
     if (isEditableFocused(event.target)) return;

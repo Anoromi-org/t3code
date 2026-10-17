@@ -14,6 +14,7 @@ import {
   TrimmedString,
   type UnknownUnionMember,
 } from "./baseSchemas.ts";
+import { ProjectHyprnavOverride } from "./hyprnav.ts";
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
@@ -160,6 +161,8 @@ export const Project = Schema.Struct({
   // Opt-in because background sync performs network I/O and may move the checkout.
   autoPull: Schema.optional(Schema.Boolean),
   scripts: Schema.Array(ProjectScript),
+  // Fork: per-project Hyprnav override; null inherits the client defaults.
+  hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -200,6 +203,7 @@ export const ProjectUpdatePayload = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  hyprnav: Schema.optional(ProjectHyprnavOverride),
 });
 export type ProjectUpdatePayload = typeof ProjectUpdatePayload.Type;
 

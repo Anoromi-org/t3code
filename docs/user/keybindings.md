@@ -3,6 +3,10 @@
 Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
+`mod+e` opens thread navigation: recent threads first, then threads and projects
+as you type. Choosing a project opens its draft or starts a new thread. `mod+k`
+still opens the command palette.
+
 ## Composer controls
 
 In **Settings → General → Send shortcut**, choose whether Enter sends, requires

@@ -8,6 +8,7 @@ import {
   type ProjectScript,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
+  type ProjectHyprnavOverride,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
@@ -37,6 +38,7 @@ export interface ProjectMetaUpdateCommand {
   readonly faviconPath?: string | null;
   readonly projectIcon?: ProjectIconOverride | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  readonly hyprnav?: ProjectHyprnavOverride;
 }
 
 export interface ProjectDeleteCommand {
@@ -164,6 +166,7 @@ export function planProjectCommand(input: {
           faviconPath: null,
           projectIcon: null,
           scripts: command.scripts ?? [],
+          hyprnav: null,
           createdAt: occurredAt,
           updatedAt: occurredAt,
         },
@@ -212,6 +215,7 @@ export function planProjectCommand(input: {
           ...(command.faviconPath === undefined ? {} : { faviconPath: command.faviconPath }),
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),
+          ...(command.hyprnav === undefined ? {} : { hyprnav: command.hyprnav }),
           updatedAt: occurredAt,
         },
       });

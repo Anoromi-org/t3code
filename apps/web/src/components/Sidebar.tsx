@@ -142,7 +142,8 @@ import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadAc
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
-import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
+import { openCommandPalette } from "../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
@@ -4414,7 +4415,12 @@ export default function Sidebar() {
   );
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
+      if (
+        event.defaultPrevented ||
+        event.repeat ||
+        isAnyCommandSurfaceOpen() ||
+        isModelPickerOpen()
+      ) {
         return;
       }
       const command = resolveShortcutCommand(event, keybindings, {

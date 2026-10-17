@@ -28,9 +28,3 @@ export function onOpenCommandPalette(
   window.addEventListener(COMMAND_PALETTE_OPEN_EVENT, handler);
   return () => window.removeEventListener(COMMAND_PALETTE_OPEN_EVENT, handler);
 }
-
-export function isCommandPaletteOpen(): boolean {
-  return (
-    typeof document !== "undefined" && document.querySelector("[data-command-palette]") !== null
-  );
-}

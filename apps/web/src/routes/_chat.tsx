@@ -3,7 +3,7 @@ import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect } from "react";
 
-import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import { ThreadRouteView } from "../components/ThreadRouteView";
 import { ThreadLinkPrompt } from "../components/promptLinks/ThreadLinkPrompt";
 import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
@@ -79,7 +79,7 @@ function ChatRouteGlobalShortcuts() {
         },
       });
 
-      if (isCommandPaletteOpen()) {
+      if (isAnyCommandSurfaceOpen()) {
         return;
       }
 

@@ -100,7 +100,12 @@ const browserTestProject = {
     browser: {
       enabled: true,
       headless: true,
-      provider: playwright(),
+      // Fork: point at a system Chromium (e.g. on NixOS) instead of Playwright's download.
+      provider: playwright(
+        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim()
+          ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } }
+          : undefined,
+      ),
       instances: [{ browser: "chromium" }],
       screenshotFailures: false,
     },

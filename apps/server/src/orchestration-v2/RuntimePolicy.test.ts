@@ -97,6 +97,7 @@ const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
             autoPull: false,
             faviconPath: null,
             projectIcon: null,
+            hyprnav: null,
             scripts: [],
             createdAt: "2026-06-21T00:00:00.000Z",
             updatedAt: "2026-06-21T00:00:00.000Z",

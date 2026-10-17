@@ -45,6 +45,7 @@ import {
   ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
+import { DEFAULT_PROJECT_HYPRNAV_SETTINGS, ProjectHyprnavSettings } from "./hyprnav.ts";
 
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
@@ -264,6 +265,18 @@ export const BrowserLinkTarget = Schema.Literals(["system", "app"]);
 export type BrowserLinkTarget = typeof BrowserLinkTarget.Type;
 export const DEFAULT_BROWSER_LINK_TARGET: BrowserLinkTarget = "system";
 
+// "same" shares one Hyprnav override across a grouped project's checkouts;
+// "separate" keeps an override per checkout.
+const GroupedProjectHyprnavMode = Schema.Literals(["same", "separate"]);
+const DEFAULT_GROUPED_PROJECT_HYPRNAV_MODE: typeof GroupedProjectHyprnavMode.Type = "same";
+const GroupedProjectHyprnavState = Schema.Struct({
+  mode: GroupedProjectHyprnavMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GROUPED_PROJECT_HYPRNAV_MODE)),
+  ),
+  defaultProjectKey: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type GroupedProjectHyprnavState = typeof GroupedProjectHyprnavState.Type;
+
 export const LoadBalancingWeights = Schema.Record(
   TrimmedNonEmptyString,
   Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
@@ -381,6 +394,9 @@ export const ClientSettingsSchema = Schema.Struct({
   fontFamilyTerminal: FontFamilyPreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 
   fontSmoothing: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  defaultProjectHyprnavSettings: ProjectHyprnavSettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROJECT_HYPRNAV_SETTINGS)),
+  ),
   // `null` alone does not mean "show the wizard" — every install that predates
   // this field decodes to `null` — so the gate also requires an empty workspace
   // before it treats the client as a fresh install.
@@ -424,6 +440,10 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarProjectGroupingOverrides: Schema.Record(
     TrimmedNonEmptyString,
     SidebarProjectGroupingMode,
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  groupedProjectHyprnavStateByLogicalProjectKey: Schema.Record(
+    TrimmedNonEmptyString,
+    GroupedProjectHyprnavState,
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
@@ -1557,6 +1577,7 @@ export const ClientSettingsPatch = Schema.Struct({
   fontFamilySans: Schema.optionalKey(FontFamilyPreference),
   fontFamilyTerminal: Schema.optionalKey(FontFamilyPreference),
   fontSmoothing: Schema.optionalKey(Schema.Boolean),
+  defaultProjectHyprnavSettings: Schema.optionalKey(ProjectHyprnavSettings),
   persistComposerContextStrip: Schema.optionalKey(Schema.Boolean),
   favorites: Schema.optionalKey(ModelFavorites),
   providerModelPreferences: Schema.optionalKey(ProviderModelPreferences),
@@ -1577,6 +1598,9 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
+  ),
+  groupedProjectHyprnavStateByLogicalProjectKey: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, GroupedProjectHyprnavState),
   ),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),

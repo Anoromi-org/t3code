@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import { isElectron } from "../env";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
 import {
@@ -16,12 +17,6 @@ import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../keybindings";
-import { isEditableFocused } from "../lib/editableFocus";
-import { isPreviewFocused } from "../lib/previewFocus";
-import { isTerminalFocused } from "../lib/terminalFocus";
-import { isModelPickerOpen } from "../modelPickerVisibility";
-import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
-import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
@@ -30,7 +25,9 @@ import {
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
+import { resolveLayoutShortcutContext } from "./layoutShortcutContext";
 import LegacyThreadSidebar from "./LegacySidebar";
+import { NavigationCommandMenuControl } from "./NavigationCommandMenuControl";
 import { useThreadVisitedMigration } from "../hooks/useThreadVisitedMigration";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
@@ -133,7 +130,7 @@ function SidebarControl() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || isAnyCommandSurfaceOpen()) return;
       if (
         event.target instanceof HTMLElement &&
         event.target.closest("[data-keybinding-capture]")
@@ -205,7 +202,7 @@ function NavigationHistoryShortcuts() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || isAnyCommandSurfaceOpen()) return;
       if (
         event.target instanceof HTMLElement &&
         event.target.closest("[data-keybinding-capture]")
@@ -213,22 +210,7 @@ function NavigationHistoryShortcuts() {
         return;
       }
       const command = resolveShortcutCommand(event, keybindings, {
-        context: {
-          terminalFocus: isTerminalFocused(),
-          terminalOpen: routeThreadRef
-            ? selectThreadTerminalUiState(
-                useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
-                routeThreadRef,
-              ).terminalOpen
-            : false,
-          previewFocus: isPreviewFocused(),
-          previewOpen: routeThreadRef
-            ? selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, routeThreadRef) ===
-              "preview"
-            : false,
-          editableFocus: isEditableFocused(event.target),
-          modelPickerOpen: isModelPickerOpen(),
-        },
+        context: resolveLayoutShortcutContext(event, routeThreadRef),
       });
       if (command !== "navigation.back" && command !== "navigation.forward") return;
 
@@ -357,6 +339,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         {children}
         <SidebarControl />
         <NavigationHistoryShortcuts />
+        <NavigationCommandMenuControl />
         <MainAppLocationTracker />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>

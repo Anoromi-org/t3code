@@ -1,6 +1,6 @@
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../../commandSurface";
 import { resolveChatShortcutCommand, type ShortcutMatchContext } from "../../keybindings";
 import { isTerminalCloseConfirmPending } from "../../lib/terminalCloseConfirm";
 import {
@@ -55,7 +55,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
         event.stopPropagation();
         return;
       }
-      if (!current.enabled || isCommandPaletteOpen()) return;
+      if (!current.enabled || isAnyCommandSurfaceOpen()) return;
       const terminalFocusOwner = getTerminalFocusOwner();
       if (event.defaultPrevented && terminalFocusOwner === null) return;
       const shortcutContext = current.getShortcutContext(event.target);
@@ -88,7 +88,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
         event.defaultPrevented ||
         event.isComposing ||
         event.keyCode === 229 ||
-        isCommandPaletteOpen()
+        isAnyCommandSurfaceOpen()
       )
         return;
       const context = current.getShortcutContext(event.target);

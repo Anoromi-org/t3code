@@ -4,6 +4,7 @@ import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts"
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectScript, ReceivedProjectIcon } from "./project.ts";
+import { ProjectHyprnavOverride } from "./hyprnav.ts";
 
 export const OrchestrationProjectShell = Schema.Struct({
   id: ProjectId,
@@ -17,6 +18,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(ReceivedProjectIcon)),
   scripts: Schema.Array(ProjectScript),
+  hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

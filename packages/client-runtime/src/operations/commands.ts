@@ -15,6 +15,7 @@ import {
   type OrchestrationV2CreationSource,
   type PlanId,
   type ProjectId,
+  type ProjectHyprnavOverride,
   type ProjectIconOverride,
   type ProjectScript,
   type ProviderApprovalDecision,
@@ -60,6 +61,7 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly faviconPath?: string | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  readonly hyprnav?: ProjectHyprnavOverride;
 }
 
 export interface DeleteProjectInput extends CommandMetadata {
@@ -369,6 +371,7 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
       ? {}
       : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.hyprnav === undefined ? {} : { hyprnav: input.hyprnav }),
   });
 });
 
