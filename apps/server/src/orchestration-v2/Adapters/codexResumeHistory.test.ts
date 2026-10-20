@@ -8,10 +8,12 @@ import {
   TurnItemId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
 
 import {
   type CodexHistoryTurn,
   codexReconciledHistoryArtifacts,
+  readCodexSettledHistoryTurns,
   unrecordedCodexTurns,
 } from "./codexResumeHistory.ts";
 
@@ -76,3 +78,46 @@ it("keeps user and assistant text in conversation order with stable ids", () => 
     ["user_message", "assistant_message", "user_message"],
   );
 });
+
+/** A raw app-server client answering `thread/read` and `thread/turns/list` from fixtures. */
+const fakeRaw = (historyMode: "legacy" | "paginated", turns: ReadonlyArray<unknown>) => {
+  const requests: Array<[string, unknown]> = [];
+  const raw = {
+    request: (method: string, params: unknown) => {
+      requests.push([method, params]);
+      if (method === "thread/turns/list") return Effect.succeed({ data: turns.toReversed() });
+      const includeTurns = (params as { includeTurns: boolean }).includeTurns;
+      return Effect.succeed({ thread: { historyMode, ...(includeTurns ? { turns } : {}) } });
+    },
+  } as unknown as Parameters<typeof readCodexSettledHistoryTurns>[0];
+  return { raw, requests };
+};
+
+const settledHistory = [
+  turn("t1", 10, [user("u1", "first")]),
+  { id: "malformed", status: "completed", items: "not an item list" },
+  turn("t2", 20, [agent("a2", "second")]),
+  { ...turn("t3", 30, [user("u3", "still running")]), status: "inProgress" },
+];
+
+it.effect.each(["legacy", "paginated"] as const)(
+  "reads %s history in conversation order, skipping running and undecodable turns",
+  (historyMode) =>
+    Effect.gen(function* () {
+      const { raw, requests } = fakeRaw(historyMode, settledHistory);
+      const turns = yield* readCodexSettledHistoryTurns(raw, "native-thread");
+      assert.deepEqual(
+        turns.map((entry) => entry.id),
+        ["t1", "t2"],
+      );
+      assert.deepEqual(
+        requests.map(([method]) => method),
+        historyMode === "legacy"
+          ? ["thread/read", "thread/read"]
+          : ["thread/read", "thread/turns/list"],
+      );
+      if (historyMode === "legacy") {
+        assert.deepEqual(requests[1]?.[1], { threadId: "native-thread", includeTurns: true });
+      }
+    }),
+);

@@ -679,6 +679,32 @@ describe("CodexAdapterV2 process spawning", () => {
     );
   });
 
+  it("forwards the thread to a named Codex MCP server's environment", () => {
+    // Fork: a user MCP server named by T3CODE_CODEX_THREAD_MCP_SERVER learns which thread calls it.
+    const previous = process.env.T3CODE_CODEX_THREAD_MCP_SERVER;
+    process.env.T3CODE_CODEX_THREAD_MCP_SERVER = "learning";
+    try {
+      const { config } = CodexAdapterV2.codexThreadRuntimeParams({
+        mcpSession: {
+          environmentId: EnvironmentId.make("environment-codex-mcp"),
+          threadId: ThreadId.make("thread-codex-mcp"),
+          providerSessionId: "mcp-session-codex",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          endpoint: "http://127.0.0.1:43123/mcp",
+          authorizationHeader: "Bearer secret-codex-token",
+          browserToolsAvailable: true,
+        },
+      });
+      assert.include(config, {
+        "mcp_servers.learning.env.T3CODE_THREAD_ID": "thread-codex-mcp",
+        "mcp_servers.learning.env.T3CODE_ENVIRONMENT_ID": "environment-codex-mcp",
+      });
+    } finally {
+      if (previous === undefined) delete process.env.T3CODE_CODEX_THREAD_MCP_SERVER;
+      else process.env.T3CODE_CODEX_THREAD_MCP_SERVER = previous;
+    }
+  });
+
   it.effect("resolves Windows command shims through the shared spawn policy", () =>
     Effect.gen(function* () {
       const command = yield* CodexAdapterV2.makeCodexAppServerSpawnCommand({
@@ -3209,6 +3235,49 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
         ),
+      ),
+    ),
+  );
+
+  it.effect("starts Codex with the thread it works for in its environment", () =>
+    Effect.gen(function* () {
+      const opened: Array<NodeJS.ProcessEnv> = [];
+      const adapter = yield* CodexAdapterV2.makeCodexAdapterV2({
+        instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
+        settings: DEFAULT_CODEX_SETTINGS,
+        environment: { PATH: "/bin" },
+        clientFactory: {
+          open: (openInput) => {
+            opened.push(openInput.environment);
+            return Effect.fail(
+              new ProviderAdapter.ProviderAdapterOpenSessionError({
+                driver: CodexAdapterV2.CODEX_DRIVER_KIND,
+                providerSessionId: openInput.providerSessionId,
+                cause: "captured",
+              }),
+            );
+          },
+        },
+        crypto: yield* Crypto.Crypto,
+        fileSystem: yield* FileSystem.FileSystem,
+        idAllocator: yield* IdAllocator.IdAllocatorV2,
+        serverConfig: yield* makeReplayServerConfig("thread-attribution").pipe(Effect.orDie),
+        continuationRequests: { offer: () => Effect.void },
+      });
+      yield* adapter
+        .openSession({
+          threadId: ThreadId.make("thread-attributed"),
+          providerSessionId: ProviderSessionId.make("provider-session-attributed"),
+          modelSelection: CODEX_TEST_MODEL_SELECTION,
+          runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+        })
+        .pipe(Effect.exit);
+      assert.lengthOf(opened, 1);
+      assert.include(opened[0], { PATH: "/bin", T3CODE_THREAD_ID: "thread-attributed" });
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
       ),
     ),
   );

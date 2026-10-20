@@ -916,6 +916,20 @@ describe("floating browser preview", () => {
       ),
     ).toBe(true);
   });
+
+  it("keeps a desktop agent's window floating whatever the panel shows", () => {
+    // Fork: no panel renders a desktop agent's window, so it never counts as a duplicate.
+    const agentWindow = { kind: "desktop-agent", agentId: "agent-1", address: "0xabc" } as const;
+    expect(shouldRenderPreviewMiniPlayer(agentWindow, null)).toBe(true);
+    expect(shouldRenderPreviewMiniPlayer(agentWindow, { id: "diff", kind: "diff" })).toBe(true);
+    expect(
+      shouldRenderPreviewMiniPlayer(agentWindow, {
+        id: "browser:one",
+        kind: "preview",
+        resourceId: "0xabc",
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("proactive panels", () => {

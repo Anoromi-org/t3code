@@ -36,7 +36,10 @@ Upstream copies `state.sqlite` once into `statev2.sqlite` and never writes the l
 - The desktop and Home Manager flake checks build. A headless Xvfb launch of the package with an isolated home reached `backend ready` with no fatal errors.
 - Desktop tests read `T3CODE_DESKTOP_*` from the environment, so they fail inside a session started by the local launcher; run them with those variables unset.
 
-Not covered: an integrated browser or device pass for the restored UI. That needs explicit permission.
+- An integrated browser pass on the real-data copy: the imported fork chain opens with its history, the command menu finds and opens it, project actions, `/fast` on and off, `/branch`, Hyprnav defaults and a project's slot-4 override all work, with no server or console errors.
+- An audit of the fork's test cases against this branch; behavior that still ships but lost its tests is covered again in "test restore fork coverage lost in the modernization".
+
+Not covered: desktop-only flows (Ctrl+Tab, external Corkdiff, the Hyprnav runtime) and mobile on a device.
 
 ## Validation Coverage
 

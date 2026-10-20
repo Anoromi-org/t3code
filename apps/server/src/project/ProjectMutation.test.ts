@@ -57,6 +57,7 @@ it.effect("preserves every project mutation field", () =>
       faviconPath: null,
       defaultThreadEnvMode: null,
       scripts: [],
+      hyprnav: null,
     });
     yield* projectMutationOperation(projects, {
       type: "project.delete",
@@ -86,6 +87,7 @@ it.effect("preserves every project mutation field", () =>
         faviconPath: null,
         defaultThreadEnvMode: null,
         scripts: [],
+        hyprnav: null,
       },
       { commandId: "command:delete", projectId, force: true },
     ]);

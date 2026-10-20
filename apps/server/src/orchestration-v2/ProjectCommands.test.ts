@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
   CommandId,
+  DEFAULT_PROJECT_HYPRNAV_SETTINGS,
   EventId,
   ProjectId,
   ProviderInstanceId,
@@ -127,6 +128,24 @@ describe("planProjectCommand", () => {
     const renamed = payloadOf(update({ title: "Renamed" }));
     assert.isFalse("defaultThreadEnvMode" in renamed);
     assert.isNull(payloadOf(update({ defaultThreadEnvMode: null })).defaultThreadEnvMode);
+  });
+
+  it("starts projects inheriting Hyprnav defaults and carries an override or reset", () => {
+    const created = Result.getOrThrow(
+      plan({
+        type: "project.create",
+        commandId: CommandId.make("cmd-create"),
+        projectId,
+        title: "Scripts",
+        workspaceRoot: "/tmp/scripts",
+      }),
+    );
+    assert.isNull((created.payload as Record<string, unknown>).hyprnav);
+    const override = { ...DEFAULT_PROJECT_HYPRNAV_SETTINGS, bindings: [] };
+    assert.deepEqual(payloadOf(update({ hyprnav: override })).hyprnav, override);
+    // `null` returns the project to the device defaults; omitting it leaves the override alone.
+    assert.isNull(payloadOf(update({ hyprnav: null })).hyprnav);
+    assert.isFalse("hyprnav" in payloadOf(update({ title: "Renamed" })));
   });
 
   it.each(["install-javascript-dependencies", "A", "a.b", "a b", "-a", "a".repeat(25)])(

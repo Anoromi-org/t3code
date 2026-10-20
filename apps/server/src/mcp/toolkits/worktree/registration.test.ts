@@ -149,6 +149,12 @@ it.effect("production mcp layer lists worktree tools over http", () =>
       const status = tools.find((tool) => tool.name === "t3_worktree_status");
       expect(status?.annotations?.readOnlyHint).toBe(true);
       expect(status?.annotations?.destructiveHint).toBe(false);
+      // Fork: the caller-scoped thread context tools only read.
+      for (const name of ["get_current_thread", "list_worktree_threads"]) {
+        const tool = tools.find((entry) => entry.name === name);
+        expect(tool?.annotations?.readOnlyHint).toBe(true);
+        expect(tool?.annotations?.destructiveHint).toBe(false);
+      }
 
       // MCP requires every tool input schema to be a top-level object schema.
       // A non-object schema (e.g. the anyOf produced by an empty
