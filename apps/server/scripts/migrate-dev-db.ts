@@ -17,6 +17,7 @@ import { Command, Flag } from "effect/cli";
 
 import * as ProjectionStore from "../src/orchestration-v2/ProjectionStore.ts";
 import { migrationManifest, runMigrations } from "../src/persistence/Migrations.ts";
+import { readCanonicalReplayIds } from "../src/persistence/Migrations/Fork/ForkMigrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 export class MigrateDevDbNotInWorktreeError extends Schema.TaggedError<MigrateDevDbNotInWorktreeError>()(
@@ -400,9 +401,12 @@ const verifyMigrationSlots = Effect.fn("verifyMigrationSlots")(function* () {
   const applied = yield* sql<{ migration_id: number; name: string }>`
     SELECT migration_id, name FROM effect_sql_migrations`;
   const appliedById = new Map(applied.map((row) => [Number(row.migration_id), row.name]));
+  // Fork databases keep old fork rows in claimed upstream slots; the fork
+  // ledger records that the upstream migration for such a slot was replayed.
+  const replayed = yield* readCanonicalReplayIds(sql);
   for (const [slot, codeName] of migrationManifest) {
     const appliedName = appliedById.get(slot);
-    if (appliedName !== undefined && appliedName !== codeName) {
+    if (appliedName !== undefined && appliedName !== codeName && !replayed.has(slot)) {
       return yield* new MigrateDevDbSlotCollisionError({ slot, codeName, appliedName });
     }
   }
