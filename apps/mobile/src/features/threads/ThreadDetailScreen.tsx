@@ -152,6 +152,7 @@ import { useThreadQueuedCount } from "./ThreadQueueControl";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 import { useGlobalVoiceInput } from "../voice-input/VoiceInputProvider";
+import { useLinkedComposerFocus } from "../prompt-links/linked-composer-focus";
 
 export interface ThreadDetailScreenProps {
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
@@ -415,6 +416,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     const frame = requestAnimationFrame(() => composerEditorRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [editingRunId]);
+  useLinkedComposerFocus(selectedThreadKey, () => composerEditorRef.current?.focus());
   const draftMessageRef = useRef(props.draftMessage);
   draftMessageRef.current = props.draftMessage;
   const composerOverlayRef = useRef<ViewInstance>(null);
