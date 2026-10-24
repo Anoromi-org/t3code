@@ -1,5 +1,7 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 
+import { HIDDEN_PROJECT_LABEL } from "./hidden-projects";
+
 export interface HomeListFilterMenuEnvironment {
   readonly environmentId: EnvironmentId;
   readonly label: string;
@@ -8,7 +10,13 @@ export interface HomeListFilterMenuEnvironment {
 export interface HomeListFilterMenuProject {
   readonly key: string;
   readonly label: string;
+  readonly hidden: boolean;
 }
+
+/** Menu id for native menus keyed by action id; kept outside the `project:` id namespace. */
+export const SHOW_HIDDEN_PROJECTS_ACTION_ID = "show-hidden-projects";
+export const SHOW_HIDDEN_PROJECTS_TITLE = "Show hidden projects";
+export const SHOW_HIDDEN_PROJECTS_SUBTITLE = "Include them in the all-projects list";
 
 type HomeListFilterMenuAction = {
   readonly type: "action";
@@ -34,8 +42,10 @@ export function buildHomeListFilterMenu(props: {
   readonly projects: ReadonlyArray<HomeListFilterMenuProject>;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
+  readonly showHiddenProjects: boolean;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
+  readonly onShowHiddenProjectsChange: (show: boolean) => void;
 }): HomeListFilterMenu {
   const items: Array<HomeListFilterMenuAction | HomeListFilterMenuSubmenu> = [];
 
@@ -77,9 +87,21 @@ export function buildHomeListFilterMenu(props: {
         ...props.projects.map((project) => ({
           type: "action" as const,
           title: project.label,
+          ...(project.hidden ? { subtitle: HIDDEN_PROJECT_LABEL } : {}),
           state: props.selectedProjectKey === project.key ? ("on" as const) : ("off" as const),
           onPress: () => props.onProjectChange(project.key),
         })),
+        ...(props.projects.some((project) => project.hidden)
+          ? [
+              {
+                type: "action" as const,
+                title: SHOW_HIDDEN_PROJECTS_TITLE,
+                subtitle: SHOW_HIDDEN_PROJECTS_SUBTITLE,
+                state: props.showHiddenProjects ? ("on" as const) : ("off" as const),
+                onPress: () => props.onShowHiddenProjectsChange(!props.showHiddenProjects),
+              },
+            ]
+          : []),
       ],
     });
   }

@@ -12,7 +12,12 @@ import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { createNativeMailSearchToolbarItem } from "../layout/native-mail-search-toolbar";
 import { useNativeMailSearchToolbar } from "../../native/use-native-mail-search-toolbar";
 import { useDeviceType } from "../../native/native-layout-metrics";
-import { buildHomeListFilterMenu } from "./home-list-filter-menu";
+import { HIDDEN_PROJECT_LABEL } from "./hidden-projects";
+import {
+  buildHomeListFilterMenu,
+  SHOW_HIDDEN_PROJECTS_SUBTITLE,
+  SHOW_HIDDEN_PROJECTS_TITLE,
+} from "./home-list-filter-menu";
 import { createSidebarHeaderItems } from "../threads/sidebar-native-header-items";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
@@ -207,10 +212,20 @@ export function HomeHeader(props: HomeHeaderProps) {
                     key={project.key}
                     isOn={props.selectedProjectKey === project.key}
                     onPress={() => props.onProjectChange(project.key)}
+                    subtitle={project.hidden ? HIDDEN_PROJECT_LABEL : undefined}
                   >
                     <Toolbar.Label>{project.label}</Toolbar.Label>
                   </Toolbar.MenuAction>
                 ))}
+                {props.projects.some((project) => project.hidden) ? (
+                  <Toolbar.MenuAction
+                    isOn={props.showHiddenProjects}
+                    onPress={() => props.onShowHiddenProjectsChange(!props.showHiddenProjects)}
+                    subtitle={SHOW_HIDDEN_PROJECTS_SUBTITLE}
+                  >
+                    <Toolbar.Label>{SHOW_HIDDEN_PROJECTS_TITLE}</Toolbar.Label>
+                  </Toolbar.MenuAction>
+                ) : null}
               </Toolbar.Menu>
             ) : null}
           </Toolbar.Menu>

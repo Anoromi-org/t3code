@@ -452,6 +452,7 @@ function makeProject(
     title: `Project ${id}`,
     workspaceRoot,
     defaultModelSelection: null,
+    hidden: false,
     scripts: [],
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: NOW,

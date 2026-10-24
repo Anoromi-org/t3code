@@ -265,6 +265,7 @@ it.live.each(["thread", "shell"] as const)(
         title: "Replay",
         workspaceRoot: "/tmp/replay",
         defaultModelSelection: null,
+        hidden: false,
         scripts: [],
         createdAt: now,
         updatedAt: now,

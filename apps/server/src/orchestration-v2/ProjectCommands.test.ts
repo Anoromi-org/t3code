@@ -31,6 +31,7 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   faviconPath: null,
   projectIcon: null,
   hyprnav: null,
+  hidden: false,
   scripts: [],
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -93,6 +94,25 @@ describe("planProjectCommand", () => {
     assert.equal(event.type, "project.created");
     assert.equal(event.occurredAt, "2026-01-01T00:00:00.000Z");
     assert.deepInclude(event.payload, { scripts: [], defaultModelSelection: null });
+  });
+
+  it("creates visible projects unless asked to hide them, and updates the flag", () => {
+    const create = (hidden?: boolean) =>
+      payloadOf(
+        plan({
+          type: "project.create",
+          commandId: CommandId.make("cmd-create"),
+          projectId,
+          title: "Learning",
+          workspaceRoot: "/tmp/learning",
+          ...(hidden === undefined ? {} : { hidden }),
+        }),
+      ).hidden;
+    assert.equal(create(), false);
+    assert.equal(create(true), true);
+    assert.equal(payloadOf(update({ hidden: true })).hidden, true);
+    assert.equal(payloadOf(update({ hidden: false })).hidden, false);
+    assert.notProperty(payloadOf(update({ title: "Renamed" })), "hidden");
   });
 
   it("only treats metadata updates as explicit model defaults", () => {

@@ -90,6 +90,7 @@ import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import {
   readThreadShell,
   useProjects,
+  useQuietThreadShell,
   useThreadShells,
   useThreadShellsForProjectRefs,
   waitForProjectRemoval,
@@ -155,7 +156,15 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
-import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuGroup,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "./ui/menu";
 import {
   NumberField,
   NumberFieldDecrement,
@@ -186,7 +195,9 @@ import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
   deleteSelectedThreadEntries,
+  filterHiddenSidebarProjectGroups,
   getSidebarThreadIdsToPrewarm,
+  isSidebarProjectGroupHidden,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   isSidebarNestedLinkClick,
@@ -223,6 +234,7 @@ import {
 } from "../sidebarProjectGrouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
+import { useProjectHiddenToggle } from "../hooks/useProjectHiddenToggle";
 import { projectHyprnavSettingsRoute } from "./settings/projectHyprnavNavigation";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
@@ -1273,6 +1285,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const deleteProject = useOrchestrationCommand(projectEnvironment.delete, {
     reportFailure: false,
   });
+  const setProjectGroupHidden = useProjectHiddenToggle();
   const updateProject = useOrchestrationCommand(projectEnvironment.update, {
     reportFailure: false,
   });
@@ -1681,6 +1694,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           params: { projectKey: project.projectKey },
         });
       });
+      const projectHidden = isSidebarProjectGroupHidden(project);
+      actionHandlers.set("project-hidden", () => {
+        void setProjectGroupHidden(project, !projectHidden);
+      });
       actionHandlers.set("project-hyprnav", () => {
         if (isMobile) setOpenMobile(false);
         void router.navigate(projectHyprnavSettingsRoute({ projectKey: project.projectKey }));
@@ -1696,6 +1713,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           buildTargetedItem("copy-path", "Copy Path"),
           { id: "project-settings", label: "Project settings", icon: "settings" },
           { id: "project-hyprnav", label: "Hyprnav settings" },
+          {
+            id: "project-hidden",
+            label: projectHidden ? "Unhide project" : "Hide project",
+            ...(project.memberProjects.every((member) =>
+              readEnvironmentScope(member.environmentId, AuthOrchestrationOperateScope),
+            )
+              ? {}
+              : { disabled: true }),
+          },
           buildTargetedItem("delete", "Remove", {
             destructive: true,
             isDisabled: (member) =>
@@ -2625,6 +2651,8 @@ function ProjectSortMenu({
   onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
   onThreadPreviewCountChange: (count: SidebarThreadPreviewCount) => void;
 }) {
+  const showHiddenProjects = useUiStateStore((store) => store.showHiddenProjects);
+  const setShowHiddenProjects = useUiStateStore((store) => store.setShowHiddenProjects);
   const handleThreadPreviewCountChange = (nextValue: number | null) => {
     if (nextValue === null) {
       return;
@@ -2723,6 +2751,15 @@ function ProjectSortMenu({
               </NumberFieldGroup>
             </NumberField>
           </div>
+        </MenuGroup>
+        <MenuGroup>
+          <MenuCheckboxItem
+            variant="switch"
+            checked={showHiddenProjects}
+            onCheckedChange={setShowHiddenProjects}
+          >
+            Show hidden projects
+          </MenuCheckboxItem>
         </MenuGroup>
       </MenuPopup>
     </Menu>
@@ -3290,8 +3327,13 @@ export default function LegacySidebar() {
     projectPhysicalKeyByScopedRef,
     sidebarProjects,
   } = useLegacySidebarProjects();
+  const showHiddenProjects = useUiStateStore((store) => store.showHiddenProjects);
+  const routeThreadShell = useQuietThreadShell(routeThreadRef);
   const { sortedProjects, sortedProjectKeys } = useSortedLegacySidebarProjects({
-    sidebarProjects,
+    sidebarProjects: filterHiddenSidebarProjectGroups(sidebarProjects, {
+      showHidden: showHiddenProjects,
+      openProject: routeThreadShell,
+    }),
     physicalToLogicalKey,
     projectPhysicalKeyByScopedRef,
     sidebarProjectSortOrder,

@@ -1,5 +1,6 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { preferVisibleProjects } from "@t3tools/client-runtime/state/hidden-projects";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { LinkIcon, PlusIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
@@ -20,6 +21,7 @@ import {
   useThreadShells,
 } from "../state/entities";
 import { useEnvironments } from "../state/environments";
+import { useUiStateStore } from "../uiStateStore";
 import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 
@@ -48,8 +50,13 @@ function IndexDraftLanding() {
   const startedAttemptRef = useRef<number | null>(null);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
 
+  const showHiddenProjects = useUiStateStore((store) => store.showHiddenProjects);
   const mostRecentProject = bootstrapped
-    ? (sortScopedProjectsForSidebar(projects, threads, "updated_at")[0] ?? null)
+    ? (sortScopedProjectsForSidebar(
+        preferVisibleProjects(projects, showHiddenProjects),
+        threads,
+        "updated_at",
+      )[0] ?? null)
     : null;
   const attempt = startState.retryRequest;
 

@@ -78,6 +78,7 @@ const project: Project = {
   title: "Worktree test project",
   workspaceRoot,
   defaultModelSelection: null,
+  hidden: false,
   scripts: [],
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",

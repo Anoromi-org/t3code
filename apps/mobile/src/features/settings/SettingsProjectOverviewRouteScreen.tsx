@@ -11,6 +11,8 @@ import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
+import { SettingsActionRow } from "./components/SettingsActionRow";
+import { HIDDEN_PROJECT_LABEL, isHiddenProjectGroup } from "../home/hidden-projects";
 import {
   AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
@@ -68,6 +70,12 @@ function ProjectOverviewContent(props: {
     label: "project name update",
     reportFailure: true,
   });
+  const updateVisibility = useAtomCommand(projectEnvironment.update, {
+    label: "project visibility update",
+    reportFailure: true,
+  });
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
+  const hidden = isHiddenProjectGroup(props.members);
   const nextName = (draftName ?? displayName).trim();
   const canSave = !isSaving && nextName.length > 0 && nextName !== displayName;
 
@@ -91,6 +99,19 @@ function ProjectOverviewContent(props: {
     })();
   };
 
+  // Every checkout follows the group, so a partly hidden group is offered "Hide" to finish the job.
+  const setHidden = (nextHidden: boolean) => {
+    setIsUpdatingVisibility(true);
+    void Promise.all(
+      props.members.map((member) =>
+        updateVisibility({
+          environmentId: member.environmentId,
+          input: { projectId: member.id, hidden: nextHidden },
+        }),
+      ),
+    ).finally(() => setIsUpdatingVisibility(false));
+  };
+
   return (
     <>
       <View className="flex-row items-center gap-4 px-2">
@@ -108,6 +129,7 @@ function ProjectOverviewContent(props: {
           </Text>
           <Text className="text-sm text-foreground-muted">
             {props.members.length === 1 ? "1 checkout" : `${props.members.length} checkouts`}
+            {hidden ? ` · ${HIDDEN_PROJECT_LABEL}` : ""}
           </Text>
         </View>
       </View>
@@ -136,6 +158,19 @@ function ProjectOverviewContent(props: {
               </Pressable>
             ) : null}
           </View>
+        </View>
+        <View className="border-t border-border-subtle">
+          <SettingsActionRow
+            icon={hidden ? "eye" : "eye.slash"}
+            label={hidden ? "Unhide project" : "Hide project"}
+            description={
+              hidden
+                ? "Show this project and its threads in all-project lists again."
+                : "Leave this project and its threads out of all-project lists. Filtering to it, links, and search still open it."
+            }
+            loading={isUpdatingVisibility}
+            onPress={() => setHidden(!hidden)}
+          />
         </View>
       </SettingsSection>
 

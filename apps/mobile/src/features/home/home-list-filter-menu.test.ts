@@ -8,13 +8,15 @@ describe("buildHomeListFilterMenu", () => {
     const menu = buildHomeListFilterMenu({
       environments: [],
       projects: [
-        { key: "environment-1:project-1", label: "Codething" },
-        { key: "environment-1:project-2", label: "Website" },
+        { key: "environment-1:project-1", label: "Codething", hidden: false },
+        { key: "environment-1:project-2", label: "Website", hidden: false },
       ],
       selectedEnvironmentId: null,
       selectedProjectKey: "environment-1:project-1",
+      showHiddenProjects: false,
       onEnvironmentChange: vi.fn(),
       onProjectChange,
+      onShowHiddenProjectsChange: vi.fn(),
     });
 
     const projectMenu = menu.items.find(
@@ -35,5 +37,39 @@ describe("buildHomeListFilterMenu", () => {
     projectMenu.items[2]?.onPress();
     expect(onProjectChange).toHaveBeenNthCalledWith(1, null);
     expect(onProjectChange).toHaveBeenNthCalledWith(2, "environment-1:project-2");
+  });
+
+  it("marks hidden projects and offers the show-hidden toggle only when one exists", () => {
+    const onShowHiddenProjectsChange = vi.fn();
+    const build = (hidden: boolean) =>
+      buildHomeListFilterMenu({
+        environments: [],
+        projects: [
+          { key: "environment-1:project-1", label: "Codething", hidden: false },
+          { key: "environment-1:project-2", label: "Learning", hidden },
+        ],
+        selectedEnvironmentId: null,
+        selectedProjectKey: "environment-1:project-2",
+        showHiddenProjects: false,
+        onEnvironmentChange: vi.fn(),
+        onProjectChange: vi.fn(),
+        onShowHiddenProjectsChange,
+      }).items.find((item) => item.type === "submenu" && item.title === "Project");
+
+    const withHidden = build(true);
+    if (withHidden?.type !== "submenu") throw new Error("Expected project submenu");
+    expect(withHidden.items[1]).not.toHaveProperty("subtitle");
+    expect(withHidden.items).toMatchObject([
+      { title: "All projects" },
+      { title: "Codething" },
+      { title: "Learning", subtitle: "Hidden", state: "on" },
+      { title: "Show hidden projects", state: "off" },
+    ]);
+    withHidden.items[3]?.onPress();
+    expect(onShowHiddenProjectsChange).toHaveBeenCalledWith(true);
+
+    const withoutHidden = build(false);
+    if (withoutHidden?.type !== "submenu") throw new Error("Expected project submenu");
+    expect(withoutHidden.items.map((item) => item.title)).not.toContain("Show hidden projects");
   });
 });

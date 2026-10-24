@@ -24,6 +24,7 @@ export interface ProjectCreateCommand {
   readonly title: string;
   readonly workspaceRoot: string;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  readonly hidden?: boolean;
 }
 
 export interface ProjectMetaUpdateCommand {
@@ -39,6 +40,7 @@ export interface ProjectMetaUpdateCommand {
   readonly projectIcon?: ProjectIconOverride | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
   readonly hyprnav?: ProjectHyprnavOverride;
+  readonly hidden?: boolean;
 }
 
 export interface ProjectDeleteCommand {
@@ -167,6 +169,7 @@ export function planProjectCommand(input: {
           projectIcon: null,
           scripts: command.scripts ?? [],
           hyprnav: null,
+          hidden: command.hidden ?? false,
           createdAt: occurredAt,
           updatedAt: occurredAt,
         },
@@ -216,6 +219,7 @@ export function planProjectCommand(input: {
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),
           ...(command.hyprnav === undefined ? {} : { hyprnav: command.hyprnav }),
+          ...(command.hidden === undefined ? {} : { hidden: command.hidden }),
           updatedAt: occurredAt,
         },
       });

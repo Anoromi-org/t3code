@@ -75,6 +75,7 @@ function makeProject(
     title: "Project",
     workspaceRoot: "/workspace/project",
     defaultModelSelection: null,
+    hidden: false,
     scripts: [],
     repositoryIdentity,
     createdAt: "2026-08-01T00:00:00.000Z",

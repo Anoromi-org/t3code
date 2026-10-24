@@ -17,6 +17,7 @@ const project = {
   defaultModelSelection: null,
   defaultThreadEnvMode: null,
   autoPull: false,
+  hidden: false,
   scripts: [],
   createdAt: "2026-09-05T00:00:00.000Z",
   updatedAt: "2026-09-05T00:00:00.000Z",
@@ -43,6 +44,7 @@ it.effect("preserves every project mutation field", () =>
       workspaceRoot: "/work/created",
       createWorkspaceRootIfMissing: true,
       defaultModelSelection: null,
+      hidden: true,
       scripts: [],
     });
     yield* projectMutationOperation(projects, {
@@ -56,6 +58,7 @@ it.effect("preserves every project mutation field", () =>
       projectIcon: null,
       faviconPath: null,
       defaultThreadEnvMode: null,
+      hidden: true,
       scripts: [],
       hyprnav: null,
     });
@@ -74,6 +77,7 @@ it.effect("preserves every project mutation field", () =>
         workspaceRoot: "/work/created",
         createWorkspaceRootIfMissing: true,
         defaultModelSelection: null,
+        hidden: true,
         scripts: [],
       },
       {
@@ -86,6 +90,7 @@ it.effect("preserves every project mutation field", () =>
         projectIcon: null,
         faviconPath: null,
         defaultThreadEnvMode: null,
+        hidden: true,
         scripts: [],
         hyprnav: null,
       },

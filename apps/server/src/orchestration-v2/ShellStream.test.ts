@@ -438,6 +438,7 @@ describe("dedupeShellEnrichment", () => {
     workspaceRoot: "/workspace/a",
     repositoryIdentity: null,
     defaultModelSelection: null,
+    hidden: false,
     scripts: [],
     createdAt: "2026-09-01T00:00:00Z",
     updatedAt: "2026-09-01T00:00:00Z",

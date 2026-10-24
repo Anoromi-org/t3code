@@ -14,7 +14,10 @@ import {
   createThreadJumpHintVisibilityController,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
+  filterHiddenSidebarProjectGroups,
   filterSidebarV2VisibleThreads,
+  isSidebarProjectGroupHidden,
+  visibleSidebarProjectScopeItems,
   formatWorkingDurationLabel,
   getFallbackThreadIdAfterDelete,
   getProjectSortTimestamp,
@@ -445,6 +448,112 @@ describe("sidebar thread lineage helpers", () => {
         new Set([`${environmentId}:${projectId}`]),
       ).map((thread) => thread.id),
     ).toEqual([parentId, fork.id]);
+  });
+
+  it("leaves threads of hidden projects out of the all-projects view only", () => {
+    const projectId = ProjectId.make("project-visible");
+    const environmentId = EnvironmentId.make("environment-visible");
+    const hiddenProjectId = ProjectId.make("project-learning");
+    const lesson = makeThreadFixture({
+      id: ThreadId.make("thread-lesson"),
+      environmentId,
+      projectId: hiddenProjectId,
+    });
+    const openLesson = makeThreadFixture({
+      id: ThreadId.make("thread-open-lesson"),
+      environmentId,
+      projectId: hiddenProjectId,
+    });
+    const work = makeThreadFixture({ id: ThreadId.make("thread-work"), environmentId, projectId });
+    const hidden = {
+      projectKeys: new Set([`${environmentId}:${hiddenProjectId}`]),
+      keep: (thread: { readonly id: string }) => thread.id === openLesson.id,
+    };
+    const ids = (threads: ReadonlyArray<{ readonly id: string }>) =>
+      threads.map((thread) => thread.id);
+
+    expect(ids(filterSidebarV2VisibleThreads([lesson, openLesson, work], null, hidden))).toEqual([
+      openLesson.id,
+      work.id,
+    ]);
+    expect(
+      ids(
+        filterSidebarV2VisibleThreads(
+          [lesson, openLesson, work],
+          new Set([`${environmentId}:${hiddenProjectId}`]),
+          hidden,
+        ),
+      ),
+    ).toEqual([lesson.id, openLesson.id]);
+    expect(
+      ids(filterSidebarV2VisibleThreads([lesson, work], null, { projectKeys: new Set() })),
+    ).toEqual([lesson.id, work.id]);
+  });
+
+  it("treats a project group as hidden only when every checkout is", () => {
+    const environmentId = "environment-visible";
+    const member = (id: string, hidden: boolean) => ({ environmentId, id, hidden });
+    expect(isSidebarProjectGroupHidden({ memberProjects: [member("a", true)] })).toBe(true);
+    expect(
+      isSidebarProjectGroupHidden({ memberProjects: [member("a", true), member("b", false)] }),
+    ).toBe(false);
+    expect(isSidebarProjectGroupHidden({ memberProjects: [] })).toBe(false);
+
+    const ref = (projectId: string) => ({ environmentId, projectId });
+    const groups = [
+      {
+        key: "learning",
+        memberProjects: [member("learning", true)],
+        memberProjectRefs: [ref("learning")],
+      },
+      { key: "app", memberProjects: [member("app", false)], memberProjectRefs: [ref("app")] },
+      {
+        key: "split",
+        memberProjects: [member("split-a", false), member("split-b", true)],
+        memberProjectRefs: [ref("split-a"), ref("split-b")],
+      },
+    ];
+    const keys = (list: ReadonlyArray<{ readonly key: string }>) => list.map((group) => group.key);
+    const hiddenOff = filterHiddenSidebarProjectGroups(groups, {
+      showHidden: false,
+      openProject: null,
+    });
+    expect(keys(hiddenOff)).toEqual(["app", "split"]);
+    expect(hiddenOff[1]!.memberProjectRefs).toEqual([ref("split-a")]);
+    expect(
+      keys(
+        filterHiddenSidebarProjectGroups(groups, {
+          showHidden: false,
+          openProject: { environmentId, projectId: "learning" },
+        }),
+      ),
+    ).toEqual(["learning", "app", "split"]);
+    expect(filterHiddenSidebarProjectGroups(groups, { showHidden: true, openProject: null })).toBe(
+      groups,
+    );
+  });
+
+  it("keeps hidden projects in the picker only when shown, searched, or selected", () => {
+    const items = [
+      { value: "all", hidden: false },
+      { value: "learning", hidden: true },
+      { value: "app", hidden: false },
+    ];
+    const values = (list: ReadonlyArray<{ readonly value: string }>) =>
+      list.map((item) => item.value);
+    const visible = (input: { query?: string; showHidden?: boolean; selectedValue?: string }) =>
+      values(
+        visibleSidebarProjectScopeItems({
+          items,
+          query: input.query ?? "",
+          showHidden: input.showHidden ?? false,
+          selectedValue: input.selectedValue ?? "all",
+        }),
+      );
+    expect(visible({})).toEqual(["all", "app"]);
+    expect(visible({ showHidden: true })).toEqual(["all", "learning", "app"]);
+    expect(visible({ query: "lea" })).toEqual(["all", "learning", "app"]);
+    expect(visible({ selectedValue: "learning" })).toEqual(["all", "learning", "app"]);
   });
 
   it("identifies subagent threads so the sidebar can hide them", () => {
@@ -1466,6 +1575,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     },
     createdAt: "2026-03-09T10:00:00.000Z",
     updatedAt: "2026-03-09T10:00:00.000Z",
+    hidden: false,
     scripts: [],
     ...rest,
   };

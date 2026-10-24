@@ -32,6 +32,7 @@ const project: OrchestrationProjectShell = {
   title: "Project",
   workspaceRoot: "/workspace/project",
   defaultModelSelection: null,
+  hidden: false,
   scripts: [],
   repositoryIdentity: {
     canonicalKey: "github.acme.test/platform/api",

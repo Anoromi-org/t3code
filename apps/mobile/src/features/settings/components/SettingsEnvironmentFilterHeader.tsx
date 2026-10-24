@@ -9,6 +9,7 @@ import { ENVIRONMENT_MACHINE_SYMBOLS } from "../../../components/EnvironmentMach
 import { NativeStackScreenOptions } from "../../../native/StackHeader";
 import { withNativeGlassHeaderItem } from "../../layout/native-glass-header-items";
 import { useAdaptiveWorkspaceLayout } from "../../layout/AdaptiveWorkspaceLayout";
+import { HIDDEN_PROJECT_LABEL, isHiddenProjectGroup } from "../../home/hidden-projects";
 import { useSettingsEnvironmentFilter } from "../settings-environment-filter";
 
 export function SettingsEnvironmentFilterHeader(props: {
@@ -44,7 +45,11 @@ export function SettingsEnvironmentFilterHeader(props: {
       resolveEnvironmentMachineKind(entry.serverConfig),
     ]),
     project: selectedProjectKey,
-    projects: selectableProjectGroups.map((group) => [group.key, group.label]),
+    projects: selectableProjectGroups.map((group) => [
+      group.key,
+      group.label,
+      isHiddenProjectGroup(group.members.map((member) => member.project)),
+    ]),
     trailingItems: props.trailingItems,
   });
 
@@ -109,6 +114,11 @@ export function SettingsEnvironmentFilterHeader(props: {
                     ...selectableProjectGroups.map((group) => ({
                       type: "action" as const,
                       label: group.label,
+                      description: isHiddenProjectGroup(
+                        group.members.map((member) => member.project),
+                      )
+                        ? HIDDEN_PROJECT_LABEL
+                        : undefined,
                       state: selectedProjectKey === group.key ? ("on" as const) : undefined,
                       onPress: () => selectProject(group.key),
                     })),
@@ -182,6 +192,9 @@ export function AndroidSettingsEnvironmentFilter() {
         ...selectableProjectGroups.map((group) => ({
           id: `project:${group.key}`,
           title: `Project · ${group.label}`,
+          ...(isHiddenProjectGroup(group.members.map((member) => member.project))
+            ? { subtitle: HIDDEN_PROJECT_LABEL }
+            : {}),
           state: selectedProjectKey === group.key ? ("on" as const) : ("off" as const),
         })),
       ]}

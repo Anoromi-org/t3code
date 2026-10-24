@@ -34,6 +34,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     defaultModelSelection: null,
     createdAt: "2026-04-19T09:00:00.000Z",
     updatedAt: "2026-04-19T09:00:00.000Z",
+    hidden: false,
     scripts: [],
     hyprnav: DEFAULT_PROJECT_HYPRNAV_SETTINGS,
     ...overrides,

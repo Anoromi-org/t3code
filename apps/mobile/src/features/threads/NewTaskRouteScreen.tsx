@@ -36,6 +36,11 @@ import { usePromptLinkResolver } from "../prompt-links/usePromptLinkResolver";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { useNewTaskFlow } from "./new-task-flow-provider";
 import { filterProjectScopes, getProjectScopeSelectionTarget } from "./new-task-project-selection";
+import {
+  HIDDEN_PROJECT_LABEL,
+  hiddenProjectScopesLast,
+  isHiddenProjectGroup,
+} from "../home/hidden-projects";
 
 type NewTaskRouteParams = {
   readonly incomingShareId?: string | string[];
@@ -175,7 +180,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         isScratchProject(project, serverConfigs.get(project.environmentId)?.scratchWorkspaceRoot),
       ),
   );
-  const visibleScopes = filterProjectScopes(listScopes, searchText);
+  const visibleScopes = hiddenProjectScopesLast(filterProjectScopes(listScopes, searchText));
   const resumedDestinationKeyRef = useRef<string | null>(null);
   const reservedDestinationProject = incomingShare?.destination
     ? (projects.find(
@@ -459,17 +464,19 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                   scope,
                   selectedEnvironmentId,
                 );
+                const location = hasMultipleProjects
+                  ? `${scope.projects.length} workspaces`
+                  : selectionTarget.workspaceRoot;
+                const subtitle = isHiddenProjectGroup(scope.projects)
+                  ? `${HIDDEN_PROJECT_LABEL} · ${location}`
+                  : location;
                 if (Platform.OS === "android") {
                   return (
                     <NavigationRow
                       className="bg-grouped-card"
                       key={scope.key}
                       title={scope.title}
-                      subtitle={
-                        hasMultipleProjects
-                          ? `${scope.projects.length} workspaces`
-                          : selectionTarget.workspaceRoot
-                      }
+                      subtitle={subtitle}
                       subtitleNumberOfLines={1}
                       subtitleEllipsizeMode="middle"
                       disabled={reservedDestinationProject !== null}
@@ -518,9 +525,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           ellipsizeMode="middle"
                           numberOfLines={1}
                         >
-                          {hasMultipleProjects
-                            ? `${scope.projects.length} workspaces`
-                            : selectionTarget.workspaceRoot}
+                          {subtitle}
                         </Text>
                       </View>
                       <SymbolView

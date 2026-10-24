@@ -74,6 +74,8 @@ import {
   CircleDashedIcon,
   CircleDotDashedIcon,
   ClockIcon,
+  EyeIcon,
+  EyeOffIcon,
   FolderIcon,
   GitBranchIcon,
   ListFilterIcon,
@@ -193,6 +195,8 @@ import {
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
+  isSidebarProjectGroupHidden,
+  visibleSidebarProjectScopeItems,
   formatWorkingDurationLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
@@ -264,6 +268,9 @@ import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Button, InlineButton } from "./ui/button";
+import { Switch } from "./ui/switch";
+import { hiddenProjectKeys } from "@t3tools/client-runtime/state/hidden-projects";
+import { useProjectHiddenToggle } from "../hooks/useProjectHiddenToggle";
 import {
   Combobox,
   ComboboxEmpty,
@@ -381,6 +388,8 @@ type SidebarOptimisticDrop = {
 interface SidebarThreadPartitionInput {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly scopedProjectKeys: ReadonlySet<string> | null;
+  readonly hiddenProjectKeys: ReadonlySet<string>;
+  readonly routeThreadKey: string | null;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
@@ -443,12 +452,21 @@ function routeThreadOnly(
 function useSidebarThreads(input: {
   readonly projectScopeKey: string | null;
   readonly scopedProjectKeys: ReadonlySet<string> | null;
+  readonly projects: ReadonlyArray<EnvironmentProject>;
+  readonly showHiddenProjects: boolean;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly routeThreadKey: string | null;
 }) {
-  const { projectScopeKey, scopedProjectKeys, serverConfigs, optimisticDrop, routeThreadKey } =
-    input;
+  const {
+    projectScopeKey,
+    scopedProjectKeys,
+    projects,
+    showHiddenProjects,
+    serverConfigs,
+    optimisticDrop,
+    routeThreadKey,
+  } = input;
   const threads = useThreadShells();
   const workingShelfEnabled = useClientSettings((s) => s.sidebarWorkingShelfEnabled);
   const nowMinute = useNowMinute();
@@ -489,6 +507,8 @@ function useSidebarThreads(input: {
   const partition = partitionSidebarThreads({
     threads,
     scopedProjectKeys,
+    hiddenProjectKeys: hiddenProjectKeys(projects, showHiddenProjects),
+    routeThreadKey,
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
@@ -582,7 +602,10 @@ function useSidebarThreads(input: {
 function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const { threads, scopedProjectKeys, serverConfigs, optimisticDrop, workingShelfEnabled } = input;
   const preciseNow = new Date().toISOString();
-  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys);
+  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, {
+    projectKeys: input.hiddenProjectKeys,
+    keep: (thread) => threadShellKey(thread) === input.routeThreadKey,
+  });
   inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -769,8 +792,12 @@ function useSidebarLookups() {
     projectGroups.map((project) => [project.projectKey, project] as const),
   );
   const projectScopeItems = [
-    { value: "all", label: "All projects" },
-    ...projectGroups.map((project) => ({ value: project.projectKey, label: project.displayName })),
+    { value: "all", label: "All projects", hidden: false },
+    ...projectGroups.map((project) => ({
+      value: project.projectKey,
+      label: project.displayName,
+      hidden: isSidebarProjectGroupHidden(project),
+    })),
   ];
   return {
     projects,
@@ -2767,6 +2794,9 @@ export default function Sidebar() {
   const projectGroupsRef = useRef(projectGroups);
   const persistedProjectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const setPersistedProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
+  const showHiddenProjects = useUiStateStore((store) => store.showHiddenProjects);
+  const setShowHiddenProjects = useUiStateStore((store) => store.setShowHiddenProjects);
+  const setProjectGroupHidden = useProjectHiddenToggle();
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
@@ -2847,11 +2877,16 @@ export default function Sidebar() {
   const selectedProjectScopeItem =
     projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
     projectScopeItems[0]!;
-  const filteredProjectScopeItems = filterSidebarProjectScopeItems({
-    items: projectScopeItems,
+  const filteredProjectScopeItems = visibleSidebarProjectScopeItems({
+    items: filterSidebarProjectScopeItems({
+      items: projectScopeItems,
+      query: projectScopeMenuState.query,
+      matches: (item, query) =>
+        projectScopeFilter.contains(item, query, (candidate) => candidate.label),
+    }),
     query: projectScopeMenuState.query,
-    matches: (item, query) =>
-      projectScopeFilter.contains(item, query, (candidate) => candidate.label),
+    showHidden: showHiddenProjects,
+    selectedValue: selectedProjectScopeItem.value,
   });
   const scopedProjectGroup =
     projectScopeKey === null
@@ -2973,6 +3008,9 @@ export default function Sidebar() {
   } = useSidebarThreads({
     projectScopeKey,
     scopedProjectKeys,
+    projects,
+    // Search looks through every thread, hidden projects included.
+    showHiddenProjects: showHiddenProjects || threadSearchQuery.trim().length > 0,
     serverConfigs,
     optimisticDrop,
     routeThreadKey,
@@ -4605,11 +4643,22 @@ export default function Sidebar() {
                             }}
                           >
                             {project ? (
-                              <ProjectFavicon project={project} className="size-4 shrink-0" />
+                              <ProjectFavicon
+                                project={project}
+                                className={cn("size-4 shrink-0", item.hidden && "opacity-50")}
+                              />
                             ) : (
                               <FolderIcon className="size-4 shrink-0" />
                             )}
-                            <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate text-sm",
+                                item.hidden && "text-muted-foreground",
+                              )}
+                            >
+                              {item.label}
+                            </span>
+
                             {project && showProjectEnvironments ? (
                               <ProjectEnvironmentBadge
                                 group={project}
@@ -4623,8 +4672,29 @@ export default function Sidebar() {
                                 variant="ghost-muted"
                                 tabIndex={-1}
                                 aria-hidden="true"
-                                title={`Project settings for ${project.displayName}`}
+                                title={`${item.hidden ? "Unhide" : "Hide"} project ${project.displayName}`}
                                 className="ml-auto"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  void setProjectGroupHidden(project, !item.hidden);
+                                }}
+                              >
+                                {item.hidden ? (
+                                  <EyeIcon className="size-3.5" />
+                                ) : (
+                                  <EyeOffIcon className="size-3.5" />
+                                )}
+                              </Button>
+                            ) : null}
+                            {project ? (
+                              <Button
+                                size="icon-xs"
+                                variant="ghost-muted"
+                                tabIndex={-1}
+                                aria-hidden="true"
+                                title={`Project settings for ${project.displayName}`}
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={(event) => {
                                   void handleProjectSettings(event, project);
@@ -4637,6 +4707,17 @@ export default function Sidebar() {
                         );
                       }}
                     </ComboboxList>
+                    {projectScopeItems.some((item) => item.hidden) ? (
+                      <label className="flex cursor-pointer items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground">
+                        Show hidden projects
+                        <Switch
+                          size="sm"
+                          aria-label="Show hidden projects"
+                          checked={showHiddenProjects}
+                          onCheckedChange={setShowHiddenProjects}
+                        />
+                      </label>
+                    ) : null}
                   </ComboboxPopup>
                 </Combobox>
               }

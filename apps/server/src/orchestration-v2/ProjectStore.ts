@@ -40,6 +40,7 @@ export const ProjectRow = Schema.Struct({
   projectIcon: Schema.NullOr(StoredProjectIcon),
   scripts: Schema.Array(ProjectScript),
   hyprnav: ProjectHyprnavOverride,
+  hidden: Schema.Boolean,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -65,6 +66,7 @@ const ProjectDbRow = Schema.Struct({
   projectIcon: Schema.NullOr(Schema.fromJsonString(StoredProjectIcon)),
   scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
   hyprnav: ProjectHyprnavOverrideJsonColumn,
+  hidden: Schema.BooleanFromBit,
 });
 
 function toShell(row: ProjectRow): OrchestrationProjectShell {
@@ -80,6 +82,7 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     hyprnav: row.hyprnav,
+    hidden: row.hidden,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -136,6 +139,7 @@ export const make = Effect.gen(function* () {
         project_icon_json AS "projectIcon",
         scripts_json AS "scripts",
         hyprnav_json AS "hyprnav",
+        hidden,
         created_at AS "createdAt",
         updated_at AS "updatedAt",
         deleted_at AS "deletedAt"
@@ -167,6 +171,7 @@ export const make = Effect.gen(function* () {
             project_icon_json,
             scripts_json,
             hyprnav_json,
+            hidden,
             created_at,
             updated_at,
             deleted_at
@@ -182,6 +187,7 @@ export const make = Effect.gen(function* () {
             ${encoded.projectIcon},
             ${encoded.scripts},
             ${encoded.hyprnav},
+            ${encoded.hidden},
             ${encoded.createdAt},
             ${encoded.updatedAt},
             ${encoded.deletedAt}
@@ -197,6 +203,7 @@ export const make = Effect.gen(function* () {
             project_icon_json = excluded.project_icon_json,
             scripts_json = excluded.scripts_json,
             hyprnav_json = excluded.hyprnav_json,
+            hidden = excluded.hidden,
             created_at = excluded.created_at,
             updated_at = excluded.updated_at,
             deleted_at = excluded.deleted_at
@@ -233,14 +240,20 @@ export const make = Effect.gen(function* () {
     function* (event) {
       if (event.type === "project.created") {
         const payload = event.payload;
-        // A baseline re-creation of an existing project carries no override; keep the stored one.
+        // A baseline re-creation of an existing project carries no override or
+        // hidden flag; keep the stored ones.
+        const stored =
+          payload.hyprnav !== undefined && payload.hidden !== undefined
+            ? Option.none<ProjectRow>()
+            : yield* get(payload.projectId, { includeDeleted: true });
         const hyprnav =
           payload.hyprnav !== undefined
             ? payload.hyprnav
-            : Option.match(yield* get(payload.projectId, { includeDeleted: true }), {
-                onNone: () => null,
-                onSome: (existing) => existing.hyprnav,
-              });
+            : Option.match(stored, { onNone: () => null, onSome: (existing) => existing.hyprnav });
+        const hidden =
+          payload.hidden !== undefined
+            ? payload.hidden
+            : Option.match(stored, { onNone: () => false, onSome: (existing) => existing.hidden });
         return yield* upsertRow({
           projectId: payload.projectId,
           title: payload.title,
@@ -252,6 +265,7 @@ export const make = Effect.gen(function* () {
           projectIcon: payload.projectIcon ?? null,
           scripts: payload.scripts,
           hyprnav,
+          hidden,
           createdAt: payload.createdAt,
           updatedAt: payload.updatedAt,
           deletedAt: null,
@@ -283,6 +297,7 @@ export const make = Effect.gen(function* () {
         ...(payload.projectIcon === undefined ? {} : { projectIcon: payload.projectIcon }),
         ...(payload.scripts === undefined ? {} : { scripts: payload.scripts }),
         ...(payload.hyprnav === undefined ? {} : { hyprnav: payload.hyprnav }),
+        ...(payload.hidden === undefined ? {} : { hidden: payload.hidden }),
         updatedAt: payload.updatedAt,
       }).pipe(mapError("apply"));
     },

@@ -49,6 +49,7 @@ export interface CreateProjectInput extends CommandMetadata {
   readonly createWorkspaceRootIfMissing?: boolean;
   readonly defaultModelSelection?: ModelSelection | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  readonly hidden?: boolean;
 }
 
 export interface UpdateProjectInput extends CommandMetadata {
@@ -62,6 +63,7 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
   readonly hyprnav?: ProjectHyprnavOverride;
+  readonly hidden?: boolean;
 }
 
 export interface DeleteProjectInput extends CommandMetadata {
@@ -349,6 +351,7 @@ export const createProject = Effect.fn("EnvironmentCommands.createProject")(func
       ? {}
       : { defaultModelSelection: input.defaultModelSelection }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.hidden === undefined ? {} : { hidden: input.hidden }),
   });
 });
 
@@ -372,6 +375,7 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
       : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
     ...(input.hyprnav === undefined ? {} : { hyprnav: input.hyprnav }),
+    ...(input.hidden === undefined ? {} : { hidden: input.hidden }),
   });
 });
 

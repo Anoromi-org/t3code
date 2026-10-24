@@ -15,6 +15,7 @@ import {
 } from "../composerDraftStore";
 import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
+import { preferVisibleProjects } from "@t3tools/client-runtime/state/hidden-projects";
 import {
   deriveLogicalProjectKeyFromSettings,
   getProjectOrderKey,
@@ -398,9 +399,10 @@ export function useHandleNewThread() {
       : null,
   );
   const projects = useProjects();
+  const showHiddenProjects = useUiStateStore((store) => store.showHiddenProjects);
   const handleNewThread = useNewThreadHandler();
   const [defaultProject] = orderItemsByPreferredIds({
-    items: projects,
+    items: preferVisibleProjects(projects, showHiddenProjects),
     preferredIds: projectOrder,
     getId: getProjectOrderKey,
     getPreferenceIds: (project) => [

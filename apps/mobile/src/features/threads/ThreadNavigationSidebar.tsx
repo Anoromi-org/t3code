@@ -1,5 +1,6 @@
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { resolveScratchProjectScopeKey } from "@t3tools/client-runtime/state/project-grouping";
+import { excludeHiddenProjectItems } from "@t3tools/client-runtime/state/hidden-projects";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { computeThreadMoveAvailability } from "./threadOrder";
 import type {
@@ -40,7 +41,19 @@ import { useSavedRemoteConnections } from "../../state/use-remote-environment-re
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { useHomeListOptions } from "../home/home-list-options";
-import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
+import {
+  buildHomeListFilterMenu,
+  SHOW_HIDDEN_PROJECTS_ACTION_ID,
+  SHOW_HIDDEN_PROJECTS_SUBTITLE,
+  SHOW_HIDDEN_PROJECTS_TITLE,
+} from "../home/home-list-filter-menu";
+import {
+  buildHomeProjectFilterOptions,
+  buildHomeProjectRowTitles,
+  HIDDEN_PROJECT_LABEL,
+  homeListHiddenProjectKeys,
+} from "../home/hidden-projects";
+import { useShowHiddenProjects } from "../home/use-show-hidden-projects";
 import { buildHomeProjectScopes } from "../home/homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
@@ -127,7 +140,7 @@ function ThreadNavigationSidebarPane(
   const insets = useSafeAreaInsets();
   const { fabClearance } = useAndroidControlSizing();
   const projects = useProjects();
-  const threads = useNavigationThreadShells();
+  const allThreads = useNavigationThreadShells();
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const searchInputRef = useRef<TextInputInstance>(null);
@@ -148,7 +161,8 @@ function ThreadNavigationSidebarPane(
     renameThread,
     regenerateThreadTitle,
   } = useThreadListActions();
-  const pendingTasks = usePendingNewTasks();
+  const allPendingTasks = usePendingNewTasks();
+  const { showHiddenProjects, setShowHiddenProjects } = useShowHiddenProjects();
   const queuedThreadKeys = useQueuedThreadKeys();
   const { openPendingTask, confirmDeletePendingTask } = usePendingTaskListActions();
   const environments = useMemo(
@@ -216,26 +230,11 @@ function ThreadNavigationSidebarPane(
     [options.projectGroupingMode, options.selectedEnvironmentId, projects],
   );
   const projectFilterOptions = useMemo(
-    () =>
-      projectScopes.map((scope) => ({
-        key: scope.key,
-        label: scope.title,
-      })),
+    () => buildHomeProjectFilterOptions(projectScopes),
     [projectScopes],
   );
   const projectTitleByProjectKey = useMemo(
-    () =>
-      new Map(
-        projectScopes.flatMap((scope) =>
-          scope.projectRefs.map(
-            (projectRef) =>
-              [
-                scopedProjectKey(projectRef.environmentId, projectRef.projectId),
-                scope.title,
-              ] as const,
-          ),
-        ),
-      ),
+    () => buildHomeProjectRowTitles(projectScopes),
     [projectScopes],
   );
   const selectedProjectScope = useMemo(
@@ -253,6 +252,29 @@ function ThreadNavigationSidebarPane(
             ),
           ),
     [selectedProjectScope],
+  );
+  const hiddenProjectKeys = useMemo(
+    () =>
+      homeListHiddenProjectKeys({
+        projects,
+        showHiddenProjects,
+        projectScoped: selectedProjectScope !== null,
+        searchQuery: props.searchQuery,
+      }),
+    [projects, props.searchQuery, selectedProjectScope, showHiddenProjects],
+  );
+  const threads = useMemo(
+    () =>
+      excludeHiddenProjectItems(
+        allThreads,
+        hiddenProjectKeys,
+        (thread) => scopedThreadKey(thread.environmentId, thread.id) === props.selectedThreadKey,
+      ),
+    [allThreads, hiddenProjectKeys, props.selectedThreadKey],
+  );
+  const pendingTasks = useMemo(
+    () => excludeHiddenProjectItems(allPendingTasks, hiddenProjectKeys),
+    [allPendingTasks, hiddenProjectKeys],
   );
   const projectByKey = useMemo(() => {
     const map = new Map<string, EnvironmentProject>();
@@ -312,13 +334,13 @@ function ThreadNavigationSidebarPane(
   const threadMoveAvailability = useMemo(() => {
     const sectionAvailability = (section: "pinned" | "active") =>
       computeThreadMoveAvailability({
-        allThreads: threads,
+        allThreads,
         section,
         pendingOrder,
         reorderableEnvironmentIds:
           section === "pinned" ? pinReorderEnvironmentIds : activeReorderEnvironmentIds,
         ordered: getThreadListV2OrderedSection({
-          threads,
+          threads: allThreads,
           section,
           pendingOrder,
           now: new Date().toISOString(),
@@ -335,7 +357,7 @@ function ThreadNavigationSidebarPane(
     workingShelfEnabled,
     pinReorderEnvironmentIds,
     activeReorderEnvironmentIds,
-    threads,
+    allThreads,
     pendingOrder,
     queuedThreadKeys,
     settlementEnvironmentIds,
@@ -487,13 +509,24 @@ function ThreadNavigationSidebarPane(
                 ...projectFilterOptions.map((project) => ({
                   id: `project:${project.key}`,
                   title: project.label,
+                  ...(project.hidden ? { subtitle: HIDDEN_PROJECT_LABEL } : {}),
                   state: selectedProjectKey === project.key ? ("on" as const) : ("off" as const),
                 })),
+                ...(projectFilterOptions.some((project) => project.hidden)
+                  ? [
+                      {
+                        id: SHOW_HIDDEN_PROJECTS_ACTION_ID,
+                        title: SHOW_HIDDEN_PROJECTS_TITLE,
+                        subtitle: SHOW_HIDDEN_PROJECTS_SUBTITLE,
+                        state: showHiddenProjects ? ("on" as const) : ("off" as const),
+                      },
+                    ]
+                  : []),
               ],
             },
           ] satisfies MenuAction[])),
     ],
-    [environments, options, projectFilterOptions, selectedProjectKey],
+    [environments, options, projectFilterOptions, selectedProjectKey, showHiddenProjects],
   );
   const handleListMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
@@ -509,6 +542,10 @@ function ThreadNavigationSidebarPane(
         if (environment) setSelectedEnvironmentId(environment.environmentId);
         return;
       }
+      if (event === SHOW_HIDDEN_PROJECTS_ACTION_ID) {
+        setShowHiddenProjects(!showHiddenProjects);
+        return;
+      }
       if (event === "project:all") {
         setSelectedProjectKey(null);
         return;
@@ -521,7 +558,14 @@ function ThreadNavigationSidebarPane(
         return;
       }
     },
-    [environments, projectFilterOptions, setSelectedEnvironmentId, setSelectedProjectKey],
+    [
+      environments,
+      projectFilterOptions,
+      setSelectedEnvironmentId,
+      setSelectedProjectKey,
+      setShowHiddenProjects,
+      showHiddenProjects,
+    ],
   );
 
   const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState<number | null>(null);
@@ -810,8 +854,10 @@ function ThreadNavigationSidebarPane(
         projects: projectFilterOptions,
         selectedEnvironmentId: options.selectedEnvironmentId,
         selectedProjectKey,
+        showHiddenProjects,
         onEnvironmentChange: setSelectedEnvironmentId,
         onProjectChange: setSelectedProjectKey,
+        onShowHiddenProjectsChange: setShowHiddenProjects,
       }),
     [
       environments,
@@ -820,6 +866,8 @@ function ThreadNavigationSidebarPane(
       selectedProjectKey,
       setSelectedEnvironmentId,
       setSelectedProjectKey,
+      setShowHiddenProjects,
+      showHiddenProjects,
     ],
   );
   const nativeHeaderItems = useMemo(

@@ -207,11 +207,14 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
     } as OrchestrationV2ThreadShell;
     const named: Array<string> = [];
     const registered: Array<string> = [];
+    const createdHidden: Array<boolean | undefined> = [];
+    const hiddenUpdates: Array<boolean | undefined> = [];
     const createdProject = {
       id: createdProjectId,
       title: "Pinball Stats",
       workspaceRoot: "/projects/pinball-stats",
       defaultModelSelection: null,
+      hidden: false,
       scripts: [],
       createdAt: "2026-10-01T00:00:00.000Z",
       updatedAt: "2026-10-01T00:00:00.000Z",
@@ -240,12 +243,18 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
         create: (input) =>
           Effect.sync(() => {
             registered.push(input.workspaceRoot);
+            createdHidden.push(input.hidden);
             return { ...createdProject, id: input.projectId, workspaceRoot: input.workspaceRoot };
           }),
         getById: (projectId) =>
           Effect.succeed(
             projectId === createdProjectId ? Option.some(createdProject) : Option.none(),
           ),
+        update: (input) =>
+          Effect.sync(() => {
+            hiddenUpdates.push(input.hidden);
+            return { ...createdProject, hidden: input.hidden ?? false };
+          }),
       }),
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
         namedProjectsRoot: "/projects",
@@ -287,6 +296,13 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
 
     yield* handle({ title: "Existing", workspaceRoot: "/work/existing" });
     expect(registered).toEqual(["/work/existing"]);
+    expect(hiddenUpdates).toEqual([]);
+
+    const hiddenNamed = yield* handle({ title: "Learning", hidden: true });
+    expect(hiddenNamed.at(-1)?.result).toMatchObject({ id: createdProjectId, hidden: true });
+    expect(hiddenUpdates).toEqual([true]);
+    yield* handle({ title: "Lessons", workspaceRoot: "/work/lessons", hidden: true });
+    expect(createdHidden).toEqual([undefined, true]);
 
     for (const extra of [
       { scripts: [] },
@@ -295,7 +311,7 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
       const rejected = yield* handle({ title: "Configured", ...extra });
       expect(rejected.at(-1)?.result).toMatchObject({ code: "invalid_request" });
     }
-    expect(named).toEqual(["Pinball Stats"]);
+    expect(named).toEqual(["Pinball Stats", "Learning"]);
   }),
 );
 

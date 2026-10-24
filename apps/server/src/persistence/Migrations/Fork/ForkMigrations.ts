@@ -27,6 +27,7 @@ import {
   forkSchemaBaseline,
   prepareForkMigrationPrerequisites,
 } from "./LegacyForkCompatibility.ts";
+import { ensureProjectionProjectsHidden } from "./ProjectionProjectsHidden.ts";
 import { seedAttachmentCleanupCursor } from "./SeedAttachmentCleanupCursor.ts";
 
 type MigrationEffect = Effect.Effect<
@@ -42,6 +43,7 @@ const forkMigrationEntries: ReadonlyArray<readonly [key: number, name: string, M
   [1, "ForkSchemaBaseline", forkSchemaBaseline],
   [2, "EnsureForkSchemaColumns", ensureForkSchemaColumns],
   [3, "SeedAttachmentCleanupCursor", seedAttachmentCleanupCursor],
+  [4, "ProjectionProjectsHidden", ensureProjectionProjectsHidden],
 ];
 
 /** Fork ledger names whose presence proves `ForkSchemaBaseline` already ran. */

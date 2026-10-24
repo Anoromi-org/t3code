@@ -48,6 +48,7 @@ it.effect("resolves setup scripts through the standalone project service", () =>
     repositoryIdentity: null,
     faviconPath: null,
     defaultModelSelection: null,
+    hidden: false,
     scripts: [
       {
         id: "setup",

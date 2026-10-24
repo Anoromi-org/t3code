@@ -196,6 +196,24 @@ When no image is found, web and desktop show a two-character monogram with a col
 from the icon palette, derived from the saved project name. For example, `Nebula` becomes `NA`,
 `Silver Orchard` becomes `SO`, and `M7 Forge` becomes `M7`.
 
+## Hide a project
+
+Hide a project whose threads would crowd your lists, such as one where an app or agent starts
+many threads. A hidden project and its threads stay out of every all-projects list. They are
+still there: pick the project in the project filter (type its name to find it), open one of its
+threads from a link, or search for its threads, and it shows as usual.
+
+- On web and desktop, open the project filter in the sidebar and choose the eye button next to
+  a project, or turn on **Hidden** in the project's settings. Turn on **Show hidden projects** at
+  the bottom of the project filter to list them and their threads again.
+- On mobile, select the project in Settings and open **Overview**, then choose **Hide project**.
+  **Show hidden projects** is in the **Project** section of the thread list filter menu.
+
+Hiding applies to every checkout in the project group and to all connected clients. Whether
+hidden projects are shown is saved per device. Notifications are not affected.
+
+Agents can hide and show projects with `t3_project_update` (`hidden`).
+
 ## Keep the default branch current
 
 In Source Control, enable **Automatically pull** to keep the default-branch checkout up to date

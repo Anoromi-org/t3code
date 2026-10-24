@@ -623,6 +623,7 @@ function makeBrowserAccessProject(projectId: ProjectId): Project {
     defaultModelSelection: null,
     defaultThreadEnvMode: null,
     autoPull: false,
+    hidden: false,
     scripts: [],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

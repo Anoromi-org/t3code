@@ -35,6 +35,7 @@ const SHELL_SNAPSHOT: OrchestrationV2ShellSnapshot = {
       workspaceRoot: "/repo",
       repositoryIdentity: null,
       defaultModelSelection: null,
+      hidden: false,
       scripts: [],
       createdAt: "2026-07-29T12:00:00.000Z",
       updatedAt: "2026-07-29T12:00:00.000Z",

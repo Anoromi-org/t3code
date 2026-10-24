@@ -229,14 +229,24 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
             ),
           );
-        const project = yield* projects
-          .getById(created.projectId)
-          .pipe(
-            Effect.mapError(unavailable),
-            Effect.flatMap(
-              Option.match({ onNone: () => Effect.fail(unavailable()), onSome: Effect.succeed }),
-            ),
-          );
+        const project =
+          input.hidden === true
+            ? yield* projects
+                .update({
+                  commandId: yield* newCommandId(),
+                  projectId: created.projectId,
+                  hidden: true,
+                })
+                .pipe(Effect.mapError(projectFailure))
+            : yield* projects.getById(created.projectId).pipe(
+                Effect.mapError(unavailable),
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.fail(unavailable()),
+                    onSome: Effect.succeed,
+                  }),
+                ),
+              );
         return {
           ...project,
           ...(created.commitError === undefined ? {} : { commitError: created.commitError }),

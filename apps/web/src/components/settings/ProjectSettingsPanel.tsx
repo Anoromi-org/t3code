@@ -31,6 +31,7 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -235,6 +236,7 @@ function ProjectDetail({
       title: string;
       faviconPath: string | null;
       projectIcon: ProjectIconOverride | null;
+      hidden: boolean;
     }>,
     failureTitle: string,
   ): Promise<AtomCommandResult<void, unknown>> => {
@@ -310,6 +312,8 @@ function ProjectDetail({
   };
 
   const hasMultipleCheckouts = group.memberProjects.length > 1;
+  const hiddenMemberCount = group.memberProjects.filter((member) => member.hidden).length;
+  const mixedHidden = hiddenMemberCount > 0 && hiddenMemberCount < group.memberProjects.length;
 
   const removeMembers = async (members: ReadonlyArray<SidebarProjectGroupMember>) => {
     if (checkProjectAccess(members, "Failed to remove project")) return;
@@ -565,6 +569,24 @@ function ProjectDetail({
                   Choose file
                 </Button>
               </div>
+            }
+          />
+          <SettingsRow
+            title="Hidden"
+            description="Keeps this project and its threads out of all-project lists unless Show hidden projects is on. Picking the project or opening one of its threads still shows it."
+            control={
+              <Switch
+                aria-label="Hide project"
+                disabled={!canEditGroup}
+                mixed={mixedHidden}
+                checked={!mixedHidden && hiddenMemberCount > 0}
+                onCheckedChange={(hidden) =>
+                  void updateAllMembers(
+                    { hidden },
+                    hidden ? "Failed to hide project" : "Failed to show project",
+                  )
+                }
+              />
             }
           />
         </SettingsSection>

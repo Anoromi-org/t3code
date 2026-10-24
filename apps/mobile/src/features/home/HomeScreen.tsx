@@ -29,6 +29,7 @@ import { GestureDetector, useNativeGesture } from "react-native-gesture-handler"
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { excludeHiddenProjectItems } from "@t3tools/client-runtime/state/hidden-projects";
 import { cn } from "../../lib/cn";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { FloatingActionButton } from "../../components/ui/FloatingActionButton";
@@ -75,6 +76,11 @@ import {
   findHomeProjectScope,
   type HomeProjectSortOrder,
 } from "./homeThreadList";
+import {
+  buildHomeProjectFilterOptions,
+  buildHomeProjectRowTitles,
+  homeListHiddenProjectKeys,
+} from "./hidden-projects";
 import { createSwipeRowActivation } from "./swipe-row-activation";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
 import { useFabScroll } from "./FabScrollContext";
@@ -93,6 +99,7 @@ interface HomeScreenProps {
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
+  readonly showHiddenProjects: boolean;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   readonly onSearchQueryChange: (query: string) => void;
@@ -127,6 +134,7 @@ interface HomeScreenProps {
   readonly onDeletePendingTask: (pendingTask: PendingNewTask) => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
+  readonly onShowHiddenProjectsChange: (show: boolean) => void;
 }
 
 const ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT = 72;
@@ -395,18 +403,7 @@ export function HomeScreen(props: HomeScreenProps) {
     [v2ProjectScopeKey, projectScopes],
   );
   const v2ProjectTitleByProjectKey = useMemo(
-    () =>
-      new Map(
-        projectScopes.flatMap((scope) =>
-          scope.projectRefs.map(
-            (projectRef) =>
-              [
-                scopedProjectKey(projectRef.environmentId, projectRef.projectId),
-                scope.title,
-              ] as const,
-          ),
-        ),
-      ),
+    () => buildHomeProjectRowTitles(projectScopes),
     [projectScopes],
   );
   const v2ScopedProjectKeys = useMemo(
@@ -419,6 +416,29 @@ export function HomeScreen(props: HomeScreenProps) {
             ),
           ),
     [v2ScopedProjectGroup],
+  );
+  const hiddenProjectKeys = useMemo(
+    () =>
+      homeListHiddenProjectKeys({
+        projects: props.projects,
+        showHiddenProjects: props.showHiddenProjects,
+        projectScoped: v2ScopedProjectGroup !== null,
+        searchQuery: props.searchQuery,
+      }),
+    [props.projects, props.searchQuery, props.showHiddenProjects, v2ScopedProjectGroup],
+  );
+  const listThreads = useMemo(
+    () =>
+      excludeHiddenProjectItems(
+        props.threads,
+        hiddenProjectKeys,
+        (thread) => scopedThreadKey(thread.environmentId, thread.id) === selectedThreadKey,
+      ),
+    [hiddenProjectKeys, props.threads, selectedThreadKey],
+  );
+  const listPendingTasks = useMemo(
+    () => excludeHiddenProjectItems(props.pendingTasks, hiddenProjectKeys),
+    [hiddenProjectKeys, props.pendingTasks],
   );
   const handleSettleThread = props.onSettleThread;
   const handleSnoozeThread = useCallback(
@@ -553,10 +573,10 @@ export function HomeScreen(props: HomeScreenProps) {
     snoozeWakeTick,
   ]);
   const threadListV2Layout = useMemo(() => {
-    threadListInboxReturns.observe(workingShelfEnabled ? props.threads : null);
+    threadListInboxReturns.observe(workingShelfEnabled ? listThreads : null);
     return buildThreadListV2Items({
       pendingOrder,
-      threads: props.threads.filter((thread) => thread.archivedAt === null),
+      threads: listThreads.filter((thread) => thread.archivedAt === null),
       environmentId: props.selectedEnvironmentId,
       projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
       searchQuery: props.searchQuery,
@@ -588,7 +608,7 @@ export function HomeScreen(props: HomeScreenProps) {
     snoozeEnvironmentIds,
     props.searchQuery,
     props.selectedEnvironmentId,
-    props.threads,
+    listThreads,
     matchedThreadKeys,
     v2ScopedProjectGroup,
   ]);
@@ -607,7 +627,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const v2SearchQuery = props.searchQuery.trim().toLocaleLowerCase();
   const v2PendingTasks = useMemo(
     () =>
-      props.pendingTasks.filter(
+      listPendingTasks.filter(
         (pendingTask) =>
           (props.selectedEnvironmentId === null ||
             pendingTask.environmentId === props.selectedEnvironmentId) &&
@@ -618,7 +638,7 @@ export function HomeScreen(props: HomeScreenProps) {
           (v2SearchQuery.length === 0 ||
             pendingTask.title.toLocaleLowerCase().includes(v2SearchQuery)),
       ),
-    [props.pendingTasks, props.selectedEnvironmentId, v2ScopedProjectKeys, v2SearchQuery],
+    [listPendingTasks, props.selectedEnvironmentId, v2ScopedProjectKeys, v2SearchQuery],
   );
   const threadListV2Items = useMemo(
     () =>
@@ -859,7 +879,7 @@ export function HomeScreen(props: HomeScreenProps) {
   );
 
   const hasAnyThreads =
-    props.threads.some((thread) => thread.archivedAt === null) || props.pendingTasks.length > 0;
+    listThreads.some((thread) => thread.archivedAt === null) || listPendingTasks.length > 0;
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null
       ? null
@@ -924,11 +944,13 @@ export function HomeScreen(props: HomeScreenProps) {
       {Platform.OS === "ios" && workspace ? (
         <ThreadListFilters
           environments={props.environments}
-          projects={projectScopes.map((scope) => ({ key: scope.key, label: scope.title }))}
+          projects={buildHomeProjectFilterOptions(projectScopes)}
           selectedEnvironmentId={props.selectedEnvironmentId}
           selectedProjectKey={props.selectedProjectKey}
+          showHiddenProjects={props.showHiddenProjects}
           onEnvironmentChange={props.onEnvironmentChange}
           onProjectChange={props.onProjectChange}
+          onShowHiddenProjectsChange={props.onShowHiddenProjectsChange}
         />
       ) : null}
     </>

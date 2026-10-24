@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
@@ -149,6 +150,12 @@ export const ReceivedProjectIcon = ForwardCompatibleUnion(projectIconMembers, "k
   ),
 );
 
+/**
+ * Fork: a hidden project and its threads stay out of the clients' aggregate
+ * lists. Payloads from servers and events that predate the flag decode as false.
+ */
+export const ProjectHidden = Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false)));
+
 export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -163,6 +170,7 @@ export const Project = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   // Fork: per-project Hyprnav override; null inherits the client defaults.
   hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
+  hidden: ProjectHidden,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -191,6 +199,7 @@ export const ProjectCreatePayload = Schema.Struct({
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  hidden: Schema.optional(Schema.Boolean),
 });
 export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
 
@@ -204,6 +213,7 @@ export const ProjectUpdatePayload = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   hyprnav: Schema.optional(ProjectHyprnavOverride),
+  hidden: Schema.optional(Schema.Boolean),
 });
 export type ProjectUpdatePayload = typeof ProjectUpdatePayload.Type;
 

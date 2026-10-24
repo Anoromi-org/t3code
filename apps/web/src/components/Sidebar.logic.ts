@@ -1,4 +1,8 @@
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
+import {
+  hiddenProjectKeys,
+  isInHiddenProject,
+} from "@t3tools/client-runtime/state/hidden-projects";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
@@ -520,14 +524,96 @@ export function filterSidebarV2VisibleThreads<
     environmentId: string;
     projectId: string;
   },
->(threads: readonly T[], scopedProjectKeys: ReadonlySet<string> | null): T[] {
+>(
+  threads: readonly T[],
+  scopedProjectKeys: ReadonlySet<string> | null,
+  hidden?: SidebarHiddenProjectFilter<T>,
+): T[] {
+  // A view scoped to one project is explicit intent and shows it even when hidden.
+  const hiddenKeys = scopedProjectKeys === null ? hidden?.projectKeys : undefined;
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
       (scopedProjectKeys === null ||
-        scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+        scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)) &&
+      (hiddenKeys === undefined ||
+        !isInHiddenProject(thread, hiddenKeys) ||
+        hidden?.keep?.(thread) === true),
   );
+}
+
+export interface SidebarHiddenProjectFilter<T> {
+  /** From `hiddenProjectKeys`; empty while hidden projects are shown. */
+  readonly projectKeys: ReadonlySet<string>;
+  /** Keeps a thread the user opened, such as the routed one. */
+  readonly keep?: (thread: T) => boolean;
+}
+
+/** A group is hidden only when every checkout in it is. */
+export function isSidebarProjectGroupHidden(group: {
+  readonly memberProjects: ReadonlyArray<{ readonly hidden?: boolean | undefined }>;
+}): boolean {
+  return (
+    group.memberProjects.length > 0 &&
+    group.memberProjects.every((member) => member.hidden === true)
+  );
+}
+
+/**
+ * Drops hidden groups unless shown, and the thread refs of hidden checkouts in
+ * partly hidden groups. The open thread's project always stays.
+ */
+export function filterHiddenSidebarProjectGroups<
+  TGroup extends {
+    readonly memberProjects: ReadonlyArray<{
+      readonly environmentId: string;
+      readonly id: string;
+      readonly hidden?: boolean | undefined;
+    }>;
+    readonly memberProjectRefs: ReadonlyArray<{
+      readonly environmentId: string;
+      readonly projectId: string;
+    }>;
+  },
+>(
+  groups: readonly TGroup[],
+  input: {
+    readonly showHidden: boolean;
+    readonly openProject: { readonly environmentId: string; readonly projectId: string } | null;
+  },
+): readonly TGroup[] {
+  const hiddenKeys = hiddenProjectKeys(
+    groups.flatMap((group) => group.memberProjects),
+    input.showHidden,
+  );
+  if (hiddenKeys.size === 0) return groups;
+  const open = input.openProject;
+  const isOpen = (ref: { readonly environmentId: string; readonly projectId: string }) =>
+    open !== null && ref.environmentId === open.environmentId && ref.projectId === open.projectId;
+  return groups.flatMap((group) => {
+    const refs = group.memberProjectRefs.filter(
+      (ref) => !isInHiddenProject(ref, hiddenKeys) || isOpen(ref),
+    );
+    if (refs.length === group.memberProjectRefs.length) return [group];
+    return refs.length === 0 ? [] : [{ ...group, memberProjectRefs: refs }];
+  });
+}
+
+/**
+ * Hidden groups leave the project picker unless they are shown, searched for,
+ * or already selected, so the picker stays a way back to them.
+ */
+export function visibleSidebarProjectScopeItems<
+  TItem extends { readonly value: string; readonly hidden?: boolean },
+>(input: {
+  readonly items: readonly TItem[];
+  readonly query: string;
+  readonly showHidden: boolean;
+  readonly selectedValue: string;
+}): readonly TItem[] {
+  if (input.showHidden || input.query.trim().length > 0) return input.items;
+  return input.items.filter((item) => item.hidden !== true || item.value === input.selectedValue);
 }
 
 export function getSidebarForkParentThreadId(

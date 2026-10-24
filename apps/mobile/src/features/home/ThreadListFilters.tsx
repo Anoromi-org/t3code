@@ -2,6 +2,12 @@ import { Pressable, ScrollView } from "react-native";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ListFilterMenu } from "../workspace/ListFilterMenu";
 import type { HomeHeaderProps } from "./HomeHeader.types";
+import { HIDDEN_PROJECT_LABEL } from "./hidden-projects";
+import {
+  SHOW_HIDDEN_PROJECTS_ACTION_ID,
+  SHOW_HIDDEN_PROJECTS_SUBTITLE,
+  SHOW_HIDDEN_PROJECTS_TITLE,
+} from "./home-list-filter-menu";
 
 export function ThreadListFilters(
   props: Pick<
@@ -10,8 +16,10 @@ export function ThreadListFilters(
     | "projects"
     | "selectedEnvironmentId"
     | "selectedProjectKey"
+    | "showHiddenProjects"
     | "onEnvironmentChange"
     | "onProjectChange"
+    | "onShowHiddenProjectsChange"
   >,
 ) {
   const selectedEnvironment = props.environments.find(
@@ -68,12 +76,25 @@ export function ThreadListFilters(
           ...props.projects.map((project) => ({
             id: JSON.stringify(project.key),
             title: project.label,
+            ...(project.hidden ? { subtitle: HIDDEN_PROJECT_LABEL } : {}),
             state: project.key === props.selectedProjectKey ? ("on" as const) : ("off" as const),
           })),
+          ...(props.projects.some((project) => project.hidden)
+            ? [
+                {
+                  id: SHOW_HIDDEN_PROJECTS_ACTION_ID,
+                  title: SHOW_HIDDEN_PROJECTS_TITLE,
+                  subtitle: SHOW_HIDDEN_PROJECTS_SUBTITLE,
+                  state: props.showHiddenProjects ? ("on" as const) : ("off" as const),
+                },
+              ]
+            : []),
         ]}
         onSelect={(id) => {
           if (id === "all") props.onProjectChange(null);
-          else {
+          else if (id === SHOW_HIDDEN_PROJECTS_ACTION_ID) {
+            props.onShowHiddenProjectsChange(!props.showHiddenProjects);
+          } else {
             const project = props.projects.find(
               (candidate) => JSON.stringify(candidate.key) === id,
             );

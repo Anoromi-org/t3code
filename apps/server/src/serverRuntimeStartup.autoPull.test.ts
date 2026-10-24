@@ -51,6 +51,7 @@ it.effect("parks automatic pull until activation without delaying command readin
             workspaceRoot: cwd,
             repositoryIdentity: null,
             defaultModelSelection: null,
+            hidden: false,
             scripts: [],
             createdAt: updatedAt,
             updatedAt,
