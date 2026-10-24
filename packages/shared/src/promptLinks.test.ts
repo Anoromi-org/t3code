@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildNewThreadLink,
   parseNewThreadLink,
+  parsePromptLinkFrom,
   parsePromptLinkSource,
   parseThreadLinkPrompt,
   promptLinkAppPath,
@@ -125,6 +126,111 @@ describe("link sources", () => {
     );
     const long = parsePromptLinkSource(`?from=${"x".repeat(80)}&key=${KEY}`)?.label;
     expect(long).toBe(`${"x".repeat(31)}…`);
+  });
+});
+
+describe("app references", () => {
+  const ref = (value: unknown) =>
+    `ref=${encodeURIComponent(typeof value === "string" ? value : JSON.stringify(value))}`;
+  const lesson = {
+    title: "LR parsing · Items",
+    url: "learningapps://open/learn-lr-game",
+    details: [
+      ["lesson", "3"],
+      ["stack", "E + n"],
+    ],
+  };
+  const failure = (search: string) => {
+    const parsed = parseThreadLinkPrompt(search);
+    return parsed.ok ? null : parsed.error;
+  };
+
+  it("reads a reference next to the prompt", () => {
+    expect(parseThreadLinkPrompt(`?prompt=Why%3F&from=Learning&${ref(lesson)}`)).toEqual({
+      ok: true,
+      value: {
+        text: "Why?",
+        hiddenCharacters: 0,
+        reference: {
+          title: "LR parsing · Items",
+          url: "learningapps://open/learn-lr-game",
+          details: [
+            { name: "lesson", value: "3" },
+            { name: "stack", value: "E + n" },
+          ],
+        },
+      },
+    });
+    expect(parsePromptLinkFrom(`?from=Learning&${ref(lesson)}`)).toBe("Learning");
+    expect(withoutPromptLinkParams(`?${ref(lesson)}&panel=diff`)).toBe("?panel=diff");
+  });
+
+  it("opens a reference without a prompt, on thread and new-thread links", () => {
+    expect(parseThreadLinkPrompt(`?${ref({ title: "Items" })}`)).toEqual({
+      ok: true,
+      value: {
+        text: "",
+        hiddenCharacters: 0,
+        reference: { title: "Items", url: null, details: [] },
+      },
+    });
+    const link = parseNewThreadLink(`?${ref({ title: "Items" })}`);
+    expect(link.ok && link.value.kind === "new" && link.value.prompt.reference?.title).toBe(
+      "Items",
+    );
+  });
+
+  it("counts hidden characters from the reference toward the link's warning", () => {
+    const parsed = parseThreadLinkPrompt(
+      `?prompt=Hi%E2%80%8B&${ref({ title: "It\u200Bems", details: [["st\u202Eack", "E\u2060"]] })}`,
+    );
+    expect(parsed.ok && parsed.value).toMatchObject({
+      text: "Hi",
+      hiddenCharacters: 4,
+      reference: { title: "Items", details: [{ name: "stack", value: "E" }] },
+    });
+  });
+
+  it("refuses malformed references with a reason", () => {
+    expect(failure("?ref=%7Btitle")).toMatch(/not valid JSON/);
+    expect(failure(`?${ref(["x"])}`)).toMatch(/not a JSON object/);
+    expect(failure(`?${ref({ url: "https://x.dev" })}`)).toMatch(/no title/);
+    expect(failure(`?${ref({ title: " \u200B " })}`)).toMatch(/empty title/);
+    expect(failure(`?${ref({ title: "x".repeat(121) })}`)).toMatch(/longer than 120/);
+    expect(
+      failure(`?${ref({ title: "x", details: Array.from({ length: 13 }, () => ["a", "b"]) })}`),
+    ).toMatch(/more than 12 details/);
+    expect(failure(`?${ref({ title: "x", details: [["a", 1]] })}`)).toMatch(/pair of text/);
+    expect(failure(`?${ref({ title: "x", details: [["n".repeat(41), "v"]] })}`)).toMatch(
+      /name longer than 40/,
+    );
+    expect(failure(`?${ref({ title: "x", details: [["n", "v".repeat(201)]] })}`)).toMatch(
+      /value longer than 200/,
+    );
+  });
+
+  it("only keeps links back into an app", () => {
+    for (const url of [
+      "javascript:alert(1)",
+      "JavaScript:alert(1)",
+      "data:text/html,x",
+      "file:///etc",
+    ]) {
+      expect(failure(`?${ref({ title: "x", url })}`)).toMatch(/does not open/);
+    }
+    for (const url of [
+      "learn-lr-game",
+      "/open/x",
+      "learningapps://open x",
+      "https://x.dev/\u200B",
+    ]) {
+      expect(failure(`?${ref({ title: "x", url })}`)).toMatch(/cannot open/);
+    }
+    expect(failure(`?${ref({ title: "x", url: `https://x.dev/${"a".repeat(2_048)}` })}`)).toMatch(
+      /link longer than 2048/,
+    );
+    const https = parseThreadLinkPrompt(`?${ref({ title: "x", url: "https://learn.dev/a?b=1" })}`);
+    expect(https.ok && https.value?.reference?.url).toBe("https://learn.dev/a?b=1");
   });
 });
 

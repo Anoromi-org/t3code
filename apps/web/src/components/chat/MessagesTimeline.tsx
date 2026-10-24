@@ -137,6 +137,7 @@ import {
   PaintbrushIcon,
   MinusIcon,
   Redo2Icon,
+  Link2Icon,
   Minimize2Icon,
   SearchIcon,
   SmartphoneIcon,
@@ -4290,6 +4291,26 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
       render: (record, context) =>
         record.kind === "thread" ? (
           <ThreadContextChip record={record} copyMarkdown={context.copyMarkdown} />
+        ) : (
+          <UnavailableUserMessageContextChip {...context} />
+        ),
+    },
+    {
+      kind: "app-reference",
+      canRender: (record) => record.kind === "app-reference",
+      render: (record, context) =>
+        record.kind === "app-reference" ? (
+          <UserMessageContextChip
+            icon={<Link2Icon />}
+            label={record.label}
+            kindLabel={record.app ? `From ${record.app}` : "App reference"}
+            tooltip={[
+              record.app ? `From ${record.app}` : "From another app",
+              ...record.details.map((detail) => `${detail.name}: ${detail.value}`),
+            ].join(" · ")}
+            copyMarkdown={context.copyMarkdown}
+            kind="app-reference"
+          />
         ) : (
           <UnavailableUserMessageContextChip {...context} />
         ),

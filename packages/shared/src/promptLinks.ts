@@ -1,3 +1,11 @@
+import {
+  APP_REFERENCE_DETAIL_NAME_MAX_CHARS,
+  APP_REFERENCE_DETAIL_VALUE_MAX_CHARS,
+  APP_REFERENCE_MAX_DETAILS,
+  APP_REFERENCE_TITLE_MAX_CHARS,
+  APP_REFERENCE_URL_MAX_CHARS,
+} from "@t3tools/contracts";
+
 import { DEFAULT_HOSTED_APP_URL } from "./connectAuth.ts";
 
 export const PROMPT_LINK_MAX_PROMPT_LENGTH = 8_000;
@@ -11,9 +19,19 @@ export interface PromptLinkPullRequest extends PromptLinkRepository {
   readonly number: number;
 }
 
+export interface PromptLinkReference {
+  readonly title: string;
+  readonly url: string | null;
+  readonly details: ReadonlyArray<{ readonly name: string; readonly value: string }>;
+}
+
 export interface LinkedPrompt {
+  /** Empty when the link carried only a reference. */
   readonly text: string;
+  /** Includes those removed from the reference. */
   readonly hiddenCharacters: number;
+  /** Where the user was in the linking app, from `ref`. Clients show it as one context chip. */
+  readonly reference?: PromptLinkReference;
 }
 
 export type NewThreadLink =
@@ -106,7 +124,7 @@ export function promptLinkPullRequestUrl(pullRequest: PromptLinkPullRequest): st
   return `https://github.com/${pullRequest.owner}/${pullRequest.name}/pull/${pullRequest.number}`;
 }
 
-function readPrompt(params: URLSearchParams): PromptLinkResult<LinkedPrompt | null> {
+function readPromptText(params: URLSearchParams): PromptLinkResult<LinkedPrompt | null> {
   const raw = params.get("prompt");
   if (raw === null) return { ok: true, value: null };
   if (raw.length > PROMPT_LINK_MAX_PROMPT_LENGTH) {
@@ -124,6 +142,116 @@ function readPrompt(params: URLSearchParams): PromptLinkResult<LinkedPrompt | nu
     };
   }
   return { ok: true, value: prompt.text.length > 0 ? prompt : null };
+}
+
+const PROMPT_LINK_MAX_REFERENCE_LENGTH = 16_000;
+// A scheme and something after it. `javascript:` and friends run or embed content instead of
+// opening the app that sent the link.
+const REFERENCE_URL = /^([a-z][a-z0-9+.-]*):\S+$/i;
+const BLOCKED_REFERENCE_SCHEMES = new Set(["javascript", "data", "file", "vbscript", "blob"]);
+
+const referenceError = (problem: string): { readonly ok: false; readonly error: string } => ({
+  ok: false,
+  error: `This link's app reference ${problem}, so T3 Code did not open it.`,
+});
+
+function readReference(params: URLSearchParams): PromptLinkResult<{
+  readonly reference: PromptLinkReference;
+  readonly hiddenCharacters: number;
+} | null> {
+  const raw = params.get("ref");
+  if (raw === null) return { ok: true, value: null };
+  if (raw.length > PROMPT_LINK_MAX_REFERENCE_LENGTH) return referenceError("is too long");
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return referenceError("is not valid JSON");
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return referenceError("is not a JSON object");
+  }
+  const input = value as Record<string, unknown>;
+  let hiddenCharacters = 0;
+  const visible = (text: string) => {
+    const sanitized = sanitizeLinkedPrompt(text);
+    hiddenCharacters += sanitized.hiddenCharacters;
+    return sanitized.text.replace(/\s+/g, " ").trim();
+  };
+
+  if (typeof input.title !== "string") return referenceError("has no title");
+  const title = visible(input.title);
+  if (title.length === 0) return referenceError("has an empty title");
+  if (title.length > APP_REFERENCE_TITLE_MAX_CHARS) {
+    return referenceError(`has a title longer than ${APP_REFERENCE_TITLE_MAX_CHARS} characters`);
+  }
+
+  let url: string | null = null;
+  if (input.url !== undefined && input.url !== null) {
+    if (typeof input.url !== "string") return referenceError("has a link that is not text");
+    url = input.url.trim() || null;
+  }
+  if (url !== null) {
+    if (url.length > APP_REFERENCE_URL_MAX_CHARS) {
+      return referenceError(`has a link longer than ${APP_REFERENCE_URL_MAX_CHARS} characters`);
+    }
+    const scheme = REFERENCE_URL.exec(url)?.[1]?.toLowerCase();
+    if (scheme === undefined || sanitizeLinkedPrompt(url).text !== url) {
+      return referenceError("has a link T3 Code cannot open");
+    }
+    if (BLOCKED_REFERENCE_SCHEMES.has(scheme)) {
+      return referenceError(`has a ${scheme}: link, which T3 Code does not open`);
+    }
+  }
+
+  const details: Array<{ readonly name: string; readonly value: string }> = [];
+  if (input.details !== undefined) {
+    if (!Array.isArray(input.details)) return referenceError("has details that are not a list");
+    if (input.details.length > APP_REFERENCE_MAX_DETAILS) {
+      return referenceError(`has more than ${APP_REFERENCE_MAX_DETAILS} details`);
+    }
+    for (const detail of input.details as ReadonlyArray<unknown>) {
+      if (
+        !Array.isArray(detail) ||
+        detail.length !== 2 ||
+        typeof detail[0] !== "string" ||
+        typeof detail[1] !== "string"
+      ) {
+        return referenceError("has a detail that is not a [name, value] pair of text");
+      }
+      const name = visible(detail[0]);
+      const text = visible(detail[1]);
+      if (name.length === 0) return referenceError("has a detail without a name");
+      if (name.length > APP_REFERENCE_DETAIL_NAME_MAX_CHARS) {
+        return referenceError(
+          `has a detail name longer than ${APP_REFERENCE_DETAIL_NAME_MAX_CHARS} characters`,
+        );
+      }
+      if (text.length > APP_REFERENCE_DETAIL_VALUE_MAX_CHARS) {
+        return referenceError(
+          `has a detail value longer than ${APP_REFERENCE_DETAIL_VALUE_MAX_CHARS} characters`,
+        );
+      }
+      details.push({ name, value: text });
+    }
+  }
+  return { ok: true, value: { reference: { title, url, details }, hiddenCharacters } };
+}
+
+function readPrompt(params: URLSearchParams): PromptLinkResult<LinkedPrompt | null> {
+  const prompt = readPromptText(params);
+  if (!prompt.ok) return prompt;
+  const reference = readReference(params);
+  if (!reference.ok) return reference;
+  if (reference.value === null) return prompt;
+  return {
+    ok: true,
+    value: {
+      text: prompt.value?.text ?? "",
+      hiddenCharacters: (prompt.value?.hiddenCharacters ?? 0) + reference.value.hiddenCharacters,
+      reference: reference.value.reference,
+    },
+  };
 }
 
 const optionalParam = (params: URLSearchParams, key: string) => params.get(key)?.trim() || null;
@@ -172,25 +300,27 @@ export interface PromptLinkSource {
 const PROMPT_LINK_SOURCE_LABEL_MAX = 32;
 const PROMPT_LINK_SOURCE_KEY = /^[A-Za-z0-9_-]{16,256}$/;
 
+/** The link's `from`, cleaned for display. Anyone can write any `from`. */
+export function parsePromptLinkFrom(search: string): string | null {
+  const from = sanitizeLinkedPrompt(new URLSearchParams(search).get("from") ?? "")
+    .text.replace(/\s+/g, " ")
+    .trim();
+  if (from.length === 0) return null;
+  const characters = Array.from(from);
+  return characters.length > PROMPT_LINK_SOURCE_LABEL_MAX
+    ? `${characters
+        .slice(0, PROMPT_LINK_SOURCE_LABEL_MAX - 1)
+        .join("")
+        .trimEnd()}…`
+    : from;
+}
+
 // `from` and `key` identify the app that built a link so a client can trust it. They are never
 // part of the prompt.
 export function parsePromptLinkSource(search: string): PromptLinkSource | null {
-  const params = new URLSearchParams(search);
-  const key = params.get("key");
+  const key = new URLSearchParams(search).get("key");
   if (key === null || !PROMPT_LINK_SOURCE_KEY.test(key)) return null;
-  const from = sanitizeLinkedPrompt(params.get("from") ?? "")
-    .text.replace(/\s+/g, " ")
-    .trim();
-  const label =
-    from.length === 0
-      ? null
-      : Array.from(from).length > PROMPT_LINK_SOURCE_LABEL_MAX
-        ? `${Array.from(from)
-            .slice(0, PROMPT_LINK_SOURCE_LABEL_MAX - 1)
-            .join("")
-            .trimEnd()}…`
-        : from;
-  return { label, key };
+  return { label: parsePromptLinkFrom(search), key };
 }
 
 export const PROMPT_LINK_PARAMS = [
@@ -201,6 +331,7 @@ export const PROMPT_LINK_PARAMS = [
   "model",
   "from",
   "key",
+  "ref",
 ] as const;
 
 export function withoutPromptLinkParams(search: string): string {

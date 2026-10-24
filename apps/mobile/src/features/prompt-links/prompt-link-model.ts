@@ -1,4 +1,12 @@
-import { PROMPT_LINK_PARAMS, type PromptLinkRepository } from "@t3tools/shared/promptLinks";
+import type { AppReferenceContextRecord } from "@t3tools/contracts";
+import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
+import {
+  PROMPT_LINK_PARAMS,
+  type LinkedPrompt,
+  type PromptLinkRepository,
+} from "@t3tools/shared/promptLinks";
+
+import { appReferenceComposerContext } from "../../lib/composerContext";
 
 export const PROMPT_LINK_PARAM_KEYS = PROMPT_LINK_PARAMS;
 
@@ -39,6 +47,16 @@ export function promptLinkNotice(input: {
   ]
     .filter((line) => line !== null)
     .join("\n\n");
+}
+
+/** The draft a link fills: its app reference as a chip in front of the prompt. */
+export function linkedPromptDraft(
+  prompt: LinkedPrompt,
+  app: string | null,
+): { readonly text: string; readonly record: AppReferenceContextRecord | null } {
+  if (!prompt.reference) return { text: prompt.text, record: null };
+  const record = appReferenceComposerContext(prompt.reference, app);
+  return { text: `${formatComposerContextReference(record)} ${prompt.text}`, record };
 }
 
 export function linkedThreadDraftAction(currentText: string, prompt: string) {

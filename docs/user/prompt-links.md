@@ -29,6 +29,7 @@ https://app.t3.codes/new?pr=owner/name/123&prompt=Fix%20the%20failing%20check
 | `pr`       | A GitHub pull request, as `owner/name/123` or its URL.                        |
 | `from`     | The name of the app that made the link. Used with `key`.                      |
 | `key`      | A random secret the app keeps (base64url, at least 16 characters).            |
+| `ref`      | Where the user was in the app that made the link. See below.                  |
 
 Encode the prompt for a URL. In JavaScript, use `encodeURIComponent`.
 
@@ -56,6 +57,43 @@ before it replaces it.
 T3 Code removes characters you cannot see, such as zero-width and hidden tag characters, because
 they can hide instructions for the agent. When a prompt had them, T3 Code warns you that it may be
 malicious.
+
+## Attach where the user was in your app
+
+An app can describe where the user was with `ref`, instead of writing a citation into the prompt.
+On mobile, it shows up as one chip in front of the prompt. Tap the chip to see the details and
+to go back to the app. The agent gets the same details, marked as context, not instructions.
+
+`ref` is URL-encoded JSON:
+
+```json
+{
+  "title": "LR parsing · Items",
+  "url": "learningapps://open/learn-lr-game",
+  "details": [
+    ["lesson", "3"],
+    ["round", "2"],
+    ["stack", "E + n"]
+  ]
+}
+```
+
+- `title`: required, at most 120 characters. It is the chip's label.
+- `url`: optional link back into your app, with a scheme such as `learningapps:` or `https:`, at
+  most 2,048 characters. `javascript:`, `data:`, and `file:` links are refused.
+- `details`: optional, at most 12 `[name, value]` pairs of text. Names are at most 40 characters,
+  values at most 200.
+
+The chip names your app by `from`. `prompt` becomes optional: a link with only `ref` opens a draft
+holding just the chip. A link whose `ref` is not valid JSON or breaks a limit does not open.
+Hidden characters in `ref` count toward the hidden-characters warning, like those in the prompt.
+
+```
+t3code://threads/<environment>/<thread>?from=Learning&key=<key>&prompt=Why%20is%20this%20a%20shift%3F&ref=%7B%22title%22%3A%22LR%20parsing%20%C2%B7%20Items%22%2C%22url%22%3A%22learningapps%3A%2F%2Fopen%2Flearn-lr-game%22%2C%22details%22%3A%5B%5B%22lesson%22%2C%223%22%5D%2C%5B%22stack%22%2C%22E%20%2B%20n%22%5D%5D%7D
+```
+
+In JavaScript, build it with `encodeURIComponent(JSON.stringify(ref))`. The web and desktop apps
+show the chip on sent messages but do not add it to a draft yet.
 
 ## Trust an app's links
 

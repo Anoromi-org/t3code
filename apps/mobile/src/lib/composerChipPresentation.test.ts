@@ -78,3 +78,13 @@ describe("pull request chip status", () => {
     ).toBe("#7079e4");
   });
 });
+
+describe("app reference chip", () => {
+  it("has its own colour and a link glyph instead of the file fallback", async () => {
+    const { contextChipPresentation } = await import("./composerChipPresentation");
+    expect(contextChipPresentation("app-reference", { kind: "app-reference" })).toEqual({
+      accent: "#699630",
+      symbol: "link",
+    });
+  });
+});

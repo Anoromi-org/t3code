@@ -1,7 +1,9 @@
 import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
 import { videoMimeType } from "@t3tools/shared/video";
+import type { PromptLinkReference } from "@t3tools/shared/promptLinks";
 import {
+  type AppReferenceContextRecord,
   COMPOSER_CONTEXT_MAX_RECORDS,
   COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS,
   ComposerContextId,
@@ -16,6 +18,7 @@ import * as Schema from "effect/Schema";
 import {
   ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
   collectComposerContextReferences,
+  composerContextDigest,
   formatComposerContextReference,
   isImageReferencesOnly,
   replaceComposerContextReferences,
@@ -109,6 +112,27 @@ export function threadComposerContext(ref: ScopedThreadRef, title: string): Thre
     environmentId: ref.environmentId,
     threadId: ref.threadId,
     title: label,
+  };
+}
+
+/** Identity is the content, so opening the same link twice reuses one chip. */
+export function appReferenceComposerContext(
+  reference: PromptLinkReference,
+  app: string | null,
+): AppReferenceContextRecord {
+  const label = sanitizeComposerContextLabel(reference.title, "app-reference");
+  const details = reference.details.map(({ name, value }) => ({ name, value }));
+  return {
+    version: 1,
+    kind: "app-reference",
+    contextId: toKindScopedComposerContextId(
+      "app-reference",
+      composerContextDigest(JSON.stringify([app, label, reference.url, details])),
+    ),
+    label,
+    app,
+    url: reference.url,
+    details,
   };
 }
 

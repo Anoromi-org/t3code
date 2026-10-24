@@ -20,6 +20,8 @@ export function placeLinkedPrompt(
   notes: ReadonlyArray<string> = [],
 ): void {
   warnAboutHiddenCharacters(prompt);
+  // Web does not turn a link's app reference into a chip yet, so a reference-only link adds nothing.
+  if (prompt.text.length === 0) return;
   const place = () => {
     useComposerDraftStore.getState().setPrompt(target, prompt.text);
     toastManager.add({

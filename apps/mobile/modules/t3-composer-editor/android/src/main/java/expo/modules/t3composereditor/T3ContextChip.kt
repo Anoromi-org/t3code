@@ -155,6 +155,18 @@ class T3ContextChip(
           line(4f, 3f, 19f, 12f, 12f, 14f, 9f, 21f, 4f, 3f)
           line(13f, 15f, 18f, 21f)
         }
+        // lucide `link-2`: two open links joined by a bar.
+        "link" -> {
+          moveTo(9f, 17f)
+          lineTo(7f, 17f)
+          arcTo(RectF(2f, 7f, 12f, 17f), 90f, 180f)
+          lineTo(9f, 7f)
+          moveTo(15f, 7f)
+          lineTo(17f, 7f)
+          arcTo(RectF(12f, 7f, 22f, 17f), 270f, 180f)
+          lineTo(15f, 17f)
+          line(8f, 12f, 16f, 12f)
+        }
         "text.bubble" -> {
           line(3f, 4f, 21f, 4f, 21f, 17f, 10f, 17f, 5f, 21f, 5f, 17f, 3f, 17f, 3f, 4f)
           line(7f, 8f, 17f, 8f)

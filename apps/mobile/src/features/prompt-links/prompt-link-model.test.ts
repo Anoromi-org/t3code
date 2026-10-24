@@ -1,8 +1,10 @@
-import { parseNewThreadLink } from "@t3tools/shared/promptLinks";
+import { collectComposerContextReferences } from "@t3tools/shared/composerContextReferences";
+import { parseNewThreadLink, parseThreadLinkPrompt } from "@t3tools/shared/promptLinks";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   latestThreadEnvironmentIds,
+  linkedPromptDraft,
   linkedThreadDraftAction,
   promptLinkNotice,
   promptLinkScratchEnvironmentId,
@@ -44,6 +46,62 @@ describe("promptLinkNotice", () => {
     expect(promptLinkNotice({ hiddenCharacters: 2, modelUnavailable: true })).toBe(
       "This prompt had hidden characters, it may be malicious. They were removed. Read it before you send.\n\nThe requested model is not available, so your default is used.",
     );
+  });
+});
+
+describe("linkedPromptDraft", () => {
+  const reference = {
+    title: "LR parsing · Items",
+    url: "learningapps://open/learn-lr-game",
+    details: [
+      { name: "lesson", value: "3" },
+      { name: "stack", value: "E + n" },
+    ],
+  };
+
+  it("leaves a plain prompt alone", () => {
+    expect(linkedPromptDraft({ text: "Fix it", hiddenCharacters: 0 }, "Learning")).toEqual({
+      text: "Fix it",
+      record: null,
+    });
+  });
+
+  it("puts the reference chip and one space in front of the prompt", () => {
+    const { text, record } = linkedPromptDraft(
+      { text: "Why?", hiddenCharacters: 0, reference },
+      "Learning",
+    );
+    expect(record).toMatchObject({
+      kind: "app-reference",
+      label: "LR parsing · Items",
+      app: "Learning",
+      url: "learningapps://open/learn-lr-game",
+      details: reference.details,
+    });
+    expect(record?.contextId).toMatch(/^app-reference_[0-9a-f]{16}$/);
+    expect(text).toBe(
+      `[LR parsing · Items](t3-context://v1/app-reference/${record?.contextId}) Why?`,
+    );
+    expect(collectComposerContextReferences(text).map((ref) => ref.contextId)).toEqual([
+      record?.contextId,
+    ]);
+  });
+
+  it("drafts just the chip for a reference-only link, ready to type after", () => {
+    const parsed = parseThreadLinkPrompt(`?ref=${encodeURIComponent('{"title":"Items"}')}`);
+    if (!parsed.ok || parsed.value === null) throw new Error("expected a reference");
+    const { text, record } = linkedPromptDraft(parsed.value, null);
+    expect(record?.app).toBeNull();
+    expect(text.endsWith(") ")).toBe(true);
+  });
+
+  it("gives the same reference the same chip, and a different one another", () => {
+    const id = (app: string | null, title = reference.title) =>
+      linkedPromptDraft({ text: "", hiddenCharacters: 0, reference: { ...reference, title } }, app)
+        .record?.contextId;
+    expect(id("Learning")).toBe(id("Learning"));
+    expect(id("Learning")).not.toBe(id("Learning", "LR parsing · Goto"));
+    expect(id("Learning")).not.toBe(id(null));
   });
 });
 

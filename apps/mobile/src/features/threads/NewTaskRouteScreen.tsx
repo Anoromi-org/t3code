@@ -46,6 +46,7 @@ type NewTaskRouteParams = {
   readonly model?: string | string[];
   readonly from?: string | string[];
   readonly key?: string | string[];
+  readonly ref?: string | string[];
 };
 
 function deriveProjectEmptyState(catalogState: WorkspaceState): {

@@ -11,7 +11,7 @@ import type {
 } from "@t3tools/contracts";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import { videoMimeType } from "@t3tools/shared/video";
-import { Platform, Pressable, ScrollView, View } from "react-native";
+import { Linking, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { REVIEW_MONO_FONT_FAMILY } from "../features/review/reviewDiffRendering";
 import { ReviewCommentCard, useReviewCommentColors } from "../features/review/ReviewCommentCard";
@@ -309,6 +309,41 @@ export function ComposerContextSheet(props: {
                     className="rounded-xl bg-subtle p-4"
                   >
                     <Text className="text-foreground">Open thread</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+            {record.kind === "app-reference" ? (
+              <View className="gap-3">
+                <ContextField label="From" value={record.app ?? "Another app"} />
+                {record.details.length > 0 ? (
+                  <View className="gap-2 rounded-xl bg-subtle p-4">
+                    {record.details.map((detail) => (
+                      <View key={`${detail.name}\n${detail.value}`} className="flex-row gap-3">
+                        <Text className="w-28 text-sm text-foreground-muted">{detail.name}</Text>
+                        <Text selectable className="flex-1 text-sm text-foreground">
+                          {detail.value}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+                {record.url ? (
+                  <Pressable
+                    accessibilityRole="link"
+                    onPress={() => {
+                      const url = record.url!;
+                      props.onClose();
+                      Linking.openURL(url).catch(() =>
+                        Dialog.alert(
+                          `Could not open ${record.app ?? "the app"}`,
+                          "It may not be installed on this device.",
+                        ),
+                      );
+                    }}
+                    className="rounded-xl bg-subtle p-4"
+                  >
+                    <Text className="text-foreground">Open in {record.app ?? "app"}</Text>
                   </Pressable>
                 ) : null}
               </View>

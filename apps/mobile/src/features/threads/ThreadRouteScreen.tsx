@@ -154,6 +154,7 @@ type ThreadRouteScreenRouteProps = StaticScreenProps<{
   readonly prompt?: string | string[];
   readonly from?: string | string[];
   readonly key?: string | string[];
+  readonly ref?: string | string[];
 }>;
 
 interface ThreadRouteScreenProps extends ThreadRouteScreenRouteProps {

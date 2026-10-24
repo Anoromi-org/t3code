@@ -1,6 +1,10 @@
 import * as Dialog from "../../components/ui/Dialog";
 import { useNavigation } from "@react-navigation/native";
-import { parsePromptLinkSource, parseThreadLinkPrompt } from "@t3tools/shared/promptLinks";
+import {
+  parsePromptLinkFrom,
+  parsePromptLinkSource,
+  parseThreadLinkPrompt,
+} from "@t3tools/shared/promptLinks";
 import { useEffect, useRef } from "react";
 
 import { applyLinkedPromptToThreadDraft } from "./prompt-link-actions";
@@ -10,7 +14,7 @@ import {
   promptLinkSearchFromParams,
 } from "./prompt-link-model";
 
-const THREAD_LINK_KEYS = ["prompt", "from", "key"];
+const THREAD_LINK_KEYS = ["prompt", "from", "key", "ref"];
 
 export function useThreadPromptLink(
   params: Readonly<Record<string, unknown>> | undefined,
@@ -38,6 +42,7 @@ export function useThreadPromptLink(
       parsed.value,
       promptLinkNotice({ hiddenCharacters: parsed.value.hiddenCharacters }),
       parsePromptLinkSource(search),
+      parsePromptLinkFrom(search),
     );
   }, [navigation, search, threadDraftKey]);
 }

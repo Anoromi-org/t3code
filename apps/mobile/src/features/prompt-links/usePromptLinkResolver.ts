@@ -14,6 +14,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
   parseNewThreadLink,
+  parsePromptLinkFrom,
   parsePromptLinkSource,
   type LinkedPrompt,
   type PromptLinkSource,
@@ -30,19 +31,23 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import {
   createNewTaskDraft,
-  setComposerDraftText,
   updateComposerDraftSettings,
   waitForComposerDraftsLoaded,
 } from "../../state/use-composer-drafts";
 import { useRemoteConnectionStatus } from "../../state/use-remote-environment-registry";
 import { useWorkspaceState } from "../../state/workspace";
 import { useNewTaskFlow } from "../threads/new-task-flow-provider";
-import { applyLinkedPromptToThreadDraft, showPromptLinkNotice } from "./prompt-link-actions";
+import {
+  applyLinkedPromptToThreadDraft,
+  fillLinkedDraft,
+  showPromptLinkNotice,
+} from "./prompt-link-actions";
 import {
   clearedPromptLinkParams,
   promptLinkNotice,
   promptLinkRepositoryName,
   latestThreadEnvironmentIds,
+  linkedPromptDraft,
   promptLinkScratchEnvironmentId,
   promptLinkSearchFromParams,
 } from "./prompt-link-model";
@@ -53,6 +58,8 @@ type LinkedDraftRequest = {
   readonly model: string | null;
   readonly pullRequest: PromptLinkPullRequest | null;
   readonly source: PromptLinkSource | null;
+  /** The link's `from`, which names the app on its reference chip. */
+  readonly app: string | null;
 };
 
 export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> | undefined) {
@@ -84,7 +91,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     environmentId: EnvironmentId,
     request: LinkedDraftRequest,
   ): boolean => {
-    if (request.prompt) setComposerDraftText(draftKey, request.prompt.text);
+    if (request.prompt) fillLinkedDraft(draftKey, linkedPromptDraft(request.prompt, request.app));
     if (request.provider === null) return false;
     const resolved = resolvePromptLinkModelSelection(
       serverConfigs.get(environmentId)?.providers ?? [],
@@ -205,7 +212,8 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
         remoteUrl: `https://github.com/${name}.git`,
         repositoryTitle: name,
         repositoryName: repository.name,
-        ...(prompt ? { prompt: prompt.text } : {}),
+        // The destination screen takes text only, so an app reference does not survive a clone.
+        ...(prompt?.text ? { prompt: prompt.text } : {}),
       }),
     );
     if (!request.prompt) return;
@@ -233,6 +241,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
     }
     const link = parsed.value;
     const source = parsePromptLinkSource(linkSearch);
+    const app = parsePromptLinkFrom(linkSearch);
     const request: LinkedDraftRequest =
       link.kind === "new"
         ? {
@@ -241,6 +250,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
             model: link.model,
             pullRequest: null,
             source,
+            app,
           }
         : {
             prompt: link.prompt,
@@ -248,6 +258,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
             model: null,
             pullRequest: link.pullRequest,
             source,
+            app,
           };
 
     if (link.kind === "pull-request") {
@@ -265,6 +276,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
             link.prompt,
             promptLinkNotice({ hiddenCharacters: link.prompt.hiddenCharacters }),
             source,
+            app,
           );
         }
         return;

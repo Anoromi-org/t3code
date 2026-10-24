@@ -1,6 +1,13 @@
-import type { ComposerContextRecord, ElementContextDetails } from "@t3tools/contracts";
+import type {
+  AppReferenceContextRecord,
+  ComposerContextRecord,
+  ElementContextDetails,
+} from "@t3tools/contracts";
 
-import { collectComposerContextReferences } from "./composerContextReferences.ts";
+import {
+  collectComposerContextReferences,
+  formatAppReferencePayload,
+} from "./composerContextReferences.ts";
 
 /**
  * Serializes a canonical message (inline reference links plus records) into the pre-inline-context
@@ -37,6 +44,9 @@ export function serializeLegacyContextMessage(input: {
     ...input.records
       .filter((record) => record.kind === "preview-annotation")
       .map((record) => `<preview_annotation>\n${renderPreviewBody(record)}\n</preview_annotation>`),
+    ...input.records.flatMap((record) =>
+      record.kind === "app-reference" && "details" in record ? [renderAppReference(record)] : [],
+    ),
     ...input.records
       .filter((record) => record.kind === "review-comment" && !used.has(record.contextId))
       .map(renderReviewComment),
@@ -55,6 +65,12 @@ function inlineLabel(record: ComposerContextRecord): string {
     return `@${slug}:${range}`;
   }
   return record.label;
+}
+
+function renderAppReference(record: AppReferenceContextRecord): string {
+  // The linking app wrote these fields; they must not close the block early.
+  const body = formatAppReferencePayload(record).replace(/<(?=\/?app_reference\b)/gi, "&lt;");
+  return `<app_reference>\n${body}\n</app_reference>`;
 }
 
 function renderBlock(tag: string, entries: ReadonlyArray<string>): string {
