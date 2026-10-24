@@ -20,7 +20,8 @@ export function ThreadLinkPrompt({ threadRef }: { readonly threadRef: ScopedThre
   });
 
   useEffect(() => {
-    if (!new URLSearchParams(location.search).has("prompt")) return;
+    const params = new URLSearchParams(location.search);
+    if (!params.has("prompt") && !params.has("key") && !params.has("from")) return;
     if (!handledLinkKeys.has(location.key)) {
       handledLinkKeys.add(location.key);
       const parsed = parseThreadLinkPrompt(location.search);

@@ -27,6 +27,8 @@ https://app.t3.codes/new?pr=owner/name/123&prompt=Fix%20the%20failing%20check
 | `provider` | A provider such as `codex` or `claude`.                                       |
 | `model`    | A model of that provider, by its id or name.                                  |
 | `pr`       | A GitHub pull request, as `owner/name/123` or its URL.                        |
+| `from`     | The name of the app that made the link. Used with `key`.                      |
+| `key`      | A random secret the app keeps (base64url, at least 16 characters).            |
 
 Encode the prompt for a URL. In JavaScript, use `encodeURIComponent`.
 
@@ -54,3 +56,10 @@ before it replaces it.
 T3 Code removes characters you cannot see, such as zero-width and hidden tag characters, because
 they can hide instructions for the agent. When a prompt had them, T3 Code warns you that it may be
 malicious.
+
+## Trust an app's links
+
+On mobile, a link with `from` and `key` shows **Don't ask again for <app>** next to OK. Choose it
+and later links from that app fill the composer and open the keyboard without the notice. A
+warning about hidden characters still shows. The phone keeps only a hash of the key. To stop
+trusting an app, open **Settings > Trusted link sources** and choose **Remove**.

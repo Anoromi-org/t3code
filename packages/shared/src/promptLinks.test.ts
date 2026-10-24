@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildNewThreadLink,
   parseNewThreadLink,
+  parsePromptLinkSource,
   parseThreadLinkPrompt,
   promptLinkAppPath,
   promptLinkDeepLink,
@@ -21,6 +22,13 @@ describe("sanitizeLinkedPrompt", () => {
       text: "a\nb\nc",
       hiddenCharacters: 0,
     });
+  });
+
+  it("keeps one trailing space after the text, and nothing else around it", () => {
+    expect(sanitizeLinkedPrompt("[lesson 3 · x] ").text).toBe("[lesson 3 · x] ");
+    expect(sanitizeLinkedPrompt("  hi   ").text).toBe("hi ");
+    expect(sanitizeLinkedPrompt("\nhi\n").text).toBe("hi");
+    expect(sanitizeLinkedPrompt("   ").text).toBe("");
   });
 
   it("keeps emoji sequences intact", () => {
@@ -87,6 +95,36 @@ describe("thread links", () => {
     });
     expect(parseThreadLinkPrompt("?panel=diff")).toEqual({ ok: true, value: null });
     expect(withoutPromptLinkParams("?prompt=x&panel=diff")).toBe("?panel=diff");
+  });
+});
+
+describe("link sources", () => {
+  const KEY = "AbC-_9xyz012345678901w";
+
+  it("keeps from and key out of the prompt and hands them over separately", () => {
+    const search = `?prompt=%5Blesson%203%5D%20&from=Learning&key=${KEY}`;
+    expect(parseThreadLinkPrompt(search)).toEqual({
+      ok: true,
+      value: { text: "[lesson 3] ", hiddenCharacters: 0 },
+    });
+    expect(parsePromptLinkSource(search)).toEqual({ label: "Learning", key: KEY });
+    const link = parseNewThreadLink(`?prompt=Fix+it&from=Learning&key=${KEY}`);
+    expect(link.ok && link.value.kind === "new" && link.value.prompt.text).toBe("Fix it");
+    expect(withoutPromptLinkParams(`?prompt=x&from=Learning&key=${KEY}&panel=diff`)).toBe(
+      "?panel=diff",
+    );
+  });
+
+  it("ignores missing or malformed keys and cleans the label", () => {
+    expect(parsePromptLinkSource("?prompt=x&from=Learning")).toBeNull();
+    expect(parsePromptLinkSource("?prompt=x&key=short")).toBeNull();
+    expect(parsePromptLinkSource(`?key=${KEY}%20x`)).toBeNull();
+    expect(parsePromptLinkSource(`?key=${KEY}`)).toEqual({ label: null, key: KEY });
+    expect(parsePromptLinkSource(`?from=%20Le%E2%80%8Barn%0Aing%20&key=${KEY}`)?.label).toBe(
+      "Learn ing",
+    );
+    const long = parsePromptLinkSource(`?from=${"x".repeat(80)}&key=${KEY}`)?.label;
+    expect(long).toBe(`${"x".repeat(31)}…`);
   });
 });
 

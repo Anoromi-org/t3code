@@ -128,6 +128,7 @@ import { SettingsAboutRouteScreen } from "./features/settings/SettingsAboutRoute
 import { SettingsNotificationsRouteScreen } from "./features/settings/SettingsNotificationsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
 import { SettingsThreadsRouteScreen } from "./features/settings/SettingsThreadsRouteScreen";
+import { SettingsTrustedLinkSourcesRouteScreen } from "./features/settings/SettingsTrustedLinkSourcesRouteScreen";
 import { SettingsEnvironmentFilterProvider } from "./features/settings/settings-environment-filter";
 import { ShowcaseCaptureCoordinator } from "./features/showcase/ShowcaseCaptureCoordinator";
 import {
@@ -369,6 +370,13 @@ const SettingsContentStack = createV5SheetStackNavigator({
       linking: "client-storage",
       options: {
         title: "Client Storage",
+      },
+    }),
+    SettingsTrustedLinkSources: createNativeStackScreen({
+      screen: SettingsTrustedLinkSourcesRouteScreen,
+      linking: "trusted-link-sources",
+      options: {
+        title: "Trusted link sources",
       },
     }),
     SettingsDiagnostics: createNativeStackScreen({

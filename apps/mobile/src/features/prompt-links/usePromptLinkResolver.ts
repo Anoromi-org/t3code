@@ -14,7 +14,9 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
   parseNewThreadLink,
+  parsePromptLinkSource,
   type LinkedPrompt,
+  type PromptLinkSource,
   type PromptLinkPullRequest,
   type PromptLinkRepository,
 } from "@t3tools/shared/promptLinks";
@@ -50,6 +52,7 @@ type LinkedDraftRequest = {
   readonly provider: string | null;
   readonly model: string | null;
   readonly pullRequest: PromptLinkPullRequest | null;
+  readonly source: PromptLinkSource | null;
 };
 
 export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> | undefined) {
@@ -137,13 +140,13 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
       }),
     );
     if (request.prompt || pullRequestUnavailable !== null || modelUnavailable) {
-      showPromptLinkNotice(
-        promptLinkNotice({
-          hiddenCharacters: request.prompt?.hiddenCharacters ?? 0,
-          modelUnavailable,
-          pullRequestUnavailable,
-        }),
-      );
+      const hiddenCharacters = request.prompt?.hiddenCharacters ?? 0;
+      void showPromptLinkNotice({
+        notice: promptLinkNotice({ hiddenCharacters, modelUnavailable, pullRequestUnavailable }),
+        source: request.source,
+        skippable: hiddenCharacters === 0 && !modelUnavailable && pullRequestUnavailable === null,
+        offerTrust: hiddenCharacters === 0,
+      });
     }
   };
 
@@ -206,8 +209,8 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
       }),
     );
     if (!request.prompt) return;
-    showPromptLinkNotice(
-      [
+    void showPromptLinkNotice({
+      notice: [
         promptLinkNotice({
           hiddenCharacters: request.prompt.hiddenCharacters,
           modelUnavailable: prompt !== null && request.provider !== null,
@@ -216,7 +219,10 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
           ? "The prompt opens in a new task once the clone starts."
           : "Open the link again after the clone to get the prompt.",
       ].join("\n\n"),
-    );
+      source: request.source,
+      skippable: false,
+      offerTrust: request.prompt.hiddenCharacters === 0,
+    });
   };
 
   const resolveLink = useEffectEvent((linkSearch: string) => {
@@ -226,10 +232,23 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
       return;
     }
     const link = parsed.value;
+    const source = parsePromptLinkSource(linkSearch);
     const request: LinkedDraftRequest =
       link.kind === "new"
-        ? { prompt: link.prompt, provider: link.provider, model: link.model, pullRequest: null }
-        : { prompt: link.prompt, provider: null, model: null, pullRequest: link.pullRequest };
+        ? {
+            prompt: link.prompt,
+            provider: link.provider,
+            model: link.model,
+            pullRequest: null,
+            source,
+          }
+        : {
+            prompt: link.prompt,
+            provider: null,
+            model: null,
+            pullRequest: link.pullRequest,
+            source,
+          };
 
     if (link.kind === "pull-request") {
       const thread = findPromptLinkPullRequestThread(threads, link.pullRequest);
@@ -245,6 +264,7 @@ export function usePromptLinkResolver(params: Readonly<Record<string, unknown>> 
             scopedThreadKey(thread.environmentId, thread.id),
             link.prompt,
             promptLinkNotice({ hiddenCharacters: link.prompt.hiddenCharacters }),
+            source,
           );
         }
         return;

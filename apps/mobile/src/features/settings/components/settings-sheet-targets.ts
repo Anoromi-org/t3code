@@ -18,6 +18,7 @@ export type SettingsSheetTarget =
   | "SettingsScheduledTasks"
   | "SettingsProjectGrouping"
   | "SettingsClientStorage"
+  | "SettingsTrustedLinkSources"
   | "SettingsDiagnostics"
   | "SettingsOpenSourceLicenses"
   | "SettingsUsage";

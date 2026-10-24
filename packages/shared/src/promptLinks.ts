@@ -66,7 +66,9 @@ export function sanitizeLinkedPrompt(raw: string): LinkedPrompt {
       return kept;
     })
     .join("");
-  return { text: text.trim(), hiddenCharacters };
+  const body = text.trim();
+  // Apps prefill a citation like "[lesson 3 · …] " so the caret lands after it; keep that one space.
+  return { text: body && text.endsWith(" ") ? `${body} ` : body, hiddenCharacters };
 }
 
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
@@ -160,9 +162,50 @@ export function parseThreadLinkPrompt(search: string): PromptLinkResult<LinkedPr
   return readPrompt(new URLSearchParams(search));
 }
 
+export interface PromptLinkSource {
+  /** Display only; anyone can write any `from`. */
+  readonly label: string | null;
+  /** Secret the linking app keeps. Store a hash, never this. */
+  readonly key: string;
+}
+
+const PROMPT_LINK_SOURCE_LABEL_MAX = 32;
+const PROMPT_LINK_SOURCE_KEY = /^[A-Za-z0-9_-]{16,256}$/;
+
+// `from` and `key` identify the app that built a link so a client can trust it. They are never
+// part of the prompt.
+export function parsePromptLinkSource(search: string): PromptLinkSource | null {
+  const params = new URLSearchParams(search);
+  const key = params.get("key");
+  if (key === null || !PROMPT_LINK_SOURCE_KEY.test(key)) return null;
+  const from = sanitizeLinkedPrompt(params.get("from") ?? "")
+    .text.replace(/\s+/g, " ")
+    .trim();
+  const label =
+    from.length === 0
+      ? null
+      : Array.from(from).length > PROMPT_LINK_SOURCE_LABEL_MAX
+        ? `${Array.from(from)
+            .slice(0, PROMPT_LINK_SOURCE_LABEL_MAX - 1)
+            .join("")
+            .trimEnd()}…`
+        : from;
+  return { label, key };
+}
+
+export const PROMPT_LINK_PARAMS = [
+  "prompt",
+  "repo",
+  "pr",
+  "provider",
+  "model",
+  "from",
+  "key",
+] as const;
+
 export function withoutPromptLinkParams(search: string): string {
   const params = new URLSearchParams(search);
-  for (const key of ["prompt", "repo", "pr", "provider", "model"]) params.delete(key);
+  for (const key of PROMPT_LINK_PARAMS) params.delete(key);
   const rest = params.toString();
   return rest ? `?${rest}` : "";
 }
