@@ -31,6 +31,7 @@ export interface ThreadDetailsPanelProps extends Pick<
   "anchor" | "handle" | "onPresentationChange"
 > {
   forceNewWorktree?: boolean;
+  newWorktreeBranch?: string | null;
   environmentId: EnvironmentId;
   threadId: ThreadId;
   draftId?: DraftId;
@@ -91,6 +92,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
       : {}),
     envLocked: props.envLocked,
     forceNewWorktree: props.forceNewWorktree ?? false,
+    newWorktreeBranch: props.newWorktreeBranch ?? null,
     onComposerFocusRequest: props.onComposerFocusRequest,
     ...(props.onCheckoutPullRequestRequest
       ? { onCheckoutPullRequestRequest: props.onCheckoutPullRequestRequest }

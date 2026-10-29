@@ -7,6 +7,7 @@ import {
   resolveCurrentWorkspaceLabel,
   resolveEnvModeLabel,
   resolveLockedWorkspaceLabel,
+  resolveNewWorktreeLabel,
   type EnvMode,
 } from "./BranchToolbar.logic";
 import { useComposerMenuProps } from "./chat/composerEventScope";
@@ -25,6 +26,7 @@ const PREVIOUS_WORKTREE_SELECT_VALUE = "previous-worktree";
 
 interface BranchToolbarEnvModeSelectorProps {
   forceNewWorktree?: boolean;
+  newWorktreeBranch?: string | null;
   envLocked: boolean;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
@@ -36,6 +38,7 @@ interface BranchToolbarEnvModeSelectorProps {
 
 export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSelector({
   forceNewWorktree = false,
+  newWorktreeBranch = null,
   envLocked,
   effectiveEnvMode,
   activeWorktreePath,
@@ -51,7 +54,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       value: "local",
       label: resolveCurrentWorkspaceLabel(activeWorktreePath),
     },
-    { value: "worktree", label: resolveEnvModeLabel("worktree") },
+    { value: "worktree", label: resolveNewWorktreeLabel(newWorktreeBranch) },
     ...(showPreviousWorktree && previousWorktreeLabel
       ? [{ value: PREVIOUS_WORKTREE_SELECT_VALUE, label: previousWorktreeLabel }]
       : []),
@@ -135,7 +138,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         </TooltipTrigger>
         <TooltipPopup>
           {effectiveEnvMode === "worktree"
-            ? resolveEnvModeLabel("worktree")
+            ? resolveNewWorktreeLabel(newWorktreeBranch)
             : resolveCurrentWorkspaceLabel(activeWorktreePath)}
         </TooltipPopup>
       </Tooltip>
@@ -159,7 +162,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           <SelectItem value="worktree">
             <span className="inline-flex items-center gap-1.5">
               <FolderGit2Icon className="size-3" />
-              {resolveEnvModeLabel("worktree")}
+              {resolveNewWorktreeLabel(newWorktreeBranch)}
             </span>
           </SelectItem>
           {showPreviousWorktree && previousWorktreeLabel ? (

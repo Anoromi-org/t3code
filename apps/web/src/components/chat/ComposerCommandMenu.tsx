@@ -43,6 +43,8 @@ export type ComposerCommandItem =
       id: string;
       type: "slash-command";
       command: ComposerSlashCommand;
+      /** Set on the items `/worktree ` offers once the menu awaits a branch name. */
+      worktreeAction?: "auto" | "picker" | { readonly branch: string };
       label: string;
       description: string;
     }

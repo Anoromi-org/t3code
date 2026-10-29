@@ -266,6 +266,20 @@ export function isCollapsedCursorAdjacentToInlineToken(
 
 export function detectComposerTrigger(text: string, cursorInput: number): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
+  // `/worktree <branch>` takes its value after the space that ends an ordinary slash trigger.
+  // A file, PR or skill token after it keeps its own menu.
+  const namedWorktree = /(?:^|\n)(\/worktree[ \t]+(?![@#\p{Sc}])\S*)$/iu.exec(
+    text.slice(0, cursor),
+  );
+  if (namedWorktree) {
+    const command = namedWorktree[1]!;
+    return {
+      kind: "slash-command",
+      query: command.slice(1),
+      rangeStart: cursor - command.length,
+      rangeEnd: cursor,
+    };
+  }
   const tokenStart = tokenStartForCursor(text, cursor);
   const token = text.slice(tokenStart, cursor);
   if (token.startsWith("/")) {
@@ -330,6 +344,18 @@ export function composerStateAtPromptEnd(
       ? null
       : detectComposerTrigger(text, expandCollapsedComposerCursor(text, cursor)),
   };
+}
+
+/** Whether a slash trigger query is `/worktree` followed by its branch argument. */
+export function isNamedWorktreeQuery(query: string): boolean {
+  return /^worktree[ \t]/i.test(query);
+}
+
+/** The branch named by a `/worktree <branch>` trigger query, or null without one. */
+export function parseNamedWorktreeBranch(query: string): string | null {
+  const branch = /^worktree[ \t]+(\S+)$/i.exec(query)?.[1];
+  // Rich-text drafts rebuilt from Markdown serialize `_` emphasis as `*`, which ref names cannot contain.
+  return branch === undefined ? null : branch.replaceAll("*", "_");
 }
 
 export function parseStandaloneComposerSlashCommand(text: string): "plan" | "default" | null {

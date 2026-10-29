@@ -1302,6 +1302,14 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-task:run-now",
       tag: WS_METHODS.scheduledTasksRunNow,
     }),
+    startVoice: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:voice:start",
+      tag: WS_METHODS.voiceStart,
+    }),
+    stopVoice: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:voice:stop",
+      tag: WS_METHODS.voiceStop,
+    }),
     rotateScheduledTaskWebhookToken: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:rotate-webhook-token",
       tag: WS_METHODS.scheduledTasksRotateWebhookToken,

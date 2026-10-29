@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { longAnimationFrameAttributes } from "./clientPerformanceTracing";
+import {
+  longAnimationFrameAttributes,
+  slowInteractionAttributes,
+} from "./clientPerformanceTracing";
 
 describe("client performance tracing", () => {
   it("records the slowest scripts without URL query data", () => {
@@ -103,5 +106,30 @@ describe("client performance tracing", () => {
     expect(String(attributes["performance.script.0.function_name"])).toHaveLength(128);
     expect(String(attributes["performance.script.0.invoker"])).toHaveLength(128);
     expect(JSON.stringify(attributes)).not.toContain(sensitive);
+  });
+
+  it("splits interaction latency into input delay, processing, and presentation", () => {
+    const attributes = slowInteractionAttributes(
+      {
+        name: "click",
+        entryType: "event",
+        interactionId: 7,
+        startTime: 1_000,
+        processingStart: 1_120,
+        processingEnd: 1_150,
+        duration: 400,
+        toJSON: () => ({}),
+      },
+      { route: "/thread/1", visibilityState: "visible" },
+    );
+
+    expect(attributes).toMatchObject({
+      "performance.event_type": "click",
+      "performance.interaction_id": 7,
+      "performance.input_delay_ms": 120,
+      "performance.processing_ms": 30,
+      "performance.presentation_delay_ms": 250,
+      "performance.route": "/…/…",
+    });
   });
 });

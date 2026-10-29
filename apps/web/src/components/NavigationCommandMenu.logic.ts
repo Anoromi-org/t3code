@@ -8,15 +8,17 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
-import {
-  insertRankedSearchResult,
-  normalizeSearchQuery,
-  scoreQueryMatch,
-  type RankedSearchResult,
-} from "@t3tools/shared/searchRanking";
+import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import { getThreadSortTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 
-const RECENT_THREAD_LIMIT = 12;
-const SEARCH_RESULT_LIMIT = 20;
+import { normalizeSearchText } from "../lib/utils";
+import {
+  buildThreadSearchTerms,
+  RECENT_THREAD_LIMIT,
+  searchCommandPaletteItems,
+} from "./CommandPalette.logic";
+
+const SEARCH_RESULT_LIMIT = 50;
 
 export function resolveDraftProjectKeys(input: {
   readonly projects: readonly EnvironmentProject[];
@@ -53,26 +55,26 @@ export function resolveProjectDraftId(input: {
   return input.getDraftIdByLogicalProjectKey(logicalProjectKey);
 }
 
-export type NavigationCommandItem =
-  | {
-      readonly type: "thread";
-      readonly ref: ScopedThreadRef;
-      readonly title: string;
-      readonly projectTitle: string;
-      readonly workspaceRoot: string;
-      readonly branch: string | null;
-      readonly worktreePath: string | null;
-      readonly recencyAt: string;
-      readonly thread: EnvironmentThreadShell;
-    }
-  | {
-      readonly type: "project";
-      readonly ref: ScopedProjectRef;
-      readonly title: string;
-      readonly workspaceRoot: string;
-      readonly latestThreadRecencyAt: string | null;
-      readonly hasDraft: boolean;
-    };
+interface NavigationThreadItem {
+  readonly type: "thread";
+  readonly ref: ScopedThreadRef;
+  readonly title: string;
+  readonly projectTitle: string;
+  readonly workspaceRoot: string;
+  readonly recencyAt: string;
+  readonly thread: EnvironmentThreadShell;
+}
+
+interface NavigationProjectItem {
+  readonly type: "project";
+  readonly ref: ScopedProjectRef;
+  readonly title: string;
+  readonly workspaceRoot: string;
+  readonly latestThreadRecencyAt: string | null;
+  readonly hasDraft: boolean;
+}
+
+export type NavigationCommandItem = NavigationThreadItem | NavigationProjectItem;
 
 function recencyAt(thread: EnvironmentThreadShell): string {
   return thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt;
@@ -84,49 +86,13 @@ function timestamp(value: string | null): number {
   return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
 }
 
-function itemRecency(item: NavigationCommandItem): string | null {
-  return item.type === "thread" ? item.recencyAt : item.latestThreadRecencyAt;
-}
-
-function searchScore(item: NavigationCommandItem, query: string): number | null {
-  const fields =
-    item.type === "thread"
-      ? [
-          [item.title, 0],
-          [item.projectTitle, 25],
-          [item.branch ?? "", 40],
-          [item.worktreePath ?? "", 45],
-          [item.workspaceRoot, 50],
-        ]
-      : [
-          [item.title, 5],
-          [item.workspaceRoot, 35],
-        ];
-
-  let best: number | null = null;
-  for (const [rawValue, weight] of fields) {
-    const value = normalizeSearchQuery(String(rawValue));
-    const score = scoreQueryMatch({
-      value,
-      query,
-      exactBase: 0,
-      prefixBase: 10,
-      boundaryBase: 20,
-      includesBase: 35,
-      fuzzyBase: 60,
-    });
-    if (score !== null) {
-      best = Math.min(best ?? Number.POSITIVE_INFINITY, score + Number(weight));
-    }
-  }
-  return best;
-}
-
 export function buildNavigationCommandResults(input: {
   readonly query: string;
   readonly projects: readonly EnvironmentProject[];
   readonly threads: readonly EnvironmentThreadShell[];
   readonly draftProjectKeys?: ReadonlySet<string>;
+  /** Server-side message matches, keyed by `threadSearchMatchKey`. */
+  readonly contentSnippetByThreadKey?: ReadonlyMap<string, string>;
 }): NavigationCommandItem[] {
   const projectsByKey = new Map<string, EnvironmentProject>(
     input.projects.map(
@@ -135,10 +101,10 @@ export function buildNavigationCommandResults(input: {
     ),
   );
   const latestThreadRecencyByProjectKey = new Map<string, string>();
-  const threadItems: NavigationCommandItem[] = [];
+  const threadItems: NavigationThreadItem[] = [];
 
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null) continue;
+    if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent") continue;
     const projectKey = scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId));
     const project = projectsByKey.get(projectKey);
     if (!project) continue;
@@ -153,55 +119,49 @@ export function buildNavigationCommandResults(input: {
       title: thread.title,
       projectTitle: project.title,
       workspaceRoot: project.workspaceRoot,
-      branch: thread.branch,
-      worktreePath: thread.worktreePath,
       recencyAt: threadRecencyAt,
       thread,
     });
   }
+  threadItems.sort((left, right) => timestamp(right.recencyAt) - timestamp(left.recencyAt));
 
-  const query = normalizeSearchQuery(input.query);
-  if (!query) {
-    return threadItems
-      .toSorted((left, right) => timestamp(itemRecency(right)) - timestamp(itemRecency(left)))
-      .slice(0, RECENT_THREAD_LIMIT);
+  if (normalizeSearchText(input.query).length === 0) {
+    return threadItems.slice(0, RECENT_THREAD_LIMIT);
   }
 
-  const items: NavigationCommandItem[] = [
-    ...threadItems,
-    ...input.projects.map((project) => ({
-      type: "project" as const,
-      ref: { environmentId: project.environmentId, projectId: project.id },
-      title: project.title,
-      workspaceRoot: project.workspaceRoot,
-      latestThreadRecencyAt:
-        latestThreadRecencyByProjectKey.get(
-          scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
-        ) ?? null,
-      hasDraft:
-        input.draftProjectKeys?.has(
-          scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
-        ) ?? false,
-    })),
-  ];
-  const ranked: RankedSearchResult<NavigationCommandItem>[] = [];
-  for (const item of items) {
-    const score = searchScore(item, query);
-    if (score === null) continue;
-    const recencyTimestamp = timestamp(itemRecency(item));
-    const recencyTieBreaker = Number.isFinite(recencyTimestamp)
-      ? String(9_999_999_999_999 - recencyTimestamp).padStart(13, "0")
-      : "9999999999999";
-    insertRankedSearchResult(
-      ranked,
-      {
-        item,
-        score,
-        tieBreaker: `${recencyTieBreaker}:${item.title}`,
-      },
-      SEARCH_RESULT_LIMIT,
+  // Same matcher as the Mod+K palette, so both surfaces find the same threads.
+  const searchableThreads = threadItems.map((item) => ({
+    item,
+    searchTerms: buildThreadSearchTerms(item.thread, {
+      projectTitle: item.projectTitle,
+      contentSnippet: input.contentSnippetByThreadKey?.get(threadSearchMatchKey(item.ref)),
+    }),
+    searchRecency: getThreadSortTimestamp(item.thread, "updated_at"),
+  }));
+  const searchableProjects = input.projects
+    .map((project) => {
+      const projectKey = scopedProjectKey(scopeProjectRef(project.environmentId, project.id));
+      const item: NavigationProjectItem = {
+        type: "project",
+        ref: { environmentId: project.environmentId, projectId: project.id },
+        title: project.title,
+        workspaceRoot: project.workspaceRoot,
+        latestThreadRecencyAt: latestThreadRecencyByProjectKey.get(projectKey) ?? null,
+        hasDraft: input.draftProjectKeys?.has(projectKey) ?? false,
+      };
+      return { item, searchTerms: [project.title, project.workspaceRoot] };
+    })
+    // Equal matches keep input order, so recently active projects win ties.
+    .toSorted(
+      (left, right) =>
+        timestamp(right.item.latestThreadRecencyAt) - timestamp(left.item.latestThreadRecencyAt),
     );
-  }
 
-  return ranked.map((result) => result.item);
+  return searchCommandPaletteItems<{
+    readonly item: NavigationCommandItem;
+    readonly searchTerms: ReadonlyArray<string>;
+    readonly searchRecency?: number;
+  }>([...searchableThreads, ...searchableProjects], input.query)
+    .slice(0, SEARCH_RESULT_LIMIT)
+    .map((result) => result.item);
 }

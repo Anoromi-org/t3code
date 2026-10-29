@@ -1336,6 +1336,11 @@ export default function ChatView(props: ChatViewProps) {
     readonly threadId: ThreadId;
     readonly branch: string | null;
   } | null>(null);
+  // Fork: the branch `/worktree <branch>` named for this route's new worktree.
+  const [newWorktreeBranchEntry, setNewWorktreeBranchEntry] = useState<{
+    readonly routeThreadKey: string;
+    readonly branch: string;
+  } | null>(null);
   const [
     pendingServerThreadStartFromOriginByThreadId,
     setPendingServerThreadStartFromOriginByThreadId,
@@ -4656,6 +4661,17 @@ export default function ChatView(props: ChatViewProps) {
     requestedEnvMode: envMode,
     isGitRepo,
   });
+  const canChooseNewWorktree =
+    (isLocalDraftThread || canOverrideServerThreadEnvMode) &&
+    !envLocked &&
+    isGitRepo &&
+    multipleModelSelections === null;
+  const newWorktreeBranch =
+    canChooseNewWorktree &&
+    envMode === "worktree" &&
+    newWorktreeBranchEntry?.routeThreadKey === routeThreadKey
+      ? newWorktreeBranchEntry.branch
+      : null;
   const localCheckoutBranchMismatch = isServerThread
     ? resolveLocalCheckoutBranchMismatch({
         effectiveEnvMode: envMode,
@@ -6928,6 +6944,7 @@ export default function ChatView(props: ChatViewProps) {
                     prepareWorktree: {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
+                      ...(newWorktreeBranch ? { branch: newWorktreeBranch } : {}),
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
                     runSetupScript: true,
@@ -7520,6 +7537,7 @@ export default function ChatView(props: ChatViewProps) {
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
   const onEnvModeChange = (mode: DraftThreadEnvMode) => {
     if (multipleModelSelections !== null) return;
+    setNewWorktreeBranchEntry(null);
     if (canOverrideServerThreadEnvMode) {
       if (activeThread) setPendingServerThreadEnvModeEntry({ threadId: activeThread.id, mode });
       scheduleComposerFocus();
@@ -7538,6 +7556,11 @@ export default function ChatView(props: ChatViewProps) {
     scheduleComposerFocus();
   };
   const onEnvModeChangeStable = useStableCallback(onEnvModeChange);
+  const onSelectNewWorktree = (branch: string | null) => {
+    onEnvModeChange("worktree");
+    if (branch !== null) setNewWorktreeBranchEntry({ routeThreadKey, branch });
+  };
+  const onSelectNewWorktreeStable = useStableCallback(onSelectNewWorktree);
 
   const onWorktreeSetupWorkLocally = () => {
     if (!worktreeSetup || worktreeSetup.phase !== "running" || !draftId) {
@@ -8224,6 +8247,9 @@ export default function ChatView(props: ChatViewProps) {
                               keepFullHistory={keepFullHistory}
                               onToggleKeepFullHistory={toggleKeepFullHistoryStable}
                               onOpenBranchPicker={openBranchPickerStable}
+                              {...(canChooseNewWorktree
+                                ? { onSelectNewWorktree: onSelectNewWorktreeStable }
+                                : {})}
                               onUsageLimitsCommand={
                                 usageLimitsOffered &&
                                 usageLimitsKey !== null &&
@@ -8356,6 +8382,7 @@ export default function ChatView(props: ChatViewProps) {
                             <div className="pointer-events-auto">
                               <BranchToolbar
                                 forceNewWorktree={multipleModelSelections !== null}
+                                newWorktreeBranch={newWorktreeBranch}
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}
                                 threadId={activeThread.id}
@@ -8444,6 +8471,7 @@ export default function ChatView(props: ChatViewProps) {
               handle={threadPanelPopoverHandle}
               onPresentationChange={setThreadPanelPresentation}
               forceNewWorktree={multipleModelSelections !== null}
+              newWorktreeBranch={newWorktreeBranch}
               environmentId={activeThread.environmentId}
               threadId={activeThread.id}
               {...(draftId ? { draftId } : {})}

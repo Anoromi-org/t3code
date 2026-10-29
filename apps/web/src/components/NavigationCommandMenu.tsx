@@ -4,8 +4,18 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
 import { FolderIcon, MessageSquareTextIcon, SearchIcon } from "lucide-react";
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import {
+  useDeferredValue,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 
+import { useEnvironments } from "../state/environments";
+import { useThreadSearch } from "../state/queries";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { buildNavigationCommandResults } from "./NavigationCommandMenu.logic";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
@@ -47,13 +57,29 @@ export function NavigationCommandMenu(props: NavigationCommandMenuProps) {
 
 function NavigationCommandMenuBody(props: NavigationCommandMenuProps) {
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [highlightedIndexState, setHighlightedIndex] = useState(0);
   const listId = useId();
   const optionRefs = useRef(new Map<number, HTMLButtonElement>());
+  const { environments } = useEnvironments();
+  const threadSearch = useThreadSearch(
+    environments
+      .filter((environment) => environment.connection.phase === "connected")
+      .map((environment) => environment.environmentId),
+    deferredQuery,
+  );
+  const contentSnippetByThreadKey = new Map(
+    threadSearch.matches.flatMap((match) =>
+      match.source === "user" || match.source === "assistant"
+        ? [[threadSearchMatchKey(match), match.snippet] as const]
+        : [],
+    ),
+  );
   const results = buildNavigationCommandResults({
-    query,
+    query: deferredQuery,
     projects: props.projects,
     threads: props.threads,
+    contentSnippetByThreadKey,
     ...(props.draftProjectKeys ? { draftProjectKeys: props.draftProjectKeys } : {}),
   });
   const lastIndex = Math.max(0, results.length - 1);

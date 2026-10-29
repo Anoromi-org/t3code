@@ -233,7 +233,7 @@ const decodeCodexBackgroundTerminalTerminateResponse = Schema.decodeUnknownEffec
 const decodeCodexBackgroundTerminalsListResponse = Schema.decodeUnknownEffect(
   CodexBackgroundTerminalsListResponse,
 );
-const CODEX_CLIENT_CAPABILITIES = {
+export const CODEX_CLIENT_CAPABILITIES = {
   experimentalApi: true,
   optOutNotificationMethods: ["turn/diff/updated"],
   extensions: { [MCP_APP_EXTENSION_ID]: { mimeTypes: [MCP_APP_MIME_TYPE] } },

@@ -349,6 +349,7 @@ import {
   ScheduledTaskUpsertInput,
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
+import { VoiceSessionError, VoiceStartInput, VoiceStartResult, VoiceStopInput } from "./voice.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
   ProjectCloneActionInput,
@@ -512,6 +513,8 @@ export const WS_METHODS = {
   secretsAnswerRequest: "secrets.answerRequest",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
+  voiceStart: "voice.start",
+  voiceStop: "voice.stop",
 
   // Desktop control methods
   desktopRequestCorkdiffAppFocus: "desktop.requestCorkdiffAppFocus",
@@ -1802,6 +1805,18 @@ const WsScheduledTasksDeleteRpc = Rpc.make(WS_METHODS.scheduledTasksDelete, {
   error: Schema.Union([ScheduledTaskError, EnvironmentAuthorizationError]),
 });
 
+const WsVoiceStartRpc = Rpc.make(WS_METHODS.voiceStart, {
+  payload: VoiceStartInput,
+  success: VoiceStartResult,
+  error: Schema.Union([VoiceSessionError, EnvironmentAuthorizationError]),
+});
+
+const WsVoiceStopRpc = Rpc.make(WS_METHODS.voiceStop, {
+  payload: VoiceStopInput,
+  success: Schema.Void,
+  error: Schema.Union([VoiceSessionError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksRunNowRpc = Rpc.make(WS_METHODS.scheduledTasksRunNow, {
   payload: ScheduledTaskRunNowInput,
   success: ScheduledTaskRunNowResult,
@@ -1929,6 +1944,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsSecretsAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
+  WsVoiceStartRpc,
+  WsVoiceStopRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,

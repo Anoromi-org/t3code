@@ -8,9 +8,13 @@ import * as ClientTracer from "./clientTracer";
 
 const LONG_FRAME_ENTRY_TYPE = "long-animation-frame";
 const LONG_TASK_ENTRY_TYPE = "longtask";
+const EVENT_ENTRY_TYPE = "event";
+// Clicks and keypresses that take this long to paint feel laggy.
+const SLOW_INTERACTION_THRESHOLD_MS = 200;
 const MAX_SCRIPT_ATTRIBUTIONS = 5;
 const MAX_ATTRIBUTION_VALUE_LENGTH = 128;
 let performanceObserver: PerformanceObserver | null = null;
+let interactionObserver: PerformanceObserver | null = null;
 
 interface PerformanceScriptAttribution {
   readonly duration?: number;
@@ -26,6 +30,12 @@ interface LongAnimationFrameEntry extends PerformanceEntry {
   readonly renderStart?: number;
   readonly styleAndLayoutStart?: number;
   readonly scripts?: ReadonlyArray<PerformanceScriptAttribution>;
+}
+
+interface EventTimingEntry extends PerformanceEntry {
+  readonly interactionId?: number;
+  readonly processingStart: number;
+  readonly processingEnd: number;
 }
 
 interface BrowserPerformanceContext {
@@ -107,6 +117,62 @@ export function longAnimationFrameAttributes(
   return attributes;
 }
 
+// Splits input-to-paint latency into waiting for the main thread, running handlers, and rendering.
+export function slowInteractionAttributes(
+  entry: EventTimingEntry,
+  context: Pick<BrowserPerformanceContext, "route" | "visibilityState"> = {
+    route: window.location.pathname,
+    visibilityState: document.visibilityState,
+  },
+): Record<string, unknown> {
+  return {
+    "performance.entry_type": entry.entryType,
+    "performance.event_type": entry.name,
+    "performance.interaction_id": entry.interactionId ?? 0,
+    "performance.duration_ms": entry.duration,
+    "performance.input_delay_ms": Math.max(0, entry.processingStart - entry.startTime),
+    "performance.processing_ms": Math.max(0, entry.processingEnd - entry.processingStart),
+    "performance.presentation_delay_ms": Math.max(
+      0,
+      entry.startTime + entry.duration - entry.processingEnd,
+    ),
+    "performance.route": sanitizedRoute(context.route),
+    "performance.visibility_state": context.visibilityState,
+  };
+}
+
+// Chromium-only. A large or shrinking heap next to a script-less frame points at garbage collection.
+function heapAttributes(): Record<string, unknown> {
+  const memory = (performance as { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } })
+    .memory;
+  if (memory === undefined) return {};
+  return {
+    "performance.js_heap_used_mb": Math.round(memory.usedJSHeapSize / 1_048_576),
+    "performance.js_heap_total_mb": Math.round(memory.totalJSHeapSize / 1_048_576),
+  };
+}
+
+function spanName(entryType: string): string {
+  if (entryType === LONG_FRAME_ENTRY_TYPE) return "web.performance.long_animation_frame";
+  if (entryType === EVENT_ENTRY_TYPE) return "web.performance.slow_interaction";
+  return "web.performance.long_task";
+}
+
+function entryAttributes(entry: PerformanceEntry): Record<string, unknown> {
+  if (entry.entryType === LONG_FRAME_ENTRY_TYPE) {
+    return longAnimationFrameAttributes(entry as LongAnimationFrameEntry);
+  }
+  if (entry.entryType === EVENT_ENTRY_TYPE) {
+    return slowInteractionAttributes(entry as EventTimingEntry);
+  }
+  return {
+    "performance.entry_type": entry.entryType,
+    "performance.duration_ms": entry.duration,
+    "performance.route": sanitizedRoute(window.location.pathname),
+    "performance.visibility_state": document.visibilityState,
+  };
+}
+
 function recordPerformanceEntry(entry: PerformanceEntry): void {
   const delegate = ClientTracer.currentDelegate();
   if (delegate === null) return;
@@ -114,10 +180,7 @@ function recordPerformanceEntry(entry: PerformanceEntry): void {
   const startTime = BigInt(Math.round((performance.timeOrigin + entry.startTime) * 1_000_000));
   const endTime = startTime + BigInt(Math.round(entry.duration * 1_000_000));
   const span = delegate.span({
-    name:
-      entry.entryType === LONG_FRAME_ENTRY_TYPE
-        ? "web.performance.long_animation_frame"
-        : "web.performance.long_task",
+    name: spanName(entry.entryType),
     parent: Option.none(),
     annotations: Context.empty(),
     links: [],
@@ -126,15 +189,7 @@ function recordPerformanceEntry(entry: PerformanceEntry): void {
     root: true,
     sampled: true,
   });
-  const attributes =
-    entry.entryType === LONG_FRAME_ENTRY_TYPE
-      ? longAnimationFrameAttributes(entry as LongAnimationFrameEntry)
-      : {
-          "performance.entry_type": entry.entryType,
-          "performance.duration_ms": entry.duration,
-          "performance.route": sanitizedRoute(window.location.pathname),
-          "performance.visibility_state": document.visibilityState,
-        };
+  const attributes = { ...entryAttributes(entry), ...heapAttributes() };
   for (const [key, value] of Object.entries(attributes)) {
     span.attribute(key, value);
   }
@@ -146,20 +201,34 @@ function recordPerformanceEntry(entry: PerformanceEntry): void {
 }
 
 export function startClientPerformanceTracing(): void {
-  if (performanceObserver !== null || typeof PerformanceObserver === "undefined") return;
-
+  if (typeof PerformanceObserver === "undefined") return;
   const supportedEntryTypes = PerformanceObserver.supportedEntryTypes;
+
   const entryType = supportedEntryTypes.includes(LONG_FRAME_ENTRY_TYPE)
     ? LONG_FRAME_ENTRY_TYPE
     : supportedEntryTypes.includes(LONG_TASK_ENTRY_TYPE)
       ? LONG_TASK_ENTRY_TYPE
       : null;
-  if (entryType === null) return;
+  if (performanceObserver === null && entryType !== null) {
+    performanceObserver = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        recordPerformanceEntry(entry);
+      }
+    });
+    performanceObserver.observe({ type: entryType, buffered: true });
+  }
 
-  performanceObserver = new PerformanceObserver((list) => {
-    for (const entry of list.getEntries()) {
-      recordPerformanceEntry(entry);
-    }
-  });
-  performanceObserver.observe({ type: entryType, buffered: true });
+  if (interactionObserver === null && supportedEntryTypes.includes(EVENT_ENTRY_TYPE)) {
+    interactionObserver = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        // Hover and scroll events have no interaction id; only discrete user input counts.
+        if (((entry as EventTimingEntry).interactionId ?? 0) > 0) recordPerformanceEntry(entry);
+      }
+    });
+    interactionObserver.observe({
+      type: EVENT_ENTRY_TYPE,
+      buffered: true,
+      durationThreshold: SLOW_INTERACTION_THRESHOLD_MS,
+    } as PerformanceObserverInit);
+  }
 }

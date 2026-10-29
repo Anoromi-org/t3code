@@ -124,6 +124,7 @@ import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as VoiceSessions from "./voice/VoiceSessionService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
   archivedShellStreamItemFromThreadShell,
@@ -1201,6 +1202,7 @@ const layerWsRpc = (
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const voiceSessions = yield* VoiceSessions.VoiceSessionService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -2053,6 +2055,8 @@ const layerWsRpc = (
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.rotateWebhookToken(input)),
           ),
+        [WS_METHODS.voiceStart]: (input) => voiceSessions.start(input),
+        [WS_METHODS.voiceStop]: (input) => voiceSessions.stop(input),
         [WS_METHODS.secretsAnswerRequest]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(secretRequests.answer(input)),

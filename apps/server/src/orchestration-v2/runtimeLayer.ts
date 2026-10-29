@@ -52,6 +52,8 @@ import * as ThreadLifecycleService from "./ThreadLifecycleService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
+import * as VoiceSessionService from "../voice/VoiceSessionService.ts";
+import * as CodexAdapterV2 from "./Adapters/CodexAdapterV2.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 
 export const layerEventInfrastructure = Layer.mergeAll(
@@ -289,6 +291,16 @@ const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
     ),
   ),
 );
+const layerVoiceSessionProvided = VoiceSessionService.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerThreadLaunchProvided,
+      layerThreadManagementProvided,
+      layerProjectService,
+      CodexAdapterV2.layerAppServerClientFactory,
+    ),
+  ),
+);
 const layerProviderContinuationWorkerProvided = ProviderContinuationService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -363,6 +375,7 @@ export const layerProduction = Layer.mergeAll(
   layerThreadLaunchProvided,
   layerThreadLifecycleProvided,
   layerScheduledTaskProvided,
+  layerVoiceSessionProvided,
   layerSecretRequestsProvided,
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(Layer.mergeAll(ProjectionStore.layer, layerThreadManagementProvided)),

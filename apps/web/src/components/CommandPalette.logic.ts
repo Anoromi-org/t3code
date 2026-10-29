@@ -1,3 +1,4 @@
+import { fileBasename } from "@t3tools/shared/path";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import type { CommandPaletteLinkedThreads } from "../commandPaletteBus";
 import {
@@ -292,6 +293,27 @@ export type BuildThreadActionItemsThread = Pick<
   latestUserMessageAt?: string | null;
 };
 
+/** Ordered by match priority: earlier terms rank higher. */
+export function buildThreadSearchTerms(
+  thread: Pick<BuildThreadActionItemsThread, "title" | "branch" | "worktreePath" | "id"> &
+    Parameters<typeof threadPullRequestSearchTerms>[0],
+  extra: {
+    readonly projectTitle?: string | undefined;
+    readonly contentSnippet?: string | undefined;
+  },
+): string[] {
+  return [
+    thread.title,
+    ...threadPullRequestSearchTerms(thread),
+    extra.projectTitle ?? "",
+    thread.branch ?? "",
+    // Folder name only: full paths would make every thread under a shared parent match.
+    thread.worktreePath ? fileBasename(thread.worktreePath) : "",
+    extra.contentSnippet ?? "",
+    thread.id,
+  ];
+}
+
 export function buildThreadActionItems<TThread extends BuildThreadActionItemsThread>(input: {
   threads: ReadonlyArray<TThread>;
   activeThreadId?: Thread["id"];
@@ -337,14 +359,10 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
       {
         kind: "action" as const,
         value: `thread:${thread.id}`,
-        searchTerms: [
-          thread.title,
-          ...threadPullRequestSearchTerms(thread),
-          projectTitle ?? ``,
-          thread.branch ?? ``,
-          contentMatch?.snippet ?? ``,
-          thread.id,
-        ],
+        searchTerms: buildThreadSearchTerms(thread, {
+          projectTitle,
+          contentSnippet: contentMatch?.snippet,
+        }),
         title: thread.title,
         description,
         timestamp: formatRelativeTimeLabel(
@@ -389,8 +407,13 @@ function rankSearchFieldMatch(
   return 0;
 }
 
+type CommandPaletteSearchable = Pick<
+  CommandPaletteItem,
+  "searchTerms" | "searchRecency" | "secondary"
+>;
+
 function rankCommandPaletteItemMatch(
-  item: CommandPaletteActionItem | CommandPaletteSubmenuItem,
+  item: CommandPaletteSearchable,
   normalizedQuery: string,
   queryTokens: ReadonlyArray<string>,
 ): number {
@@ -412,6 +435,36 @@ function rankCommandPaletteItemMatch(
   return 0;
 }
 
+/** Keeps items whose search terms contain every query token, best match first. */
+export function searchCommandPaletteItems<T extends CommandPaletteSearchable>(
+  items: ReadonlyArray<T>,
+  query: string,
+): T[] {
+  const normalizedQuery = normalizeSearchText(query);
+  if (normalizedQuery.length === 0) return [...items];
+  const queryTokens = normalizedQuery.split(" ");
+  return Arr.filterMap(items, (item, index) => {
+    const haystack = normalizeSearchText(item.searchTerms.join(" "));
+    if (!queryTokens.every((token) => haystack.includes(token))) {
+      return Result.failVoid;
+    }
+
+    return Result.succeed({
+      item,
+      index,
+      rank: rankCommandPaletteItemMatch(item, normalizedQuery, queryTokens),
+    });
+  })
+    .toSorted(
+      (left, right) =>
+        Number(left.item.secondary ?? false) - Number(right.item.secondary ?? false) ||
+        right.rank - left.rank ||
+        (right.item.searchRecency ?? 0) - (left.item.searchRecency ?? 0) ||
+        left.index - right.index,
+    )
+    .map((entry) => entry.item);
+}
+
 export function filterCommandPaletteGroups(input: {
   activeGroups: ReadonlyArray<CommandPaletteGroup>;
   query: string;
@@ -430,7 +483,6 @@ export function filterCommandPaletteGroups(input: {
     }
     return [...input.activeGroups];
   }
-  const queryTokens = normalizedQuery.split(" ");
 
   let baseGroups = [...input.activeGroups];
   if (isActionsFilter) {
@@ -465,26 +517,7 @@ export function filterCommandPaletteGroups(input: {
   }
 
   return searchableGroups.flatMap((group) => {
-    const items = Arr.filterMap(group.items, (item, index) => {
-      const haystack = normalizeSearchText(item.searchTerms.join(" "));
-      if (!queryTokens.every((token) => haystack.includes(token))) {
-        return Result.failVoid;
-      }
-
-      return Result.succeed({
-        item,
-        index,
-        rank: rankCommandPaletteItemMatch(item, normalizedQuery, queryTokens),
-      });
-    })
-      .toSorted(
-        (left, right) =>
-          Number(left.item.secondary ?? false) - Number(right.item.secondary ?? false) ||
-          right.rank - left.rank ||
-          (right.item.searchRecency ?? 0) - (left.item.searchRecency ?? 0) ||
-          left.index - right.index,
-      )
-      .map((entry) => entry.item);
+    const items = searchCommandPaletteItems(group.items, normalizedQuery);
 
     if (items.length === 0) {
       return [];

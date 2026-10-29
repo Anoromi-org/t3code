@@ -90,6 +90,8 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
+  isNamedWorktreeQuery,
+  parseNamedWorktreeBranch,
   replaceTextRange,
 } from "../../composer-logic";
 import { DISCONNECTED_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
@@ -155,6 +157,7 @@ import {
 } from "./composerContextUndo";
 import type { ThreadSyncPhase } from "../../threadSync";
 import { ComposerBanner } from "./ComposerBanner";
+import { ComposerVoiceButton, ComposerVoiceStrip } from "./ComposerVoiceControls";
 import { ComposerSurface } from "./ComposerSurface";
 import {
   ComposerBannerStack,
@@ -1484,6 +1487,11 @@ export interface ChatComposerHandle {
 export interface ChatComposerProps {
   /** Fork: opens the branch picker for `/branch`; omitted where there is no branch toolbar. */
   onOpenBranchPicker?: (() => void) | undefined;
+  /**
+   * Fork: `/worktree` targets a new worktree on the named branch, or an auto-named one for null.
+   * Omitted where the workspace can no longer change.
+   */
+  onSelectNewWorktree?: ((branch: string | null) => void) | undefined;
   composerDraftTarget: ScopedThreadRef | DraftId;
   environmentId: EnvironmentId;
   canOperateThread: boolean;
@@ -1988,7 +1996,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     editingQueuedAttachments,
     onRemoveEditingQueuedAttachment,
   } = props;
-  const { onOpenBranchPicker } = props;
+  const { onOpenBranchPicker, onSelectNewWorktree } = props;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
   const {
@@ -2390,7 +2398,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return collapseExpandedComposerCursor(value, value.length, isLiteralPendingAnswer);
   });
   const {
-    trigger: composerTrigger,
+    trigger: detectedComposerTrigger,
     setTrigger: setComposerTrigger,
     resolveTrigger: resolveComposerTrigger,
     dismissTrigger: dismissComposerTrigger,
@@ -2398,6 +2406,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   } = useComposerTriggerState(() =>
     isLiteralPendingAnswer ? null : detectComposerTrigger(prompt, prompt.length),
   );
+  // `/worktree <branch>` is plain prompt text where the workspace can no longer change.
+  const withoutUnavailableNamedWorktree = (trigger: ComposerTrigger | null) =>
+    trigger?.kind === "slash-command" && !onSelectNewWorktree && isNamedWorktreeQuery(trigger.query)
+      ? null
+      : trigger;
+  const composerTrigger = withoutUnavailableNamedWorktree(detectedComposerTrigger);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   const composerSuggestionId = useId();
   const composerSuggestionListId = `${composerSuggestionId}-${encodeURIComponent(draftId ?? activeThreadId ?? "new")}-suggestions`;
@@ -2639,6 +2653,39 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           label: basenameOfPath(entry.path),
           description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
         })),
+      ];
+    }
+    if (composerTrigger.kind === "slash-command" && isNamedWorktreeQuery(composerTrigger.query)) {
+      const branch = parseNamedWorktreeBranch(composerTrigger.query);
+      if (branch !== null) {
+        return [
+          {
+            id: "slash:worktree:named",
+            type: "slash-command",
+            command: "worktree",
+            worktreeAction: { branch },
+            label: `New worktree on ${branch}`,
+            description: "Creates this branch when the first message is sent",
+          },
+        ];
+      }
+      return [
+        {
+          id: "slash:worktree:auto",
+          type: "slash-command",
+          command: "worktree",
+          worktreeAction: "auto",
+          label: "New worktree",
+          description: "Type a branch name, or let the first message name it",
+        },
+        {
+          id: "slash:worktree:picker",
+          type: "slash-command",
+          command: "worktree",
+          worktreeAction: "picker",
+          label: "Choose workspace…",
+          description: "Local checkout, a new worktree or the previous one",
+        },
       ];
     }
     if (composerTrigger.kind === "slash-command") {
@@ -3422,6 +3469,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const composerSessionKey = `${draftId ?? ""}:${activeThreadId ?? ""}:${isLiteralPendingAnswer}`;
+  // Draft composers send no thread; the server launches one on first delegation.
+  const voiceTarget =
+    activeProjectId === null
+      ? null
+      : {
+          environmentId,
+          projectId: activeProjectId,
+          threadId: routeKind === "server" ? (activeThreadId ?? undefined) : undefined,
+        };
   const [shownComposerSessionKey, setShownComposerSessionKey] = useState(composerSessionKey);
   if (shownComposerSessionKey !== composerSessionKey) {
     setShownComposerSessionKey(composerSessionKey);
@@ -3798,7 +3854,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       snapshot,
       trigger: isLiteralPendingAnswer
         ? null
-        : resolveComposerTrigger(detectComposerTrigger(snapshot.value, snapshot.expandedCursor)),
+        : withoutUnavailableNamedWorktree(
+            resolveComposerTrigger(detectComposerTrigger(snapshot.value, snapshot.expandedCursor)),
+          ),
     };
   };
 
@@ -3867,6 +3925,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             persistSticky: true,
           });
         return;
+      }
+      if (item.command === "worktree" && onSelectNewWorktree) {
+        const atLineStart =
+          trigger.rangeStart === 0 || snapshot.value[trigger.rangeStart - 1] === "\n";
+        if (item.worktreeAction === undefined && atLineStart) {
+          // Keep the menu open so the branch name can be typed right after the command.
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            "/worktree ",
+            { expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd) },
+          );
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
+        if (item.worktreeAction !== undefined && item.worktreeAction !== "picker") {
+          const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          });
+          if (!applied) return;
+          setComposerHighlightedItemId(null);
+          onSelectNewWorktree(item.worktreeAction === "auto" ? null : item.worktreeAction.branch);
+          return;
+        }
       }
       if (
         item.command === "branch" ||
@@ -6637,6 +6719,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               />
             </ComposerBanner.Attachment>
           ) : null}
+          {voiceTarget ? <ComposerVoiceStrip {...voiceTarget} /> : null}
         </ComposerBanner.Column>
         {!isComposerApprovalState ? (
           <ComposerStashBadge
@@ -7374,6 +7457,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </Tooltip>
                     </>
                   ) : null}
+                  {voiceTarget ? <ComposerVoiceButton {...voiceTarget} /> : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}

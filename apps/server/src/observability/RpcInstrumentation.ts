@@ -95,6 +95,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.scheduledTasksRotateWebhookToken]: "scheduledTasks",
   [WS_METHODS.scheduledTasksListWebhookDeliveries]: "scheduledTasks",
   [WS_METHODS.scheduledTasksGetWebhookDelivery]: "scheduledTasks",
+  [WS_METHODS.voiceStart]: "voice",
+  [WS_METHODS.voiceStop]: "voice",
   [WS_METHODS.secretsAnswerRequest]: "secrets",
   [WS_METHODS.cloudGetRelayClientStatus]: "cloud",
   [WS_METHODS.cloudInstallRelayClient]: "cloud",

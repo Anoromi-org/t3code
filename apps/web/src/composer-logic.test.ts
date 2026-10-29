@@ -24,6 +24,7 @@ import {
   isCollapsedCursorAdjacentToInlineToken,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
+  parseNamedWorktreeBranch,
 } from "./composer-logic";
 import { carryDisplacedCustomAnswerIntoPrompt } from "./pendingUserInput";
 import { formatTerminalContextReference } from "./lib/terminalContext";
@@ -861,5 +862,26 @@ describe("literal editor answer cursor state", () => {
       });
     }
     expect(composerStateAtPromptEnd("Use $my").trigger?.kind).toBe("skill");
+  });
+});
+
+describe("named /worktree trigger", () => {
+  it("keeps the slash trigger open across the branch name", () => {
+    for (const text of ["/worktree ", "/worktree feat/x", "fix it\n/worktree feat/x"]) {
+      const trigger = detectComposerTrigger(text, text.length);
+      expect(trigger).toMatchObject({ kind: "slash-command", rangeEnd: text.length });
+      expect(text.slice(trigger!.rangeStart)).toBe(`/${trigger!.query}`);
+    }
+    expect(parseNamedWorktreeBranch("worktree feat/x")).toBe("feat/x");
+    expect(parseNamedWorktreeBranch("worktree feat*x")).toBe("feat_x");
+    expect(parseNamedWorktreeBranch("worktree ")).toBeNull();
+  });
+
+  it("ends once the name is followed by text or appears mid-line", () => {
+    expect(detectComposerTrigger("/worktree feat/x ", 17)).toBeNull();
+    expect(detectComposerTrigger("see /worktree x", 15)).toBeNull();
+    expect(detectComposerTrigger("/worktree\nfoo", 13)).toBeNull();
+    expect(detectComposerTrigger("/worktree @src", 14)?.kind).toBe("path");
+    expect(parseNamedWorktreeBranch("worktree\nfoo")).toBeNull();
   });
 });
