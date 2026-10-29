@@ -50,7 +50,11 @@ let
         ]
       }:"$PATH"
 
-      t3code_run_local_launch ${lib.getExe pkgs.nix} develop --impure ${lib.escapeShellArg "${self.outPath}#default"} \
+      # Build the dev shell from the importing config's nixpkgs so Electron's
+      # glibc matches the host GPU driver (non-nixos-gpu) built from it.
+      t3code_run_local_launch ${lib.getExe pkgs.nix} develop --impure \
+        --override-input nixpkgs ${lib.escapeShellArg "path:${pkgs.path}"} \
+        ${lib.escapeShellArg "${self.outPath}#default"} \
         --command bash "$repo_root/scripts/run-local-desktop.sh" "$repo_root" "$@"
     '';
   };
