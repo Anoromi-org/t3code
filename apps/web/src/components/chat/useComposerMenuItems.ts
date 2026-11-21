@@ -75,6 +75,7 @@ export function useComposerMenuItems({
   sideChatAvailable,
   sideChatDisabledReason,
   freshSessionAvailable,
+  branchPickerAvailable,
   compactSlashCommandAvailable,
   selectedProvider,
   selectedProviderSkills,
@@ -95,6 +96,8 @@ export function useComposerMenuItems({
   readonly sideChatAvailable: boolean;
   readonly sideChatDisabledReason: string | null;
   readonly freshSessionAvailable: boolean;
+  /** Fork: `/branch` only where a branch toolbar can open its picker. */
+  readonly branchPickerAvailable: boolean;
   readonly compactSlashCommandAvailable: boolean;
   readonly selectedProvider: ProviderDriverKind;
   readonly selectedProviderSkills: ServerProvider["skills"];
@@ -260,6 +263,31 @@ export function useComposerMenuItems({
           command: "model",
           label: "/model",
           description: gt("Switch response model for this thread"),
+        },
+        ...(branchPickerAvailable
+          ? ([
+              {
+                id: "slash:branch",
+                type: "slash-command",
+                command: "branch",
+                label: "/branch",
+                description: gt("Pick the branch for this thread"),
+              },
+            ] as const)
+          : []),
+        {
+          id: "slash:worktree",
+          type: "slash-command",
+          command: "worktree",
+          label: "/worktree",
+          description: gt("Work locally or in a new worktree"),
+        },
+        {
+          id: "slash:reasoning",
+          type: "slash-command",
+          command: "reasoning",
+          label: "/reasoning",
+          description: gt("Change reasoning effort"),
         },
         ...(sideChatAvailable
           ? ([

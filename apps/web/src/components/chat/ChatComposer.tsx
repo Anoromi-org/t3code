@@ -399,6 +399,8 @@ export interface ChatComposerProps {
   sideChatDisabledReason?: string | null;
   /** Arms a fresh session for the next message; absent where `/clear` is unavailable. */
   onFreshSession?: (() => void) | undefined;
+  /** Fork: opens the branch picker for `/branch`; omitted where there is no branch toolbar. */
+  onOpenBranchPicker?: (() => void) | undefined;
   environmentUnavailable: {
     readonly label: string;
     readonly connection: EnvironmentConnectionPresentation;
@@ -1156,6 +1158,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     sideChatAvailable: props.sideChatAvailable === true,
     sideChatDisabledReason: props.sideChatDisabledReason ?? null,
     freshSessionAvailable: props.onFreshSession !== undefined,
+    branchPickerAvailable: props.onOpenBranchPicker !== undefined,
     compactSlashCommandAvailable,
     selectedProvider,
     selectedProviderSkills,
@@ -1953,6 +1956,29 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
 
   const { onUsageLimitsCommand } = props;
+  // Opens a composer-owned control the way its keyboard shortcut does.
+  const openComposerControl = (command: KeybindingCommand) => {
+    if (composerBlurFrameRef.current !== null) {
+      window.cancelAnimationFrame(composerBlurFrameRef.current);
+      composerBlurFrameRef.current = null;
+    }
+    flushSync(() => setIsComposerFocused(true));
+    const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
+    const trigger = Array.from(
+      shell?.querySelectorAll<HTMLButtonElement>(
+        `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
+      ) ?? [],
+    ).find(
+      (element) =>
+        !element.closest("[inert]") && element.checkVisibility({ visibilityProperty: true }),
+    );
+    if (!trigger) return;
+    trigger.focus({ preventScroll: true });
+    if (command === "composer.mode") markOpenToPermissions(trigger);
+    if (command === "composer.effort") markOpenToEffort(trigger);
+    trigger.click();
+  };
+
   const onSelectComposerItem = (item: ComposerCommandItem) => {
     if (composerSelectLockRef.current) return;
     composerSelectLockRef.current = true;
@@ -1978,6 +2004,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return;
     }
     if (item.type === "slash-command") {
+      if (
+        item.command === "branch" ||
+        item.command === "worktree" ||
+        item.command === "reasoning"
+      ) {
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          focusEditorAfterReplace: false,
+        });
+        if (!applied) return;
+        setComposerHighlightedItemId(null);
+        if (item.command === "branch") props.onOpenBranchPicker?.();
+        else
+          openComposerControl(
+            item.command === "worktree" ? "composer.workspace" : "composer.effort",
+          );
+        return;
+      }
       if (item.command === "model") {
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -3180,27 +3224,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           openModelPickerStable();
         }
       },
-      openControl: (command) => {
-        if (composerBlurFrameRef.current !== null) {
-          window.cancelAnimationFrame(composerBlurFrameRef.current);
-          composerBlurFrameRef.current = null;
-        }
-        flushSync(() => setIsComposerFocused(true));
-        const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
-        const trigger = Array.from(
-          shell?.querySelectorAll<HTMLButtonElement>(
-            `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
-          ) ?? [],
-        ).find(
-          (element) =>
-            !element.closest("[inert]") && element.checkVisibility({ visibilityProperty: true }),
-        );
-        if (!trigger) return;
-        trigger.focus({ preventScroll: true });
-        if (command === "composer.mode") markOpenToPermissions(trigger);
-        if (command === "composer.effort") markOpenToEffort(trigger);
-        trigger.click();
-      },
+      openControl: openComposerControl,
       compactContext: compactThreadContextStable,
       isModelPickerOpen: () => isComposerModelPickerOpen,
       isCaretAtStart: () => {
