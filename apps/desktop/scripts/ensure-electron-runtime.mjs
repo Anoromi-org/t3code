@@ -209,7 +209,16 @@ export function ensureElectronRuntime() {
   return electronPath;
 }
 
+// An explicit runtime (the Nix Electron from the dev shell) means the npm binary is never used,
+// and since electron 44 its install.js ignores ELECTRON_SKIP_BINARY_DOWNLOAD.
+export function hasElectronRuntimeOverride(env = process.env) {
+  return Boolean(env.ELECTRON_OVERRIDE_DIST_PATH || env.T3CODE_DESKTOP_ELECTRON_PATH);
+}
+
 export function setup() {
+  if (hasElectronRuntimeOverride()) {
+    return;
+  }
   ensureElectronRuntime();
 }
 

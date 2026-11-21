@@ -26,6 +26,13 @@ const publicConfigDefine = {
   ),
 };
 
+function electronTestEnv(): Record<string, string> {
+  const override =
+    process.env.ELECTRON_OVERRIDE_DIST_PATH ||
+    process.env.T3CODE_DESKTOP_ELECTRON_PATH?.replace(/[\\/][^\\/]*$/, "");
+  return override ? { ELECTRON_OVERRIDE_DIST_PATH: override } : {};
+}
+
 export function shouldBundleGhosttyWorktreeDependency(id: string): boolean {
   return id.startsWith("@t3tools/");
 }
@@ -182,7 +189,10 @@ export default defineConfig({
     testTimeout: 15_000,
     // `require("electron")` downloads a missing binary, so concurrent workers race to
     // extract it into the same dist/. Install it once before any worker starts.
+    // It skips the install when an override runtime is set; workers then need the override too, or
+    // `require("electron")` would download the binary in each of them.
     globalSetup: ["./scripts/ensure-electron-runtime.mjs"],
+    env: electronTestEnv(),
     projects: [
       {
         extends: true,
