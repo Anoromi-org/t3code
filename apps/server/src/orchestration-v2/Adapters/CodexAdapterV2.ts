@@ -133,6 +133,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import { AGENT_ENVIRONMENT_ENV } from "../../provider/threadAttribution.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
   MCP_APP_EXTENSION_ID,
@@ -1590,6 +1591,18 @@ function codexThreadRuntimeParams(input: {
                 input.threadId,
               ]),
             ),
+            ...(mcpSession === undefined
+              ? {}
+              : {
+                  [`shell_environment_policy.set.${AGENT_ENVIRONMENT_ENV}`]:
+                    mcpSession.environmentId,
+                  ...Object.fromEntries(
+                    (input.stdioMcpServers ?? []).map((name) => [
+                      `mcp_servers.${name}.env.${AGENT_ENVIRONMENT_ENV}`,
+                      mcpSession.environmentId,
+                    ]),
+                  ),
+                }),
           }),
       ...(t3Server === undefined
         ? {}

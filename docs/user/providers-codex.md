@@ -163,6 +163,13 @@ over to new threads. Custom models do not offer it. If Codex rejects a turn
 because your login lacks the program, switch Cyber Access back to Standard or
 sign in to Codex with an account that has it.
 
+## Pass thread IDs to your own MCP server
+
+Codex and Claude processes T3 Code starts see `T3CODE_THREAD_ID` in their environment, plus
+`T3CODE_ENVIRONMENT_ID` once the thread is connected to T3 Code's MCP server. Codex also
+passes both to the stdio MCP servers in your Codex config, so their work can be attributed to
+the owning thread.
+
 ## Codex says I hit a usage limit
 
 When Codex stops on a usage limit, the thread names the window that ran out and

@@ -227,6 +227,7 @@ import {
   normalizeMcpText,
 } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import { threadAttributionEnvironment } from "../../provider/threadAttribution.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import {
@@ -699,6 +700,8 @@ export interface ClaudeAgentSdkQueryOpenInput {
   readonly resume?: true;
   readonly options: ClaudeAgentSdkQueryOptions;
   readonly threadId: ThreadId;
+  /** Fork: the environment of the thread's MCP session, for agent-started processes. */
+  readonly environmentId?: string | undefined;
   readonly providerSessionId: OrchestrationV2ProviderSession["id"];
 }
 
@@ -1576,7 +1579,10 @@ export const layerQueryRunner: Layer.Layer<
                 CLAUDE_CODE_RESUME_REASON: "user_resume",
               }
             : {}),
-          [PortScanner.AGENT_THREAD_ENV]: input.threadId,
+          ...threadAttributionEnvironment({
+            threadId: input.threadId,
+            environmentId: input.environmentId,
+          }),
         },
       };
       // The SDK can prepend a scope wrapper to native binaries; script entries run through node.
@@ -2585,6 +2591,8 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_thread_wait",
   "mcp__t3-code__t3_worktree_status",
   "mcp__t3-code__t3_worktree_list",
+  "mcp__t3-code__get_current_thread",
+  "mcp__t3-code__list_worktree_threads",
   "mcp__t3-code__t3_project_list",
   "mcp__t3-code__t3_project_read",
   "mcp__t3-code__t3_thread_search",
@@ -13259,6 +13267,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             .pipe(Effect.orElseSucceed(() => turnInput.runtimePolicy.cwd));
           const openQueryRuntime = queryRunner.open({
             threadId: turnInput.threadId,
+            ...(mcpSession === undefined ? {} : { environmentId: mcpSession.environmentId }),
             providerSessionId: input.providerSessionId,
             options: queryOptions,
             ...(turnInput.resume ? { resume: true } : {}),
