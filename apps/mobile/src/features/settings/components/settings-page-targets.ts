@@ -21,6 +21,7 @@ export const SETTINGS_PAGE_TARGETS = [
   "SettingsScheduledTasks",
   "SettingsProjectGrouping",
   "SettingsClientStorage",
+  "SettingsTrustedLinkSources",
   "SettingsDiagnostics",
   "SettingsOpenSourceLicenses",
   "SettingsUsage",

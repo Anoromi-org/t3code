@@ -1,9 +1,9 @@
-import type { PromptLinkRepository } from "@t3tools/shared/promptLinks";
+import { PROMPT_LINK_PARAMS, type PromptLinkRepository } from "@t3tools/shared/promptLinks";
 import { msg } from "gt-react-native";
 
 import { m, type MessageResolver } from "../../i18n/messages";
 
-const PROMPT_LINK_PARAM_KEYS = ["prompt", "repo", "pr", "provider", "model"] as const;
+const PROMPT_LINK_PARAM_KEYS = PROMPT_LINK_PARAMS;
 
 type RouteParams = Readonly<Record<string, unknown>> | undefined;
 

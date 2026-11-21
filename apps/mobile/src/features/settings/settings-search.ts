@@ -166,6 +166,11 @@ const SETTINGS_SEARCH_TERMS = {
     msg("restart", { $context: "settings search keyword" }),
     msg("manage environments", { $context: "settings search keyword" }),
   ],
+  SettingsTrustedLinkSources: [
+    msg("prompt links", { $context: "settings search keyword" }),
+    msg("deep links", { $context: "settings search keyword" }),
+    msg("trusted apps", { $context: "settings search keyword" }),
+  ],
   SettingsAbout: [
     msg("version", { $context: "settings search keyword" }),
     msg("diagnostics", { $context: "settings search keyword" }),

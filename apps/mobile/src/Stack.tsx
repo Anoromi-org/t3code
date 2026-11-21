@@ -99,6 +99,7 @@ import { NewTaskRouteScreen } from "./features/threads/NewTaskRouteScreen";
 import { SettingsNavigationRouteScreen } from "./features/settings/SettingsNavigationRouteScreen";
 import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppearanceRouteScreen";
 import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsClientStorageRouteScreen";
+import { SettingsTrustedLinkSourcesRouteScreen } from "./features/settings/SettingsTrustedLinkSourcesRouteScreen";
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
 import { SettingsProviderAccountsRouteScreen } from "./features/settings/SettingsProviderAccountsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
@@ -197,6 +198,7 @@ const ROUTE_TITLES: Readonly<Record<string, string>> = {
   SettingsScheduledTaskBranch: msg("Base branch"),
   SettingsScheduledTaskThread: msg("Destination"),
   SettingsClientStorage: msg("Client Storage"),
+  SettingsTrustedLinkSources: msg("Trusted link sources"),
   SettingsDiagnostics: msg("Diagnostics"),
   SettingsUsageAccount: msg("Account"),
   SettingsOpenSourceLicenses: msg("Open source licenses"),
@@ -396,6 +398,11 @@ const SETTINGS_SCREENS = {
   SettingsClientStorage: createNativeStackScreen({
     screen: SettingsClientStorageRouteScreen,
     linking: "settings/client-storage",
+    options: settingsPage(),
+  }),
+  SettingsTrustedLinkSources: createNativeStackScreen({
+    screen: SettingsTrustedLinkSourcesRouteScreen,
+    linking: "settings/trusted-link-sources",
     options: settingsPage(),
   }),
   SettingsDiagnostics: createNativeStackScreen({

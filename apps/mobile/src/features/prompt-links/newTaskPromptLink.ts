@@ -20,10 +20,12 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import type {
-  LinkedPrompt,
-  PromptLinkPullRequest,
-  PromptLinkRepository,
+import {
+  parsePromptLinkSource,
+  type LinkedPrompt,
+  type PromptLinkPullRequest,
+  type PromptLinkRepository,
+  type PromptLinkSource,
 } from "@t3tools/shared/promptLinks";
 import { parseNewThreadLink } from "@t3tools/shared/promptLinksCopy";
 import { Atom, type AsyncResult } from "effect/reactivity";
@@ -66,6 +68,7 @@ type LinkedDraftRequest = {
   readonly provider: string | null;
   readonly model: string | null;
   readonly pullRequest: PromptLinkPullRequest | null;
+  readonly source: PromptLinkSource | null;
 };
 
 // A cold launch from a link has no projects or threads yet. Matching then would offer to clone a
@@ -168,7 +171,7 @@ function writeDraft(
 
 function openThread(
   thread: { readonly environmentId: EnvironmentId; readonly id: ThreadId },
-  prompt: LinkedDraftRequest["prompt"],
+  { prompt, source }: Pick<LinkedDraftRequest, "prompt" | "source">,
 ) {
   dispatchFromNewTask(
     StackActions.replace("Thread", {
@@ -181,6 +184,7 @@ function openThread(
       scopedThreadKey(thread.environmentId, thread.id),
       prompt,
       promptLinkNotice({ hiddenCharacters: prompt.hiddenCharacters }),
+      source,
     );
   }
 }
@@ -276,13 +280,13 @@ async function openProjectDraft(project: EnvironmentProject, request: LinkedDraf
     }),
   );
   if (request.prompt || pullRequestUnavailable !== null || modelUnavailable) {
-    showPromptLinkNotice(
-      promptLinkNotice({
-        hiddenCharacters: request.prompt?.hiddenCharacters ?? 0,
-        modelUnavailable,
-        pullRequestUnavailable,
-      }),
-    );
+    const hiddenCharacters = request.prompt?.hiddenCharacters ?? 0;
+    void showPromptLinkNotice({
+      notice: promptLinkNotice({ hiddenCharacters, modelUnavailable, pullRequestUnavailable }),
+      source: request.source,
+      skippable: hiddenCharacters === 0 && !modelUnavailable && pullRequestUnavailable === null,
+      offerTrust: hiddenCharacters === 0,
+    });
   }
 }
 
@@ -355,8 +359,8 @@ function cloneRepository(repository: PromptLinkRepository, request: LinkedDraftR
     }),
   );
   if (!request.prompt) return;
-  showPromptLinkNotice(
-    [
+  void showPromptLinkNotice({
+    notice: [
       promptLinkNotice({
         hiddenCharacters: request.prompt.hiddenCharacters,
         modelUnavailable: prompt !== null && request.provider !== null,
@@ -365,7 +369,10 @@ function cloneRepository(repository: PromptLinkRepository, request: LinkedDraftR
         ? m(msg("The prompt opens in a new task once the clone starts."))
         : m(msg("Open the link again after the clone to get the prompt.")),
     ].join("\n\n"),
-  );
+    source: request.source,
+    skippable: false,
+    offerTrust: request.prompt.hiddenCharacters === 0,
+  });
 }
 
 function resolveLink(linkSearch: string) {
@@ -376,15 +383,28 @@ function resolveLink(linkSearch: string) {
     return;
   }
   const link = parsed.value;
+  const source = parsePromptLinkSource(linkSearch);
   const request: LinkedDraftRequest =
     link.kind === "new"
-      ? { prompt: link.prompt, provider: link.provider, model: link.model, pullRequest: null }
-      : { prompt: link.prompt, provider: null, model: null, pullRequest: link.pullRequest };
+      ? {
+          prompt: link.prompt,
+          provider: link.provider,
+          model: link.model,
+          pullRequest: null,
+          source,
+        }
+      : {
+          prompt: link.prompt,
+          provider: null,
+          model: null,
+          pullRequest: link.pullRequest,
+          source,
+        };
 
   if (link.kind === "pull-request") {
     const thread = findPromptLinkPullRequestThread(threads, link.pullRequest);
     if (thread) {
-      openThread(thread, link.prompt);
+      openThread(thread, request);
       return;
     }
   }
@@ -412,7 +432,7 @@ function resolveLink(linkSearch: string) {
     const { pullRequest } = request;
     void (async () => {
       const thread = pullRequest && (await findServerPullRequestThread(projects, pullRequest));
-      if (thread) openThread(thread, request.prompt);
+      if (thread) openThread(thread, request);
       else await openProjectDraft(project, request);
     })();
     return;

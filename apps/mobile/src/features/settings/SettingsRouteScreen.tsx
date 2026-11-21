@@ -296,6 +296,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
       rows: [
         serverPage("SettingsEnvironmentMaintenance", "arrow.clockwise", gt("Maintenance")),
         page("SettingsLabs", "flask", gt("Labs")),
+        page("SettingsTrustedLinkSources", "link", gt("Trusted link sources")),
         page("SettingsAbout", "info.circle", gt("About")),
         page("SettingsArchive", "archivebox", gt("Archive")),
       ],

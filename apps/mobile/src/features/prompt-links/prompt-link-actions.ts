@@ -1,5 +1,9 @@
 import * as Dialog from "../../components/ui/Dialog";
-import { buildNewThreadLink, type LinkedPrompt } from "@t3tools/shared/promptLinks";
+import {
+  buildNewThreadLink,
+  type LinkedPrompt,
+  type PromptLinkSource,
+} from "@t3tools/shared/promptLinks";
 import { msg } from "gt-react-native";
 
 import { m } from "../../i18n/messages";
@@ -13,9 +17,65 @@ import {
 } from "../../state/use-composer-drafts";
 import { requestLinkedComposerFocus } from "./linked-composer-focus";
 import { linkedThreadDraftAction } from "./prompt-link-model";
+import { isTrustedLinkKey, trustLinkSource } from "./trusted-link-sources";
 
-export function showPromptLinkNotice(notice: string, onDismiss?: () => void): void {
-  Dialog.alert(m(msg("Prompt from a link")), notice, [{ text: m(msg("OK")), onPress: onDismiss }]);
+interface PromptLinkNoticeRequest {
+  readonly notice: string;
+  /** From the link. Absent for links that did not name their app. */
+  readonly source?: PromptLinkSource | null;
+  /**
+   * Whether a trusted source may skip the notice. False when it carries a warning (hidden
+   * characters) or news the user needs (an unavailable model or pull request).
+   */
+  readonly skippable: boolean;
+  /** Whether the notice may offer to trust the source. False with a hidden-characters warning. */
+  readonly offerTrust: boolean;
+}
+
+async function isTrusted(source: PromptLinkSource | null | undefined): Promise<boolean> {
+  if (!source) return false;
+  try {
+    return await isTrustedLinkKey(source.key);
+  } catch {
+    return false;
+  }
+}
+
+export async function showPromptLinkNotice(
+  request: PromptLinkNoticeRequest,
+  onDismiss?: () => void,
+): Promise<void> {
+  const trusted = await isTrusted(request.source);
+  if (trusted && request.skippable) {
+    onDismiss?.();
+    return;
+  }
+  const source = request.source;
+  const label = source?.label;
+  const trustButton =
+    !trusted && request.offerTrust && source && label
+      ? {
+          text: m(msg("Don't ask again for {app}", { app: label })),
+          onPress: () => {
+            // Trusting is best effort: the link proceeds like OK even if the write fails.
+            void trustLinkSource({ label, key: source.key }).catch(() => undefined);
+            onDismiss?.();
+          },
+        }
+      : null;
+  Dialog.alert(m(msg("Prompt from a link")), request.notice, [
+    ...(trustButton ? [trustButton] : []),
+    { text: m(msg("OK")), onPress: onDismiss },
+  ]);
+}
+
+function linkedPromptNoticeRequest(
+  prompt: LinkedPrompt,
+  notice: string,
+  source: PromptLinkSource | null | undefined,
+): PromptLinkNoticeRequest {
+  const clean = prompt.hiddenCharacters === 0;
+  return { notice, source, skippable: clean, offerTrust: clean };
 }
 
 function fillLinkedThreadDraft(draftKey: string, text: string): void {
@@ -28,6 +88,7 @@ export async function applyLinkedPromptToThreadDraft(
   draftKey: string,
   prompt: LinkedPrompt,
   notice: string,
+  source?: PromptLinkSource | null,
 ): Promise<void> {
   try {
     await waitForComposerDraftsLoaded();
@@ -43,7 +104,7 @@ export async function applyLinkedPromptToThreadDraft(
   const focusComposer = () => requestLinkedComposerFocus(draftKey);
   if (action !== "ask") {
     if (action === "fill") fillLinkedThreadDraft(draftKey, prompt.text);
-    showPromptLinkNotice(notice, focusComposer);
+    await showPromptLinkNotice(linkedPromptNoticeRequest(prompt, notice, source), focusComposer);
     return;
   }
   Dialog.alert(m(msg("Linked prompt ready. Replace draft?")), notice, [
