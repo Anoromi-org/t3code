@@ -24,6 +24,7 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
           ? {}
           : { defaultModelSelection: mutation.defaultModelSelection }),
         ...(mutation.scripts === undefined ? {} : { scripts: mutation.scripts }),
+        ...(mutation.hidden === undefined ? {} : { hidden: mutation.hidden }),
       });
 
     case "project.update":
@@ -45,6 +46,7 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
         ...(mutation.pinned === undefined ? {} : { pinned: mutation.pinned }),
         ...(mutation.archived === undefined ? {} : { archived: mutation.archived }),
         ...(mutation.hyprnav === undefined ? {} : { hyprnav: mutation.hyprnav }),
+        ...(mutation.hidden === undefined ? {} : { hidden: mutation.hidden }),
       });
 
     case "project.delete":

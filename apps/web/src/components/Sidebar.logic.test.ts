@@ -37,6 +37,9 @@ import {
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
+  filterSidebarHiddenProjectThreads,
+  isSidebarProjectGroupHidden,
+  visibleSidebarProjectScopeItems,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
@@ -1766,5 +1769,78 @@ describe("resolveScopedNewThreadProjectRef", () => {
         viewed: viewedWeb,
       }),
     ).toBeNull();
+  });
+});
+
+describe("hidden projects", () => {
+  it("leaves threads of hidden projects out of the all-projects view only", () => {
+    const projectId = ProjectId.make("project-visible");
+    const environmentId = EnvironmentId.make("environment-visible");
+    const hiddenProjectId = ProjectId.make("project-learning");
+    const lesson = makeThreadFixture({
+      id: ThreadId.make("thread-lesson"),
+      environmentId,
+      projectId: hiddenProjectId,
+    });
+    const openLesson = makeThreadFixture({
+      id: ThreadId.make("thread-open-lesson"),
+      environmentId,
+      projectId: hiddenProjectId,
+    });
+    const work = makeThreadFixture({ id: ThreadId.make("thread-work"), environmentId, projectId });
+    const hidden = {
+      projectKeys: new Set([`${environmentId}:${hiddenProjectId}`]),
+      keep: (thread: { readonly id: string }) => thread.id === openLesson.id,
+    };
+    const ids = (threads: ReadonlyArray<{ readonly id: string }>) =>
+      threads.map((thread) => thread.id);
+
+    expect(
+      ids(filterSidebarHiddenProjectThreads([lesson, openLesson, work], null, hidden)),
+    ).toEqual([openLesson.id, work.id]);
+    expect(
+      ids(
+        filterSidebarHiddenProjectThreads(
+          [lesson, openLesson],
+          new Set([`${environmentId}:${hiddenProjectId}`]),
+          hidden,
+        ),
+      ),
+    ).toEqual([lesson.id, openLesson.id]);
+    expect(
+      ids(filterSidebarHiddenProjectThreads([lesson, work], null, { projectKeys: new Set() })),
+    ).toEqual([lesson.id, work.id]);
+  });
+
+  it("treats a project group as hidden only when every checkout is", () => {
+    const member = (hidden: boolean) => ({ hidden });
+    expect(isSidebarProjectGroupHidden({ memberProjects: [member(true)] })).toBe(true);
+    expect(isSidebarProjectGroupHidden({ memberProjects: [member(true), member(false)] })).toBe(
+      false,
+    );
+    expect(isSidebarProjectGroupHidden({ memberProjects: [] })).toBe(false);
+  });
+
+  it("keeps hidden projects in the picker only when shown, searched, or selected", () => {
+    const items = [
+      { value: "all", hidden: false },
+      { value: "learning", hidden: true },
+      { value: "app", hidden: false },
+    ];
+    const values = (list: ReadonlyArray<{ readonly value: string }>) =>
+      list.map((item) => item.value);
+    const visible = (input: { query?: string; showHidden?: boolean; selectedValues?: string[] }) =>
+      values(
+        visibleSidebarProjectScopeItems({
+          items,
+          query: input.query ?? "",
+          showHidden: input.showHidden ?? false,
+          selectedValues: input.selectedValues ?? [],
+        }),
+      );
+    expect(visible({})).toEqual(["all", "app"]);
+    expect(visible({ showHidden: true })).toEqual(["all", "learning", "app"]);
+    expect(visible({ query: "lea" })).toEqual(["all", "learning", "app"]);
+    expect(visible({ selectedValues: ["learning"] })).toEqual(["all", "learning", "app"]);
   });
 });

@@ -71,6 +71,8 @@ import {
 import {
   CheckIcon,
   ChevronDownIcon,
+  EyeIcon,
+  EyeOffIcon,
   FolderIcon,
   ListFilterIcon,
   PlusIcon,
@@ -184,6 +186,9 @@ import {
 import {
   applySidebarThreadDrop,
   filterSidebarV2VisibleThreads,
+  filterSidebarHiddenProjectThreads,
+  isSidebarProjectGroupHidden,
+  visibleSidebarProjectScopeItems,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
   buildBulkTitleRegenerationContextMenuItem,
@@ -245,6 +250,9 @@ import { titleRegenerationToast } from "./threadTitleRegenerationToast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import { Button } from "./ui/button";
+import { Switch } from "./ui/switch";
+import { hiddenProjectKeys } from "@t3tools/client-runtime/state/hidden-projects";
+import { useProjectHiddenToggle } from "../hooks/useProjectHiddenToggle";
 import { isProjectPinShortcut, ProjectPinButton } from "./ProjectPinButton";
 import {
   Combobox,
@@ -361,6 +369,9 @@ interface SidebarThreadPartitionInput {
   readonly scopedProjectKeys: ReadonlySet<string> | null;
   /** Tasks linked environments run for a listed thread; they show under it. */
   readonly delegatedUnderParent: ReadonlySet<string>;
+  /** Projects the all-projects view leaves out; empty while shown or searching. */
+  readonly hiddenProjectKeys: ReadonlySet<string>;
+  readonly routeRowThreadKey: string | null;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
   readonly connectedEnvironmentIds: readonly EnvironmentId[];
   readonly optimisticDrop: SidebarOptimisticDrop | null;
@@ -431,6 +442,7 @@ function useSidebarThreads(input: {
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly threads: readonly EnvironmentThreadShell[];
   readonly delegatedUnderParent: ReadonlySet<string>;
+  readonly hiddenProjectKeys: ReadonlySet<string>;
   readonly routeRowThreadKey: string | null;
   // Set in boring mode: the project groups to fold active threads into, in order.
   readonly folderGroups: readonly SidebarProjectSnapshot[] | null;
@@ -445,6 +457,7 @@ function useSidebarThreads(input: {
     optimisticDrop,
     threads,
     delegatedUnderParent,
+    hiddenProjectKeys: hiddenKeys,
     routeRowThreadKey,
     folderGroups,
     keepEmptyFolders: keepEmpty,
@@ -491,6 +504,8 @@ function useSidebarThreads(input: {
     threads,
     scopedProjectKeys,
     delegatedUnderParent,
+    hiddenProjectKeys: hiddenKeys,
+    routeRowThreadKey,
     serverConfigs,
     connectedEnvironmentIds,
     optimisticDrop,
@@ -633,7 +648,14 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     sortActiveBySend,
   } = input;
   const preciseNow = new Date().toISOString();
-  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  const visible = filterSidebarHiddenProjectThreads(
+    filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent),
+    scopedProjectKeys,
+    {
+      projectKeys: input.hiddenProjectKeys,
+      keep: (thread) => threadShellKey(thread) === input.routeRowThreadKey,
+    },
+  );
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -837,10 +859,11 @@ function useSidebarLookups() {
     projectGroups.map((project) => [project.projectKey, project] as const),
   );
   const projectScopeItems = [
-    { value: "all", label: gt("All projects") },
+    { value: "all", label: gt("All projects"), hidden: false },
     ...pickableProjectGroups(projectGroups).map((project) => ({
       value: project.projectKey,
       label: project.displayName,
+      hidden: isSidebarProjectGroupHidden(project),
     })),
   ];
   return {
@@ -1014,6 +1037,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const projectGroupsRef = useRef(projectGroups);
   const persistedProjectScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setPersistedProjectScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const showHiddenProjects = useUiStateStore((store) => store.showHiddenProjects);
+  const setShowHiddenProjects = useUiStateStore((store) => store.setShowHiddenProjects);
+  const setProjectGroupHidden = useProjectHiddenToggle();
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
@@ -1187,11 +1213,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       ? null
       : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
         projectScopeItems[0]!);
-  const filteredProjectScopeItems = filterSidebarProjectScopeItems({
-    items: projectScopeItems,
+  const filteredProjectScopeItems = visibleSidebarProjectScopeItems({
+    items: filterSidebarProjectScopeItems({
+      items: projectScopeItems,
+      query: projectScopeMenuState.query,
+      matches: (item, query) =>
+        projectScopeFilter.contains(item, query, (candidate) => candidate.label),
+    }),
     query: projectScopeMenuState.query,
-    matches: (item, query) =>
-      projectScopeFilter.contains(item, query, (candidate) => candidate.label),
+    showHidden: showHiddenProjects,
+    selectedValues: projectScopeKeys,
   });
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
@@ -1354,6 +1385,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     optimisticDrop,
     threads: listedThreads,
     delegatedUnderParent,
+    // Search looks through every thread, hidden projects included.
+    hiddenProjectKeys: hiddenProjectKeys(projects, showHiddenProjects || isSearchingThreads),
     routeRowThreadKey,
     folderGroups: boringSidebarEnabled
       ? scopedProjectGroups.length === 0
@@ -1362,7 +1395,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         : scopedProjectGroups
       : null,
     keepEmptyFolders: (group) =>
-      scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
+      scopedProjectGroups.length > 0 ||
+      (group.pinned &&
+        !group.archived &&
+        (showHiddenProjects || !isSidebarProjectGroupHidden(group))),
   });
 
   // Ranked across environments as the palette ranks them, so one
@@ -3196,12 +3232,22 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           >
                             <ProjectScopeRowIcon isSelected={isSelected}>
                               {project ? (
-                                <ProjectFavicon project={project} className="size-4 shrink-0" />
+                                <ProjectFavicon
+                                  project={project}
+                                  className={cn("size-4 shrink-0", item.hidden && "opacity-50")}
+                                />
                               ) : (
                                 <FolderIcon className="size-4 shrink-0" />
                               )}
                             </ProjectScopeRowIcon>
-                            <span className="min-w-0 truncate text-sm">{item.label}</span>
+                            <span
+                              className={cn(
+                                "min-w-0 truncate text-sm",
+                                item.hidden && "text-muted-foreground",
+                              )}
+                            >
+                              {item.label}
+                            </span>
                             {project && showProjectEnvironments ? (
                               <ProjectEnvironmentBadge
                                 group={project}
@@ -3225,21 +3271,50 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   ) : null
                                 }
                                 settings={
-                                  <Button
-                                    size="icon-xs"
-                                    variant="ghost-muted"
-                                    tabIndex={-1}
-                                    aria-hidden="true"
-                                    title={gt("Project settings for {project}", {
-                                      project: project.displayName,
-                                    })}
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onClick={(event) => {
-                                      void handleProjectSettings(event, project);
-                                    }}
-                                  >
-                                    <SettingsIcon className="size-3.5" />
-                                  </Button>
+                                  <>
+                                    <Button
+                                      size="icon-xs"
+                                      variant="ghost-muted"
+                                      tabIndex={-1}
+                                      aria-hidden="true"
+                                      title={
+                                        item.hidden
+                                          ? gt("Unhide project {project}", {
+                                              project: project.displayName,
+                                            })
+                                          : gt("Hide project {project}", {
+                                              project: project.displayName,
+                                            })
+                                      }
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        void setProjectGroupHidden(project, !item.hidden);
+                                      }}
+                                    >
+                                      {item.hidden ? (
+                                        <EyeIcon className="size-3.5" />
+                                      ) : (
+                                        <EyeOffIcon className="size-3.5" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      size="icon-xs"
+                                      variant="ghost-muted"
+                                      tabIndex={-1}
+                                      aria-hidden="true"
+                                      title={gt("Project settings for {project}", {
+                                        project: project.displayName,
+                                      })}
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        void handleProjectSettings(event, project);
+                                      }}
+                                    >
+                                      <SettingsIcon className="size-3.5" />
+                                    </Button>
+                                  </>
                                 }
                               />
                             ) : (
@@ -3250,6 +3325,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         );
                       }}
                     </ComboboxList>
+                    {projectScopeItems.some((item) => item.hidden) ? (
+                      <label className="flex cursor-pointer items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground">
+                        <T>Show hidden projects</T>
+                        <Switch
+                          size="sm"
+                          aria-label={gt("Show hidden projects")}
+                          checked={showHiddenProjects}
+                          onCheckedChange={setShowHiddenProjects}
+                        />
+                      </label>
+                    ) : null}
                   </ComboboxPopup>
                 </Combobox>
               }

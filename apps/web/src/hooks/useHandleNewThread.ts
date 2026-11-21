@@ -15,6 +15,7 @@ import {
 } from "../composerDraftStore";
 import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
+import { preferVisibleProjects } from "@t3tools/client-runtime/state/hidden-projects";
 import {
   deriveLogicalProjectKeyFromSettings,
   getProjectOrderKey,
@@ -468,6 +469,7 @@ export function resolveDefaultProjectRef(
   lastUsedProjectKey: string | null,
   fallbackReady = true,
   groupingSettings?: ProjectGroupingSettings,
+  showHiddenProjects = false,
 ): ScopedProjectRef | null {
   const lastUsed = projects.find(
     (project) =>
@@ -478,7 +480,7 @@ export function resolveDefaultProjectRef(
   if (!fallbackReady) return null;
   const liveProjects = projects.filter((project) => project.archivedAt == null);
   const [firstProject] = orderItemsByPreferredIds({
-    items: liveProjects,
+    items: preferVisibleProjects(liveProjects, showHiddenProjects),
     preferredIds: projectOrder,
     getId: getProjectOrderKey,
     getPreferenceIds: (project) => [
@@ -516,6 +518,7 @@ export function useHandleNewThread() {
       : null,
   );
   const projects = useProjects();
+  const showHiddenProjects = useUiStateStore((store) => store.showHiddenProjects);
   const handleNewThread = useNewThreadHandler();
   const groupingSettings = useClientSettings(selectProjectGroupingSettings);
   const defaultProjectRef = resolveDefaultProjectRef(
@@ -524,6 +527,7 @@ export function useHandleNewThread() {
     lastUsedProjectKey,
     defaultProjectFallbackReady,
     groupingSettings,
+    showHiddenProjects,
   );
 
   return {

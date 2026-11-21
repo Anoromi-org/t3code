@@ -104,6 +104,7 @@ const layerWithPolicy = (policy?: ManagedPolicySummary) =>
             faviconPath: null,
             projectIcon: null,
             hyprnav: null,
+            hidden: false,
             scripts: [],
             pinnedAt: null,
             archivedAt: null,

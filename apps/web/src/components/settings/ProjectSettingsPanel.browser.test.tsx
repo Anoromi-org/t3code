@@ -199,6 +199,7 @@ function setup() {
     defaultModelSelection: { instanceId, model: "gpt-5-codex" },
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    hidden: false,
     scripts: [],
   }));
   state.update.mockImplementation(async ({ environmentId, input }) => {

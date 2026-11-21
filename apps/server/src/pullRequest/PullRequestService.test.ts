@@ -55,6 +55,7 @@ function project(input: {
     id: input.id as ProjectId,
     title: input.title,
     workspaceRoot: input.workspaceRoot,
+    hidden: false,
     ...(input.repository
       ? {
           repositoryIdentity: {

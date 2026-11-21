@@ -41,6 +41,8 @@ import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspace
 import { WorkspaceListEmptyDetail } from "../layout/workspace/WorkspaceListEmptyDetail";
 import { WorkspaceListHeader } from "../layout/workspace/WorkspaceListHeader";
 import { buildHomeListFilterMenuItems, homeListFilterEnvironments } from "./home-list-filter-menu";
+import { buildHomeProjectFilterOptions } from "./hidden-projects";
+import { useShowHiddenProjects } from "./use-show-hidden-projects";
 
 export function HomeRouteScreen() {
   const gt = useGT();
@@ -119,6 +121,7 @@ export function HomeRouteScreen() {
     setSelectedEnvironmentId,
     setSelectedProjectKey,
   } = useHomeListOptions(availableEnvironmentIds);
+  const { showHiddenProjects, setShowHiddenProjects } = useShowHiddenProjects();
   const selectedEnvironmentId = listOptions.selectedEnvironmentId;
   const projectScopes = useMemo(
     () =>
@@ -134,17 +137,16 @@ export function HomeRouteScreen() {
   );
   const projectFilterOptions = useMemo(
     () =>
-      pickableProjectGroups(
-        sortHomeProjectScopes({
-          scopes: projectScopes,
-          threads,
-          pendingTasks: [],
-          projectSortOrder: "updated_at",
-        }),
-      ).map((scope) => ({
-        key: scope.key,
-        label: scope.title,
-      })),
+      buildHomeProjectFilterOptions(
+        pickableProjectGroups(
+          sortHomeProjectScopes({
+            scopes: projectScopes,
+            threads,
+            pendingTasks: [],
+            projectSortOrder: "updated_at",
+          }),
+        ),
+      ),
     [projectScopes, threads],
   );
   const selectedProjectKey =
@@ -182,6 +184,8 @@ export function HomeRouteScreen() {
                 selectedProjectKey,
                 onEnvironmentChange: setSelectedEnvironmentId,
                 onProjectChange: setSelectedProjectKey,
+                showHiddenProjects,
+                onShowHiddenProjectsChange: setShowHiddenProjects,
               },
               m,
             ),
@@ -206,6 +210,7 @@ export function HomeRouteScreen() {
           onRegenerateThreadTitle={regenerateThreadTitle}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
+          onShowHiddenProjectsChange={setShowHiddenProjects}
           onOpenSettings={() => selectTab("settings")}
           onSearchQueryChange={setSearchQuery}
           onSelectThread={handleSelectThread}
@@ -231,6 +236,7 @@ export function HomeRouteScreen() {
           searchQuery={searchQuery}
           selectedEnvironmentId={selectedEnvironmentId}
           selectedProjectKey={selectedProjectKey}
+          showHiddenProjects={showHiddenProjects}
           threads={threads}
           visible={visible}
         />

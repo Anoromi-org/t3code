@@ -540,14 +540,27 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 }),
             ),
           );
-          const project = yield* projects
-            .getById(created.projectId)
-            .pipe(
-              Effect.mapError(unavailable),
-              Effect.flatMap(
-                Option.match({ onNone: () => Effect.fail(unavailable()), onSome: Effect.succeed }),
-              ),
-            );
+          // Fork: a managed project created hidden is hidden right after creation.
+          const project =
+            input.hidden === true
+              ? yield* projects
+                  .update({
+                    commandId: yield* newCommandId(),
+                    projectId: created.projectId,
+                    hidden: true,
+                  })
+                  .pipe(Effect.mapError(projectFailure))
+              : yield* projects
+                  .getById(created.projectId)
+                  .pipe(
+                    Effect.mapError(unavailable),
+                    Effect.flatMap(
+                      Option.match({
+                        onNone: () => Effect.fail(unavailable()),
+                        onSome: Effect.succeed,
+                      }),
+                    ),
+                  );
           return {
             ...(yield* withSavedProjectSettingsAfterCreate)(project),
             ...(created.commitError === undefined ? {} : { commitError: created.commitError }),

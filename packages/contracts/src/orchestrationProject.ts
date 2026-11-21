@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectScript, ReceivedProjectIcon } from "./project.ts";
+import { ProjectHidden, ProjectScript, ReceivedProjectIcon } from "./project.ts";
 import { ProjectHyprnavOverride } from "./hyprnav.ts";
 
 export const OrchestrationProjectShell = Schema.Struct({
@@ -25,6 +25,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
+  hidden: ProjectHidden,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

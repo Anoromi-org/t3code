@@ -93,6 +93,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
         lastUsedProjectKey,
         appAtomRegistry.get(defaultProjectFallbackReadyAtom(lastUsedProjectKey)),
         selectProjectGroupingSettings(getClientSettings()),
+        useUiStateStore.getState().showHiddenProjects,
       ),
       handleNewThread,
     };

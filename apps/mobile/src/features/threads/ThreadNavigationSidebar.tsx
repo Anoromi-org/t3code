@@ -51,6 +51,13 @@ import {
   homeListFilterEnvironments,
 } from "../home/home-list-filter-menu";
 import {
+  buildHomeProjectFilterOptions,
+  buildHomeProjectRowTitles,
+  homeListHiddenProjectKeys,
+} from "../home/hidden-projects";
+import { useShowHiddenProjects } from "../home/use-show-hidden-projects";
+import { excludeHiddenProjectItems } from "@t3tools/client-runtime/state/hidden-projects";
+import {
   buildHomeProjectScopes,
   resolveHomeProjectFilterScope,
   sortHomeProjectScopes,
@@ -150,7 +157,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     renameThread,
     regenerateThreadTitle,
   } = useThreadListActions();
-  const pendingTasks = usePendingNewTasks();
+  const allPendingTasks = usePendingNewTasks();
+  const { showHiddenProjects, setShowHiddenProjects } = useShowHiddenProjects();
   const launchingThreads = useLaunchingThreads(threads);
   const activeNewTask = useActiveNewTask();
   const queuedThreadKeys = useQueuedThreadKeys();
@@ -188,33 +196,45 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
       ),
     [projects, options.selectedEnvironmentId, options.projectGroupingMode, messages],
   );
-  const projectFilterOptions = pickableProjectGroups(
-    sortHomeProjectScopes({
-      scopes: projectScopes,
-      threads,
-      pendingTasks: [],
-      projectSortOrder: "updated_at",
-    }),
-  ).map((scope) => ({
-    key: scope.key,
-    label: scope.title,
-  }));
+  const projectFilterOptions = buildHomeProjectFilterOptions(
+    pickableProjectGroups(
+      sortHomeProjectScopes({
+        scopes: projectScopes,
+        threads,
+        pendingTasks: [],
+        projectSortOrder: "updated_at",
+      }),
+    ),
+  );
   const projectTitleByProjectKey = useMemo(
-    () =>
-      new Map(
-        projectScopes.flatMap((scope) =>
-          scope.projectRefs.map(
-            (projectRef) =>
-              [
-                scopedProjectKey(projectRef.environmentId, projectRef.projectId),
-                scope.title,
-              ] as const,
-          ),
-        ),
-      ),
-    [projectScopes],
+    () => buildHomeProjectRowTitles(projectScopes, messages),
+    [projectScopes, messages],
   );
   const selectedProjectScope = resolveHomeProjectFilterScope(projectScopes, projects, options);
+  const hiddenProjectKeys = useMemo(
+    () =>
+      homeListHiddenProjectKeys({
+        projects,
+        showHiddenProjects,
+        projectScoped: selectedProjectScope !== null,
+        searchQuery: props.searchQuery,
+      }),
+    [projects, props.searchQuery, selectedProjectScope, showHiddenProjects],
+  );
+  // The open thread stays listed, so opening it by route or link never makes it vanish.
+  const listThreads = useMemo(
+    () =>
+      excludeHiddenProjectItems(
+        launchingThreads,
+        hiddenProjectKeys,
+        (thread) => scopedThreadKey(thread.environmentId, thread.id) === selectedThreadKey,
+      ),
+    [launchingThreads, hiddenProjectKeys, selectedThreadKey],
+  );
+  const pendingTasks = useMemo(
+    () => excludeHiddenProjectItems(allPendingTasks, hiddenProjectKeys),
+    [allPendingTasks, hiddenProjectKeys],
+  );
   const threadSearch = useThreadSearch(
     searchEnvironmentIds,
     props.searchQuery,
@@ -277,7 +297,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     contentOnlyThreadKeys,
     olderSettledShelf,
   } = useThreadListV2({
-    threads: launchingThreads,
+    threads: listThreads,
     pendingTasks,
     environmentId: options.selectedEnvironmentId,
     projectRefs: selectedProjectScope === null ? null : selectedProjectScope.projectRefs,
@@ -555,6 +575,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             selectedProjectKey,
             onEnvironmentChange: setSelectedEnvironmentId,
             onProjectChange: setSelectedProjectKey,
+            showHiddenProjects,
+            onShowHiddenProjectsChange: setShowHiddenProjects,
           },
           messages,
         ),

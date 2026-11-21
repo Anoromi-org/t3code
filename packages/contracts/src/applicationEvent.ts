@@ -45,6 +45,8 @@ export const ApplicationProjectCreatedPayload = Schema.Struct({
   projectIcon: Schema.optional(Schema.NullOr(StoredProjectIcon)),
   scripts: Schema.Array(ProjectScript),
   hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
+  // Absent = not hidden, or keep the stored flag when a baseline re-creates the project.
+  hidden: Schema.optionalKey(Schema.Boolean),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -65,6 +67,7 @@ export const ApplicationProjectMetaUpdatedPayload = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   hyprnav: Schema.optional(ProjectHyprnavOverride),
+  hidden: Schema.optional(Schema.Boolean),
   updatedAt: IsoDateTime,
 });
 export type ApplicationProjectMetaUpdatedPayload = typeof ApplicationProjectMetaUpdatedPayload.Type;

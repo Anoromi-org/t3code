@@ -1042,6 +1042,64 @@ it.effect("creating a project through MCP refuses a model default instead of dro
   }),
 );
 
+it.effect("creating a project through MCP honors hidden for named and workspace projects", () =>
+  Effect.gen(function* () {
+    // Fork: hidden projects stay out of the app's default lists.
+    const harness = clientLaunchHarness({ runtimeModeCeiling: "full-access", launched: [] });
+    const createdHidden: Array<boolean | undefined> = [];
+    const hiddenUpdates: Array<boolean | undefined> = [];
+    const createdProjectId = ProjectId.make("project-learning");
+    const createdProject = {
+      id: createdProjectId,
+      title: "Learning",
+      workspaceRoot: "/projects/learning",
+      scripts: [],
+      defaultModelSelection: null,
+      hidden: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      deletedAt: null,
+    } as unknown as ProjectRecord;
+    const dependencies = Layer.mergeAll(
+      harness.dependencies,
+      Layer.mock(Project.ProjectService)({
+        create: (input) =>
+          Effect.sync(() => {
+            createdHidden.push(input.hidden);
+            return { ...createdProject, hidden: input.hidden ?? false };
+          }),
+        update: (input) =>
+          Effect.sync(() => {
+            hiddenUpdates.push(input.hidden);
+            return { ...createdProject, hidden: input.hidden ?? false };
+          }),
+        getById: () => Effect.succeedSome(createdProject),
+      }),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/projects",
+        isScratchProject: () => Effect.succeed(false),
+        createNamedProject: () =>
+          Effect.succeed({ projectId: createdProjectId, workspaceRoot: "/projects/learning" }),
+      }),
+    );
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
+      ),
+    );
+    const create = (input: { title: string; workspaceRoot?: string; hidden?: boolean }) =>
+      toolkit
+        .handle("t3_project_create", input)
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+
+    const hiddenNamed = yield* create({ title: "Learning", hidden: true });
+    expect(hiddenNamed.at(-1)?.result).toMatchObject({ id: createdProjectId, hidden: true });
+    expect(hiddenUpdates).toEqual([true]);
+    yield* create({ title: "Lessons", workspaceRoot: "/work/lessons", hidden: true });
+    expect(createdHidden).toEqual([true]);
+  }),
+);
+
 it.effect("an agent's clone is not cut off while git is still transferring", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

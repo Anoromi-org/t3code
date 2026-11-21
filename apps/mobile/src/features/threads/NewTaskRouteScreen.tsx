@@ -46,6 +46,11 @@ import {
   getProjectScopeSelectionTarget,
   resolveNewTaskScratchOption,
 } from "./new-task-project-selection";
+import {
+  hiddenProjectLabel,
+  hiddenProjectScopesLast,
+  isHiddenProjectGroup,
+} from "../home/hidden-projects";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
 
 type NewTaskRouteParams = {
@@ -209,7 +214,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         isScratchProject(project, serverConfigs.get(project.environmentId)?.scratchWorkspaceRoot),
       ),
   );
-  const visibleScopes = filterProjectScopes(listScopes, searchText);
+  const visibleScopes = hiddenProjectScopesLast(filterProjectScopes(listScopes, searchText));
   const resumedDestinationKeyRef = useRef<string | null>(null);
   const reservedDestinationProject = incomingShare?.destination
     ? (projects.find(
@@ -545,19 +550,21 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                   selectedEnvironmentId,
                   connectedEnvironmentIds,
                 );
+                const location = hasMultipleProjects
+                  ? gt("{count, plural, other {{count} workspaces}}", {
+                      count: scope.projects.length,
+                    })
+                  : selectionTarget.workspaceRoot;
+                const subtitle = isHiddenProjectGroup(scope.projects)
+                  ? `${hiddenProjectLabel(m)} · ${location}`
+                  : location;
                 if (Platform.OS === "android") {
                   return (
                     <NavigationRow
                       className="bg-grouped-card"
                       key={scope.key}
                       title={scope.title}
-                      subtitle={
-                        hasMultipleProjects
-                          ? gt("{count, plural, other {{count} workspaces}}", {
-                              count: scope.projects.length,
-                            })
-                          : selectionTarget.workspaceRoot
-                      }
+                      subtitle={subtitle}
                       subtitleNumberOfLines={1}
                       subtitleEllipsizeMode="middle"
                       disabled={reservedDestinationProject !== null}
@@ -606,11 +613,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           ellipsizeMode="middle"
                           numberOfLines={1}
                         >
-                          {hasMultipleProjects
-                            ? gt("{count, plural, other {{count} workspaces}}", {
-                                count: scope.projects.length,
-                              })
-                            : selectionTarget.workspaceRoot}
+                          {subtitle}
                         </Text>
                       </View>
                       <SymbolView

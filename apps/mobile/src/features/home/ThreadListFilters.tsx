@@ -1,11 +1,13 @@
-import { useGT } from "gt-react-native";
+import { useGT, useMessages } from "gt-react-native";
 import { Pressable, ScrollView } from "react-native";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ListFilterMenu } from "../layout/workspace/ListFilterMenu";
 import type { EnvironmentId } from "@t3tools/contracts";
-import type {
-  HomeListFilterMenuEnvironment,
-  HomeListFilterMenuProject,
+import { hiddenProjectLabel } from "./hidden-projects";
+import {
+  SHOW_HIDDEN_PROJECTS_ACTION_ID,
+  type HomeListFilterMenuEnvironment,
+  type HomeListFilterMenuProject,
 } from "./home-list-filter-menu";
 
 export function ThreadListFilters(props: {
@@ -15,10 +17,13 @@ export function ThreadListFilters(props: {
   readonly selectedProjectKey: string | null;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
+  readonly showHiddenProjects: boolean;
+  readonly onShowHiddenProjectsChange: (show: boolean) => void;
   /** List padding the scroller bleeds through so pills start where row content does. */
   readonly gutter: number;
 }) {
   const gt = useGT();
+  const m = useMessages();
   const selectedEnvironment = props.environments.find(
     (environment) => environment.environmentId === props.selectedEnvironmentId,
   );
@@ -74,12 +79,25 @@ export function ThreadListFilters(props: {
           ...props.projects.map((project) => ({
             id: JSON.stringify(project.key),
             title: project.label,
+            ...(project.hidden ? { subtitle: hiddenProjectLabel(m) } : {}),
             state: project.key === props.selectedProjectKey ? ("on" as const) : ("off" as const),
           })),
+          ...(props.projects.some((project) => project.hidden)
+            ? [
+                {
+                  id: SHOW_HIDDEN_PROJECTS_ACTION_ID,
+                  title: gt("Show hidden projects"),
+                  subtitle: gt("Include them in the all-projects list"),
+                  state: props.showHiddenProjects ? ("on" as const) : ("off" as const),
+                },
+              ]
+            : []),
         ]}
         onSelect={(id) => {
           if (id === "all") props.onProjectChange(null);
-          else {
+          else if (id === SHOW_HIDDEN_PROJECTS_ACTION_ID) {
+            props.onShowHiddenProjectsChange(!props.showHiddenProjects);
+          } else {
             const project = props.projects.find(
               (candidate) => JSON.stringify(candidate.key) === id,
             );

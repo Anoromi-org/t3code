@@ -103,6 +103,12 @@ import { useFabScroll } from "./FabScrollContext";
 import { holdLaunchSplashForHomeRows, settleLaunchSplashHomeRows } from "./home-launch-splash";
 import { useWorkspaceTabs } from "../layout/workspace/WorkspaceTabsContext";
 import { ThreadListFilters } from "./ThreadListFilters";
+import {
+  buildHomeProjectFilterOptions,
+  buildHomeProjectRowTitles,
+  homeListHiddenProjectKeys,
+} from "./hidden-projects";
+import { excludeHiddenProjectItems } from "@t3tools/client-runtime/state/hidden-projects";
 import { deriveHomeEmptyState } from "./home-empty-state";
 
 interface HomeScreenProps {
@@ -119,6 +125,7 @@ interface HomeScreenProps {
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
+  readonly showHiddenProjects: boolean;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   readonly onSearchQueryChange: (query: string) => void;
@@ -153,6 +160,7 @@ interface HomeScreenProps {
   readonly onDeletePendingTask: (pendingTask: PendingNewTask) => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
+  readonly onShowHiddenProjectsChange: (show: boolean) => void;
 }
 
 const ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT = 72;
@@ -357,14 +365,20 @@ export function HomeScreen(props: HomeScreenProps) {
       : { projectIds: v2ScopedProjectGroup.projectRefs.map((ref) => ref.projectId) },
   );
   const threadSearchMatchByKey = useThreadListSearchMatches(props.threads, threadSearch);
-  const v2ProjectTitleByProjectKey = new Map(
-    projectScopes.flatMap((scope) =>
-      scope.projectRefs.map(
-        (projectRef) =>
-          [scopedProjectKey(projectRef.environmentId, projectRef.projectId), scope.title] as const,
-      ),
-    ),
+  const v2ProjectTitleByProjectKey = buildHomeProjectRowTitles(projectScopes, m);
+  const hiddenProjectKeys = homeListHiddenProjectKeys({
+    projects: props.projects,
+    showHiddenProjects: props.showHiddenProjects,
+    projectScoped: v2ScopedProjectGroup !== null,
+    searchQuery: props.searchQuery,
+  });
+  // The open thread stays listed, so opening it by route or link never makes it vanish.
+  const listThreads = excludeHiddenProjectItems(
+    props.threads,
+    hiddenProjectKeys,
+    (thread) => scopedThreadKey(thread.environmentId, thread.id) === selectedThreadKey,
   );
+  const listPendingTasks = excludeHiddenProjectItems(props.pendingTasks, hiddenProjectKeys);
   const handleSettleThread = props.onSettleThread;
   const handleSnoozeThread = props.onSnoozeThread;
   const handleUnsnoozeThread = props.onUnsnoozeThread;
@@ -419,8 +433,8 @@ export function HomeScreen(props: HomeScreenProps) {
     contentOnlyThreadKeys,
     olderSettledShelf,
   } = useThreadListV2({
-    threads: props.threads,
-    pendingTasks: props.pendingTasks,
+    threads: listThreads,
+    pendingTasks: listPendingTasks,
     environmentId: props.selectedEnvironmentId,
     projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
     searchQuery: props.searchQuery,
@@ -614,8 +628,8 @@ export function HomeScreen(props: HomeScreenProps) {
   };
 
   const hasAnyThreads =
-    props.threads.some((thread) => thread.archivedAt === null) ||
-    props.pendingTasks.length > 0 ||
+    listThreads.some((thread) => thread.archivedAt === null) ||
+    listPendingTasks.length > 0 ||
     threadListV2Layout.settledCount > 0;
   // A hidden list gets no layout, so it never reports its rows as laid out.
   const hasRowsToLayOut = props.visible && hasAnyThreads && threadListV2Items.length > 0;
@@ -687,19 +701,20 @@ export function HomeScreen(props: HomeScreenProps) {
         <ThreadListFilters
           gutter={sidebarSurface ? 8 : 0}
           environments={props.environments}
-          projects={pickableProjectGroups(
-            sortHomeProjectScopes({
-              scopes: projectScopes,
-              threads: props.threads,
-              pendingTasks: [],
-              projectSortOrder: "updated_at",
-            }),
-          ).map((scope) => ({
-            key: scope.key,
-            label: scope.title,
-          }))}
+          projects={buildHomeProjectFilterOptions(
+            pickableProjectGroups(
+              sortHomeProjectScopes({
+                scopes: projectScopes,
+                threads: props.threads,
+                pendingTasks: [],
+                projectSortOrder: "updated_at",
+              }),
+            ),
+          )}
           selectedEnvironmentId={props.selectedEnvironmentId}
           selectedProjectKey={props.selectedProjectKey}
+          showHiddenProjects={props.showHiddenProjects}
+          onShowHiddenProjectsChange={props.onShowHiddenProjectsChange}
           onEnvironmentChange={props.onEnvironmentChange}
           onProjectChange={props.onProjectChange}
         />

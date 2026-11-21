@@ -1,13 +1,15 @@
-import { useGT } from "gt-react-native";
+import { useGT, useMessages } from "gt-react-native";
 import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
 
 import type { AppBarMenu } from "../../../components/ui/AppBar.types";
 import { ENVIRONMENT_MACHINE_SYMBOLS } from "../../../components/EnvironmentMachineSymbol";
+import { hiddenProjectLabel, isHiddenProjectGroup } from "../../home/hidden-projects";
 import { useSettingsEnvironmentFilter } from "../settings-environment-filter";
 
 /** The settings scope filter, as an `AppBar` menu. */
 export function useSettingsEnvironmentMenu(): AppBarMenu {
   const gt = useGT();
+  const m = useMessages();
   const {
     availableTargets,
     selectedTargets,
@@ -67,6 +69,9 @@ export function useSettingsEnvironmentMenu(): AppBarMenu {
             title: group.archived
               ? gt("{project} · Archived", { project: group.label })
               : group.label,
+            ...(isHiddenProjectGroup(group.members.map((member) => member.project))
+              ? { subtitle: hiddenProjectLabel(m) }
+              : {}),
             selected: selectedProjectKey === group.key,
             onPress: () => selectProject(group.key),
           })),

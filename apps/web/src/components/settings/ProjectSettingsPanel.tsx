@@ -350,6 +350,19 @@ function ProjectDetail({
   };
 
   const hasMultipleCheckouts = group.memberProjects.length > 1;
+  const hiddenMemberCount = allMembers.filter((member) => member.hidden === true).length;
+  const mixedHidden = hiddenMemberCount > 0 && hiddenMemberCount < allMembers.length;
+  const canHide = allMembers.every((member) => editableIds.has(member.environmentId));
+  const [isSavingHidden, setIsSavingHidden] = useState(false);
+  const setHidden = async (hidden: boolean) => {
+    setIsSavingHidden(true);
+    await updateProjectGroup(
+      allMembers,
+      { hidden },
+      hidden ? gt("Failed to hide project") : gt("Failed to show project"),
+    );
+    setIsSavingHidden(false);
+  };
   const canResetScratchTitle =
     group.memberProjects.every((member) => member.isScratch) &&
     group.memberProjects.some((member) => member.title !== SCRATCH_PROJECT_TITLE);
@@ -690,6 +703,21 @@ function ProjectDetail({
               />
             </>
           ) : null}
+          <SettingsRow
+            title={gt("Hidden")}
+            description={gt(
+              "Keeps this project and its threads out of all-project lists unless Show hidden projects is on. Picking the project or opening one of its threads still shows it.",
+            )}
+            control={
+              <Switch
+                aria-label={gt("Hide project")}
+                disabled={!canHide || isSavingHidden}
+                mixed={mixedHidden}
+                checked={!mixedHidden && hiddenMemberCount > 0}
+                onCheckedChange={(checked) => void setHidden(Boolean(checked))}
+              />
+            }
+          />
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />

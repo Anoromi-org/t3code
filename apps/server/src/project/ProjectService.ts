@@ -210,6 +210,7 @@ export const make = Effect.gen(function* () {
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
     hyprnav: row.hyprnav,
+    hidden: row.hidden,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
@@ -425,6 +426,7 @@ export const make = Effect.gen(function* () {
         title: input.title,
         workspaceRoot,
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+        ...(input.hidden === undefined ? {} : { hidden: input.hidden }),
       });
       yield* projectEnrichment.invalidate([workspaceRoot]);
       return yield* readCommitted(input.projectId);
@@ -470,6 +472,7 @@ export const make = Effect.gen(function* () {
         ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
         ...(input.archived === undefined ? {} : { archived: input.archived }),
         ...(input.hyprnav === undefined ? {} : { hyprnav: input.hyprnav }),
+        ...(input.hidden === undefined ? {} : { hidden: input.hidden }),
       });
       if (workspaceRoot !== previousRoot || input.faviconPath !== undefined) {
         yield* projectEnrichment.invalidate([previousRoot, workspaceRoot]);

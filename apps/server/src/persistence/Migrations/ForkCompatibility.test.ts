@@ -157,6 +157,7 @@ it.effect("completes concurrent repair startup across two independent runtimes",
           ["fork", 1],
           ["fork", 2],
           ["fork", 3],
+          ["fork", 4],
         ]);
 
         const threadColumns = names(
@@ -249,6 +250,7 @@ freshDatabase("fork compatibility fresh database", (it) => {
         ["fork", 1],
         ["fork", 2],
         ["fork", 3],
+        ["fork", 4],
       ]);
       const freshProjectColumns = names(
         yield* sql<{ readonly name: string }>`PRAGMA table_info(projection_projects)`,
@@ -324,10 +326,11 @@ previousRebuildDatabase("fork compatibility previous rebuild", (it) => {
         name: "PullRequestFilesViewed",
       });
       // The historical RepairForkMigrationCompatibility row proves the baseline already ran.
-      assert.deepEqual((yield* forkLedger(sql)).slice(-3), [
+      assert.deepEqual((yield* forkLedger(sql)).slice(-4), [
         ["fork", 1],
         ["fork", 2],
         ["fork", 3],
+        ["fork", 4],
       ]);
 
       const threadColumns = names(
@@ -926,7 +929,7 @@ const requiredColumns = [
   ["auth_sessions", ["client_surface", "client_app_version"]],
   [
     "projection_projects",
-    ["auto_pull", "project_icon_json", "hyprnav_json", "worktree_group_titles_json"],
+    ["auto_pull", "project_icon_json", "hyprnav_json", "worktree_group_titles_json", "hidden"],
   ],
   [
     "projection_threads",
@@ -989,12 +992,14 @@ it.effect.each(["canonical", "fork"] as const)(
               ["fork", 1],
               ["fork", 2],
               ["fork", 3],
+              ["fork", 4],
             ]
           : [
               ...[41, 42, 43, 44, 45, 46, 47, 48].map((key) => ["canonical-replay", key] as const),
               ["fork", 1],
               ["fork", 2],
               ["fork", 3],
+              ["fork", 4],
             ],
       );
       yield* assertCurrentSchema(sql);
@@ -1127,6 +1132,7 @@ it.effect("upgrades the live fork ledger (fork rows at 16–22 and 26–49)", ()
       ["fork", 1],
       ["fork", 2],
       ["fork", 3],
+      ["fork", 4],
     ]);
     assert.deepEqual(yield* readHyprnav(sql), hyprnavBefore);
     yield* assertCurrentSchema(sql);
@@ -1169,6 +1175,7 @@ it.effect("upgrades a fork-main database (canonical 1–47 plus V2 at 49)", () =
       ["fork", 1],
       ["fork", 2],
       ["fork", 3],
+      ["fork", 4],
     ]);
     // The V2 row proves the baseline ran, so saved Hyprnav overrides stay as written.
     assert.deepEqual(yield* readHyprnav(sql), hyprnavBefore);
@@ -1205,6 +1212,7 @@ it.effect.each([47, 53] as const)(
         ["fork", 1],
         ["fork", 2],
         ["fork", 3],
+        ["fork", 4],
       ]);
       yield* assertCurrentSchema(sql);
       assert.deepEqual(yield* runMigrations(), []);
@@ -1249,6 +1257,7 @@ it.effect("skips the attachment cleanup cursor once upstream drops the v1 projec
       ["fork", 1],
       ["fork", 2],
       ["fork", 3],
+      ["fork", 4],
     ]);
   }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
 );

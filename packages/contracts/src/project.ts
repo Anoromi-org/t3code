@@ -152,6 +152,12 @@ export const ReceivedProjectIcon = ForwardCompatibleUnion(projectIconMembers, "k
   ),
 );
 
+/**
+ * Fork: a hidden project and its threads stay out of the clients' aggregate
+ * lists. Absent means visible, like upstream's optional pin and archive times.
+ */
+export const ProjectHidden = Schema.optional(Schema.Boolean);
+
 export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -168,6 +174,7 @@ export const Project = Schema.Struct({
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   // Fork: per-project Hyprnav override; null inherits the client defaults.
   hyprnav: Schema.optionalKey(ProjectHyprnavOverride),
+  hidden: ProjectHidden,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -186,6 +193,7 @@ export const ProjectCreatePayload = Schema.Struct({
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  hidden: Schema.optional(Schema.Boolean),
 });
 export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
 
@@ -205,6 +213,7 @@ export const ProjectUpdatePayload = Schema.Struct({
     }),
   ),
   hyprnav: Schema.optional(ProjectHyprnavOverride),
+  hidden: Schema.optional(Schema.Boolean),
 });
 export type ProjectUpdatePayload = typeof ProjectUpdatePayload.Type;
 

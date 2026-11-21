@@ -2,6 +2,7 @@ import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
+import { excludeHiddenProjectItems } from "@t3tools/client-runtime/state/hidden-projects";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
@@ -606,6 +607,53 @@ export function filterSidebarV2VisibleThreads<
       ) &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+  );
+}
+
+export interface SidebarHiddenProjectFilter<T> {
+  /** From `hiddenProjectKeys`; empty while hidden projects are shown. */
+  readonly projectKeys: ReadonlySet<string>;
+  /** Keeps a thread the user opened, such as the routed one. */
+  readonly keep?: (thread: T) => boolean;
+}
+
+/** Drops threads of hidden projects from the all-projects view; a scoped view is explicit intent. */
+export function filterSidebarHiddenProjectThreads<
+  T extends { readonly environmentId: string; readonly projectId: string },
+>(
+  threads: readonly T[],
+  scopedProjectKeys: ReadonlySet<string> | null,
+  hidden: SidebarHiddenProjectFilter<T>,
+): readonly T[] {
+  if (scopedProjectKeys !== null) return threads;
+  return excludeHiddenProjectItems(threads, hidden.projectKeys, hidden.keep);
+}
+
+/** A group is hidden only when every checkout in it is. */
+export function isSidebarProjectGroupHidden(group: {
+  readonly memberProjects: ReadonlyArray<{ readonly hidden?: boolean | undefined }>;
+}): boolean {
+  return (
+    group.memberProjects.length > 0 &&
+    group.memberProjects.every((member) => member.hidden === true)
+  );
+}
+
+/**
+ * Hidden groups leave the project picker unless they are shown, searched for,
+ * or already selected, so the picker stays a way back to them.
+ */
+export function visibleSidebarProjectScopeItems<
+  TItem extends { readonly value: string; readonly hidden?: boolean },
+>(input: {
+  readonly items: readonly TItem[];
+  readonly query: string;
+  readonly showHidden: boolean;
+  readonly selectedValues: ReadonlyArray<string>;
+}): readonly TItem[] {
+  if (input.showHidden || input.query.trim().length > 0) return input.items;
+  return input.items.filter(
+    (item) => item.hidden !== true || input.selectedValues.includes(item.value),
   );
 }
 

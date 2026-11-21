@@ -31,6 +31,7 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   faviconPath: null,
   projectIcon: null,
   hyprnav: null,
+  hidden: false,
   scripts: [],
   pinnedAt: null,
   archivedAt: null,
@@ -118,6 +119,37 @@ describe("planProjectCommand", () => {
     const untouched = update(organized, {});
     assert.notProperty(untouched, "pinnedAt");
     assert.notProperty(untouched, "archivedAt");
+  });
+
+  it("creates visible projects unless asked to hide them, and updates the flag", () => {
+    const create = (hidden?: boolean) =>
+      payloadOf(
+        plan({
+          type: "project.create",
+          commandId: CommandId.make("cmd-create"),
+          projectId,
+          title: "Learning",
+          workspaceRoot: "/tmp/learning",
+          ...(hidden === undefined ? {} : { hidden }),
+        }),
+      ).hidden;
+    const update = (change: { hidden?: boolean; title?: string }) =>
+      payloadOf(
+        plan(
+          {
+            type: "project.meta.update",
+            commandId: CommandId.make("cmd-update"),
+            projectId,
+            ...change,
+          },
+          { project: row() },
+        ),
+      );
+    assert.equal(create(), false);
+    assert.equal(create(true), true);
+    assert.equal(update({ hidden: true }).hidden, true);
+    assert.equal(update({ hidden: false }).hidden, false);
+    assert.notProperty(update({ title: "Renamed" }), "hidden");
   });
 
   it("starts projects inheriting Hyprnav defaults and carries an override or reset", () => {

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { OrchestrationProjectShell } from "./orchestrationProject.ts";
 
 import {
+  Project,
   ProjectFaviconPath,
   ReceivedProjectIcon,
   StoredProjectIcon,
@@ -218,5 +219,30 @@ effectIt.effect("an icon kind from a newer server shows the default icon", () =>
     assert.isNull(shell.projectIcon);
     const broken = yield* Effect.exit(decodeReceivedIcon({ kind: "emoji" }));
     assert.strictEqual(broken._tag, "Failure");
+  }),
+);
+
+effectIt.effect("a project from a server or event that predates hiding is visible", () =>
+  Effect.gen(function* () {
+    const fields = {
+      id: "project-1",
+      title: "Project",
+      workspaceRoot: "/tmp/project",
+      defaultModelSelection: null,
+      scripts: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    // Absent means visible.
+    assert.notEqual((yield* decodeProjectShell(fields)).hidden, true);
+    assert.isTrue((yield* decodeProjectShell({ ...fields, hidden: true })).hidden);
+    const decodeProject = Schema.decodeUnknownEffect(Project);
+    assert.notEqual((yield* decodeProject({ ...fields, deletedAt: null })).hidden, true);
+    assert.isTrue((yield* decodeProject({ ...fields, deletedAt: null, hidden: true })).hidden);
+    assert.isFalse(Object.hasOwn(decodeProjectUpdatePayload({ title: "Renamed" }), "hidden"));
+    assert.isTrue(decodeProjectUpdatePayload({ hidden: true }).hidden);
+    assert.isTrue(
+      decodeProjectCreatePayload({ title: "Learning", workspaceRoot: "/w", hidden: true }).hidden,
+    );
   }),
 );

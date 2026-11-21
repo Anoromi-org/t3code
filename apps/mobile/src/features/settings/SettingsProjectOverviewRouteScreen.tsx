@@ -47,6 +47,7 @@ import { workspaceHasColumns } from "../layout/workspace/workspace-selection-sto
 import { DEFAULT_SETTINGS_PAGE } from "../layout/workspace/workspace-tab-navigation";
 import { readUnloadedThreadCount } from "../../state/olderSettledShelf";
 import { m } from "../../i18n/messages";
+import { hiddenProjectLabel, isHiddenProjectGroup } from "../home/hidden-projects";
 
 export function SettingsProjectOverviewRouteScreen() {
   const gt = useGT();
@@ -185,7 +186,11 @@ function ProjectOverviewContent(props: {
         target.serverConfig.environment.capabilities.projectOrganization === true,
     );
   // One machine at a time, stopping at the first failure, as web does.
-  const organize = async (input: { readonly pinned?: boolean; readonly archived?: boolean }) => {
+  const organize = async (input: {
+    readonly pinned?: boolean;
+    readonly archived?: boolean;
+    readonly hidden?: boolean;
+  }) => {
     setIsOrganizing(true);
     for (const member of allMembers) {
       if (!readEnvironmentScope(member.environmentId, AuthOrchestrationOperateScope)) {
@@ -214,6 +219,9 @@ function ProjectOverviewContent(props: {
     }
     setIsOrganizing(false);
   };
+  // Every checkout follows the group, so a partly hidden group is offered "Hide" to finish the job.
+  const hidden = isHiddenProjectGroup(allMembers);
+  const canHide = allMembers.every((member) => removableEnvironments.has(member.environmentId));
   const nextName = (draftName ?? displayName).trim();
   const canSave = !isSaving && nextName.length > 0 && nextName !== displayName;
 
@@ -342,6 +350,7 @@ function ProjectOverviewContent(props: {
             {gt("{count, plural, one {{count} checkout} other {{count} checkouts}}", {
               count: props.members.length,
             })}
+            {hidden ? ` · ${hiddenProjectLabel(m)}` : ""}
           </Text>
         </View>
       </View>
@@ -371,6 +380,25 @@ function ProjectOverviewContent(props: {
             ) : null}
           </View>
         </View>
+        {canHide ? (
+          <View className="border-t border-border-subtle">
+            <SettingsActionRow
+              icon={hidden ? "eye" : "eye.slash"}
+              label={hidden ? gt("Unhide project") : gt("Hide project")}
+              description={
+                offline
+                  ? gt("Connect every machine with this project to change this.")
+                  : hidden
+                    ? gt("Show this project and its threads in all-project lists again.")
+                    : gt(
+                        "Leave this project and its threads out of all-project lists. Filtering to it, links, and search still open it.",
+                      )
+              }
+              disabled={isOrganizing || offline}
+              onPress={() => void organize({ hidden: !hidden })}
+            />
+          </View>
+        ) : null}
       </SettingsSection>
 
       {canOrganize ? (
