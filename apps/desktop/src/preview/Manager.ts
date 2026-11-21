@@ -93,6 +93,10 @@ import {
 } from "./GuestProtocol.ts";
 import { isPreviewAnnotationPayload } from "./PickedElementPayload.ts";
 import { captureFavicon, safeHttpOrigin, selectFaviconCandidates } from "./FaviconCapture.ts";
+import {
+  displayMediaHandlerSessions,
+  handleHyprnavDisplayMediaRequest,
+} from "../hyprnav/HyprnavScreencast.ts";
 import { DEFAULT_RECORDING_INPUT_OPTIONS, type RecordingInputOptions } from "./RecordingInput.ts";
 
 export type PreviewNavStatus =
@@ -605,7 +609,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const closingTabIdsRef = yield* Ref.make<ReadonlySet<string>>(new Set());
   // Legacy tab capture is unsupported (electron/electron#44618); recording uses setDisplayMediaRequestHandler.
   let pendingRecording: PendingRecording | null = null;
-  const displayMediaHandlerSessions = new WeakSet<Session>();
   let frameCaptureWindowOpen = true;
   let currentMainWindow: BrowserWindow | undefined;
   let mainWindowCleanupFiber: Fiber.Fiber<void, never> | undefined;
@@ -3403,14 +3406,19 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
 
+  const recordingHandlerSessions = new WeakSet<Session>();
   // Only serve the tab armed by startRecording; pages must not capture independently.
   const installDisplayMediaRequestHandler = (session: Session) => {
-    if (displayMediaHandlerSessions.has(session)) return;
+    if (recordingHandlerSessions.has(session)) return;
+    recordingHandlerSessions.add(session);
+    // Replaces the Watch-only handler, which this one defers to, and keeps it from coming back.
     displayMediaHandlerSessions.add(session);
     session.setDisplayMediaRequestHandler((request, callback) => {
       const armed = pendingRecording;
       if (!armed) {
-        callback({});
+        // Not a tab recording: only an armed desktop-agent Watch may reach the
+        // system portal; anything else is still denied.
+        handleHyprnavDisplayMediaRequest(request, callback);
         return;
       }
       if (armed.webContents.isDestroyed()) {

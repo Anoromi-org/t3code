@@ -23,6 +23,7 @@ import {
   recallCheckoutIsRepo,
   rememberCheckoutIsRepo,
   resolveThreadErrorBanner,
+  shouldRenderPreviewMiniPlayer,
 } from "./ChatView.logic";
 import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
 import { deriveProviderInstanceEntries } from "../providerInstances";
@@ -1695,5 +1696,21 @@ describe("resolveThreadErrorBanner", () => {
     },
   ])("$name", ({ input, expected }) => {
     expect(resolveThreadErrorBanner(input)).toEqual(expected);
+  });
+});
+
+describe("shouldRenderPreviewMiniPlayer", () => {
+  it("keeps a desktop agent's window floating whatever the panel shows", () => {
+    // Fork: no panel renders a desktop agent's window, so it never counts as a duplicate.
+    const agentWindow = { kind: "desktop-agent", agentId: "agent-1", address: "0xabc" } as const;
+    expect(shouldRenderPreviewMiniPlayer(agentWindow, null)).toBe(true);
+    expect(shouldRenderPreviewMiniPlayer(agentWindow, { id: "diff", kind: "diff" })).toBe(true);
+    expect(
+      shouldRenderPreviewMiniPlayer(agentWindow, {
+        id: "browser:one",
+        kind: "preview",
+        resourceId: "0xabc",
+      }),
+    ).toBe(true);
   });
 });

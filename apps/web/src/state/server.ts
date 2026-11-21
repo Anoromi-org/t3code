@@ -1,5 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  type EditorId,
   type EnvironmentId,
   type EnvironmentTheme,
   type ServerConfig,
@@ -107,6 +108,13 @@ export const primaryServerLegacyThreadMigrationAtom = Atom.make(
 export const primaryServerSettingsAtom = Atom.make(
   (get): ServerSettings => get(primaryServerConfigAtom)?.settings ?? DEFAULT_SERVER_SETTINGS,
 ).pipe(Atom.withLabel("web-primary-server-settings"));
+
+const EMPTY_AVAILABLE_EDITORS: ReadonlyArray<EditorId> = [];
+
+export const primaryServerAvailableEditorsAtom = Atom.make(
+  (get): ReadonlyArray<EditorId> =>
+    get(primaryServerConfigAtom)?.availableEditors ?? EMPTY_AVAILABLE_EDITORS,
+).pipe(Atom.withLabel("web-primary-server-available-editors"));
 
 export const primaryServerProvidersAtom = Atom.make(
   (get): ReadonlyArray<ServerProvider> =>

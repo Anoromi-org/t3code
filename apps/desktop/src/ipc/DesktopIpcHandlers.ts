@@ -48,6 +48,13 @@ import {
   getPreferredSystemLanguages,
   getPrimaryPasteEnabled,
   getWindowFullscreenState,
+  gotoHyprnavAgent,
+  listHyprnavAgents,
+  listOpenWorktreeTerminals,
+  lockHyprnavEnvironment,
+  registerHyprnavBrowserTab,
+  syncHyprnavBrowserTabs,
+  requestHyprnavScreencast,
   openExternal,
   readMedia,
   restartAudioService,
@@ -57,6 +64,7 @@ import {
   probeRemoteEditors,
   revealWindow,
   openExternalCorkdiff,
+  openWorktreeTerminal,
   pickFolder,
   toLocalBackendPath,
   pickProjectFavicon,
@@ -64,6 +72,7 @@ import {
   setTheme,
   syncHtmlFullscreen,
   showContextMenu,
+  syncHyprnavEnvironment,
 } from "./methods/window.ts";
 import {
   acknowledgeSnapShot,
@@ -175,6 +184,15 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(syncHtmlFullscreen);
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(openExternalCorkdiff);
+  yield* ipc.handle(openWorktreeTerminal);
+  yield* ipc.handle(listOpenWorktreeTerminals);
+  yield* ipc.handle(syncHyprnavEnvironment);
+  yield* ipc.handle(lockHyprnavEnvironment);
+  yield* ipc.handle(syncHyprnavBrowserTabs);
+  yield* ipc.handle(registerHyprnavBrowserTab);
+  yield* ipc.handle(listHyprnavAgents);
+  yield* ipc.handle(requestHyprnavScreencast);
+  yield* ipc.handle(gotoHyprnavAgent);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
   yield* ipc.handle(downloadUpdate);

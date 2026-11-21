@@ -6,6 +6,7 @@ import {
   PREVIEW_MINI_PLAYER_EDGE_GAP,
   type PreviewMiniPlayerObstacles,
   resizePreviewMiniPlayer,
+  resolveDesktopAgentMiniPlayerSourceSize,
   resolvePreviewMiniPlayerFrame,
   resolvePreviewMiniPlayerSourceSize,
 } from "./previewMiniPlayerLayout";
@@ -265,5 +266,24 @@ describe("clampPreviewMiniPlayerPosition", () => {
         obstacles,
       ),
     ).toEqual({ x: gap, y: 700 - 150 - gap - 500 });
+  });
+});
+
+describe("resolveDesktopAgentMiniPlayerSourceSize", () => {
+  it("stands in with 16:9 until a frame is decoded", () => {
+    expect(resolveDesktopAgentMiniPlayerSourceSize(null)).toEqual({ width: 1_920, height: 1_080 });
+  });
+
+  it("follows the decoded frame's aspect without capping the player at the capture tier", () => {
+    const size = resolveDesktopAgentMiniPlayerSourceSize({ width: 640, height: 480 });
+    expect(size).toEqual({ width: 1_920, height: 1_440 });
+    expect(
+      resolvePreviewMiniPlayerFrame({
+        width: 800,
+        position: { x: 12, y: 12 },
+        source: size,
+        container: { width: 2_000, height: 1_400 },
+      }),
+    ).toMatchObject({ width: 800, height: 600 });
   });
 });

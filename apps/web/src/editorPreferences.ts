@@ -68,7 +68,9 @@ export function usePreferredEditor(availableEditors: ReadonlyArray<EditorId>) {
   return [effectiveEditor, setLastEditor] as const;
 }
 
-function resolveAndPersistPreferredEditor(availableEditors: readonly EditorId[]): EditorId | null {
+export function resolveAndPersistPreferredEditor(
+  availableEditors: readonly EditorId[],
+): EditorId | null {
   const availableEditorIds = new Set(availableEditors);
   let stored: EditorId | null = null;
   try {

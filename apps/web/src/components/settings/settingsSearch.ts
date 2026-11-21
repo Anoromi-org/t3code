@@ -26,6 +26,7 @@ export type SettingsPath =
   | "/settings/chat"
   | "/settings/diffs"
   | "/settings/keybindings"
+  | "/settings/hyprnav"
   | "/settings/snap-shot"
   | "/settings/providers"
   | "/settings/threads"
@@ -101,6 +102,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/chat": msg("Chat"),
   "/settings/diffs": msg("Diffs & pull requests"),
   "/settings/keybindings": msg("Keybindings"),
+  "/settings/hyprnav": "Hyprnav",
   "/settings/snap-shot": msg("SnapShots"),
   "/settings/providers": msg("Providers"),
   "/settings/threads": msg("Threads"),
@@ -143,6 +145,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
       "/settings/chat",
       "/settings/diffs",
       "/settings/keybindings",
+      "/settings/hyprnav",
       "/settings/voice",
       "/settings/snap-shot",
     ],
@@ -999,6 +1002,41 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   ...KEYBINDING_SEARCH_ITEMS,
   {
+    id: "hyprnav",
+    title: msg("Hyprnav defaults"),
+    to: "/settings/hyprnav",
+    searchTerms: [
+      msg("hyprland workspace navigation slots bindings terminal editor corkdiff device"),
+    ],
+  },
+  {
+    id: "hyprnav-follow-lock",
+    title: msg("Follow the Hyprnav lock"),
+    to: "/settings/hyprnav",
+    searchTerms: [msg("hyprland thread sync grid open locked thread device")],
+  },
+  {
+    id: "hyprnav-publish-lock",
+    title: msg("Lock the open thread"),
+    to: "/settings/hyprnav",
+    searchTerms: [msg("hyprland thread sync move lock environment")],
+  },
+  {
+    id: "hyprnav-browser-slots",
+    title: msg("Browser slots"),
+    to: "/settings/hyprnav",
+    searchTerms: [msg("hyprland browser tab preview url branch checkout query workspace")],
+  },
+  {
+    id: "project-hyprnav",
+    title: msg("Project Hyprnav bindings"),
+    to: "/settings/projects",
+    scope: "project",
+    searchTerms: [
+      msg("hyprland workspace navigation slots override checkout grouped same separate"),
+    ],
+  },
+  {
     id: "snap-shot-enabled",
     title: msg("SnapShots"),
     searchTerms: [msg("window capture screenshot")],
@@ -1489,6 +1527,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/diffs": null,
   "/settings/snap-shot": null,
   "/settings/keybindings": null,
+  "/settings/hyprnav": null,
   "/settings/providers": null,
   "/settings/threads": null,
   "/settings/browser": null,

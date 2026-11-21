@@ -38,7 +38,7 @@ export const ProjectHyprnavWorkspaceTarget = Schema.Union([
 ]);
 export type ProjectHyprnavWorkspaceTarget = typeof ProjectHyprnavWorkspaceTarget.Type;
 
-const DEFAULT_PROJECT_HYPRNAV_WORKSPACE_TARGET = {
+export const DEFAULT_PROJECT_HYPRNAV_WORKSPACE_TARGET = {
   mode: "managed",
 } as const satisfies ProjectHyprnavWorkspaceTarget;
 
@@ -269,3 +269,72 @@ export type ProjectHyprnavSettings = typeof ProjectHyprnavSettings.Type;
 
 export const ProjectHyprnavOverride = Schema.NullOr(ProjectHyprnavSettings);
 export type ProjectHyprnavOverride = typeof ProjectHyprnavOverride.Type;
+
+export const HyprnavBrowserKind = Schema.Literals(["chromium", "firefox"]);
+export type HyprnavBrowserKind = typeof HyprnavBrowserKind.Type;
+
+/**
+ * Where a browser slot's per-thread query value comes from. `checkout` is the
+ * absolute directory the thread works in (its worktree, else the project
+ * root), which identifies it across projects. `branch` is the thread's branch;
+ * threads without one get no browser slot.
+ */
+export const HyprnavBrowserSlotValueSource = Schema.Literals(["checkout", "branch"]);
+export type HyprnavBrowserSlotValueSource = typeof HyprnavBrowserSlotValueSource.Type;
+
+/**
+ * A global slot every thread's hyprnav environment gets: going to it switches
+ * to the fixed `workspace` and points the named browser tab at
+ * `url?<param>=<thread value>`.
+ */
+export const HyprnavBrowserSlot = Schema.Struct({
+  slot: PositiveInt,
+  workspace: PositiveInt,
+  browser: HyprnavBrowserKind.pipe(Schema.withDecodingDefaultKey(Effect.succeed("chromium"))),
+  tabName: TrimmedNonEmptyString,
+  url: TrimmedNonEmptyString,
+  param: TrimmedNonEmptyString.pipe(Schema.withDecodingDefaultKey(Effect.succeed("checkout"))),
+  value: HyprnavBrowserSlotValueSource.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("checkout")),
+  ),
+});
+export type HyprnavBrowserSlot = typeof HyprnavBrowserSlot.Type;
+
+/**
+ * hyprnav's `locked` event: the daemon's locked environment changed, or (with
+ * `cause: "snapshot"`) the current value on connect. Forwarded verbatim over
+ * `/api/hyprnav/events`.
+ */
+export interface HyprnavLockedEvent {
+  readonly event: "locked";
+  readonly ts_ms: number;
+  readonly seq: number;
+  readonly locked_environment_id: string | null;
+  readonly previous_environment_id: string | null;
+  /** `snapshot`, or the request op / `focus` / `env_delete` that moved the lock. */
+  readonly cause: string;
+  /** The `--origin` tag of the request that moved the lock; T3 sends `t3code`. */
+  readonly origin: string | null;
+  readonly environment: {
+    readonly title: string | null;
+    readonly cwd: string | null;
+    readonly chain: ReadonlyArray<string>;
+  } | null;
+}
+
+export type ParsedHyprnavEnvironmentId =
+  | { readonly scope: "thread"; readonly threadId: string }
+  | { readonly scope: "worktree" | "project" };
+
+const HYPRNAV_T3_ENVIRONMENT_ID = /^p\.[0-9a-f]{12}(\.w\.[0-9a-f]{12}(\.t\.(.+))?)?$/u;
+
+/**
+ * Reads back an environment id T3 published (`p.<hash>[.w.<hash>[.t.<threadId>]]`,
+ * built by the desktop's `buildHyprnavEnvironmentIds`). `null` for any other env.
+ */
+export function parseHyprnavEnvironmentId(id: string): ParsedHyprnavEnvironmentId | null {
+  const match = HYPRNAV_T3_ENVIRONMENT_ID.exec(id);
+  if (!match) return null;
+  if (match[3] !== undefined) return { scope: "thread", threadId: match[3] };
+  return { scope: match[1] !== undefined ? "worktree" : "project" };
+}

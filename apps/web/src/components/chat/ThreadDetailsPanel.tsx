@@ -26,6 +26,7 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
+import { DesktopAgentsSection } from "../DesktopAgentsSection";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import {
   ThreadDetailsContext,
@@ -283,6 +284,9 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   showSideChats={visible.sideChats}
                 />
               ) : null}
+
+              {/* Fork: hyprnav desktop agents on this machine; renders nothing without any. */}
+              {density === "full" ? <DesktopAgentsSection /> : null}
 
               {visible.usage ? <ThreadDetailsUsage {...props.usage} /> : null}
 

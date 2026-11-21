@@ -53,6 +53,7 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
+import { ProjectHyprnavSettingsSection } from "./ProjectHyprnavSettingsPanel";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import {
   defaultProjectIcon,
@@ -692,6 +693,10 @@ function ProjectDetail({
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
+        <ProjectHyprnavSettingsSection
+          projectKey={group.projectKey}
+          members={group.memberProjects}
+        />
         {checkoutChoices}
         <SettingsSection title={gt("Danger")}>
           <SettingsRow

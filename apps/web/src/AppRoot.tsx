@@ -1,6 +1,7 @@
 import { RouterProvider } from "@tanstack/react-router";
 
 import { ElectronBrowserHost } from "./browser/ElectronBrowserHost";
+import { DesktopAgentMiniPlayerHost } from "./components/desktop/DesktopAgentMiniPlayerHost";
 import { QuitHoldOverlay } from "./components/QuitHoldOverlay";
 import { I18nProvider } from "./i18n/I18nProvider";
 import { AppAtomRegistryProvider } from "./rpc/atomRegistry";
@@ -12,6 +13,7 @@ export function AppRoot({ router }: { readonly router: AppRouter }) {
     <I18nProvider>
       <AppAtomRegistryProvider>
         <RouterProvider router={router} />
+        <DesktopAgentMiniPlayerHost />
         <ElectronBrowserHost />
         <QuitHoldOverlay />
       </AppAtomRegistryProvider>

@@ -619,6 +619,30 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
+  it.effect("ships the worktree terminal helper on every platform", () =>
+    Effect.gen(function* () {
+      for (const [platform, target] of [
+        ["mac", "dmg"],
+        ["linux", "AppImage"],
+        ["win", "nsis"],
+      ] as const) {
+        const config = yield* createBuildConfig(
+          platform,
+          target,
+          "1.2.3",
+          false,
+          false,
+          undefined,
+          undefined,
+        );
+        assert.deepInclude(config.extraResources, {
+          from: "ghostty-worktree.cjs",
+          to: "ghostty-worktree.cjs",
+        });
+      }
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   // pnpm writes "set this to true or false" placeholders into allowBuilds when a
   // tarball changes. pnpm ignores them, but the release build decode rejects them.
   it.effect("decodes the repo allowBuilds and every file: tarball it names exists", () =>
