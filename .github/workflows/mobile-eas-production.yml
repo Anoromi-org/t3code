@@ -597,6 +597,15 @@ jobs:
           output: ${{ runner.temp }}/t3code.ipa
           sourcemaps-r2: ${{ secrets.MOBILE_SOURCEMAPS_R2 }}
 
+      # The testflight submit profile extends production, so both receive the
+      # injected fork App Store target instead of upstream's record.
+      - name: Configure fork App Store submission
+        if: steps.record.outputs.built != 'true'
+        working-directory: apps/mobile
+        env:
+          MOBILE_IOS_ASC_APP_ID: ${{ vars.MOBILE_IOS_ASC_APP_ID }}
+        run: node scripts/configure-app-store-submission.mjs "$MOBILE_IOS_ASC_APP_ID"
+
       - name: Submit to App Store Connect
         if: steps.record.outputs.built != 'true'
         working-directory: apps/mobile
