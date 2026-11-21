@@ -76,6 +76,7 @@ export function useComposerMenuItems({
   sideChatDisabledReason,
   freshSessionAvailable,
   branchPickerAvailable,
+  fastModeEnabled,
   compactSlashCommandAvailable,
   selectedProvider,
   selectedProviderSkills,
@@ -98,6 +99,8 @@ export function useComposerMenuItems({
   readonly freshSessionAvailable: boolean;
   /** Fork: `/branch` only where a branch toolbar can open its picker. */
   readonly branchPickerAvailable: boolean;
+  /** Fork: the selected model's fast mode state for `/fast`; null when it has no fast control. */
+  readonly fastModeEnabled: boolean | null;
   readonly compactSlashCommandAvailable: boolean;
   readonly selectedProvider: ProviderDriverKind;
   readonly selectedProviderSkills: ServerProvider["skills"];
@@ -282,6 +285,17 @@ export function useComposerMenuItems({
           label: "/worktree",
           description: gt("Work locally or in a new worktree"),
         },
+        ...(fastModeEnabled === null
+          ? []
+          : ([
+              {
+                id: "slash:fast",
+                type: "slash-command",
+                command: "fast",
+                label: "/fast",
+                description: fastModeEnabled ? gt("Turn fast mode off") : gt("Turn fast mode on"),
+              },
+            ] as const)),
         {
           id: "slash:reasoning",
           type: "slash-command",

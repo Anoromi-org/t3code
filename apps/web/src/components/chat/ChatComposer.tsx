@@ -118,6 +118,8 @@ import { ComposerStashBadge } from "./ComposerStashBadge";
 import { ComposerStashMenu } from "./ComposerStashMenu";
 import { useComposerTriggerState } from "./useComposerTriggerState";
 import { useComposerMenuItems } from "./useComposerMenuItems";
+import { resolveFastModeDescriptor, toggleFastModeOptionSelection } from "./composerFastMode";
+import { getProviderModelCapabilities } from "../../providerModels";
 import { useComposerMultilinePrompt } from "./useComposerMultilinePrompt";
 import {
   reconcileAttachmentContextReferences,
@@ -1142,6 +1144,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerPreviewAnnotations.length === 0 &&
     composerReviewComments.length === 0;
   const linkedEnvironments = useLinkedEnvironments(environmentId);
+  // Fork: `/fast` flips the selected model's fast control when it has one.
+  const fastModeToggle = (() => {
+    if (multipleModelSelections !== null) return null;
+    const capabilities = getProviderModelCapabilities(
+      selectedProviderModels,
+      selectedModel,
+      selectedProvider,
+    );
+    const selections = composerModelOptions?.[selectedInstanceId];
+    const descriptor = resolveFastModeDescriptor({ capabilities, selections });
+    const next = toggleFastModeOptionSelection({ capabilities, selections });
+    return descriptor && next ? { enabled: descriptor.currentValue, next } : null;
+  })();
   const {
     items: composerMenuItems,
     isLoading: isComposerMenuLoading,
@@ -1159,6 +1174,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     sideChatDisabledReason: props.sideChatDisabledReason ?? null,
     freshSessionAvailable: props.onFreshSession !== undefined,
     branchPickerAvailable: props.onOpenBranchPicker !== undefined,
+    fastModeEnabled: fastModeToggle?.enabled ?? null,
     compactSlashCommandAvailable,
     selectedProvider,
     selectedProviderSkills,
@@ -2020,6 +2036,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           openComposerControl(
             item.command === "worktree" ? "composer.workspace" : "composer.effort",
           );
+        return;
+      }
+      if (item.command === "fast") {
+        const nextOptions = fastModeToggle?.next;
+        if (!nextOptions) return;
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+        });
+        if (!applied) return;
+        setComposerHighlightedItemId(null);
+        useComposerDraftStore
+          .getState()
+          .setProviderModelOptions(composerDraftTarget, selectedProvider, nextOptions, {
+            instanceId: selectedInstanceId,
+            model: selectedModel,
+            persistSticky: true,
+          });
+        applyThreadModelPick(composerDraftTarget);
         return;
       }
       if (item.command === "model") {

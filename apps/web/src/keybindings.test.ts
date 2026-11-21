@@ -239,12 +239,57 @@ describe("effectiveShortcutsForCommand", () => {
 });
 
 describe("settle thread shortcut", () => {
+  // Fork: settling is Mod+Alt+Shift+S; Mod+Shift+S focuses the composer.
+  it("resolves outside the terminal", () => {
+    assert.equal(
+      resolveShortcutCommand(
+        event({ key: "s", metaKey: true, altKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "MacIntel", context: { terminalFocus: false } },
+      ),
+      "thread.settle",
+    );
+  });
+
   it("does not intercept the terminal", () => {
     assert.isNull(
-      resolveShortcutCommand(event({ key: "s", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
-        platform: "Win32",
-        context: { terminalFocus: true },
-      }),
+      resolveShortcutCommand(
+        event({ key: "s", ctrlKey: true, altKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Win32", context: { terminalFocus: true } },
+      ),
+    );
+  });
+});
+
+describe("copy thread reference shortcut", () => {
+  // Fork: Mod+Shift+C stops the thread, so copying the reference adds Alt.
+  it("resolves Cmd+Alt+Shift+C on macOS and Ctrl+Alt+Shift+C elsewhere", () => {
+    assert.equal(
+      resolveShortcutCommand(
+        event({ key: "c", metaKey: true, altKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "MacIntel" },
+      ),
+      "thread.copyReference",
+    );
+    assert.equal(
+      resolveShortcutCommand(
+        event({ key: "c", ctrlKey: true, altKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux" },
+      ),
+      "thread.copyReference",
+    );
+  });
+
+  it("leaves terminal copy untouched", () => {
+    assert.isNull(
+      resolveShortcutCommand(
+        event({ key: "c", ctrlKey: true, altKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux", context: { terminalFocus: true } },
+      ),
     );
   });
 });
@@ -873,7 +918,8 @@ describe("composer and pull request shortcuts", () => {
     for (const [key, command] of [
       ["k", "pullRequest.copyNumber"],
       ["8", "thread.copyReference"],
-      ["c", null],
+      // Fork: Mod+Shift+C stops the turn.
+      ["c", "thread.stop"],
       ["y", null],
     ] as const) {
       assert.strictEqual(
@@ -926,6 +972,47 @@ describe("composer and pull request shortcuts", () => {
       }
     },
   );
+
+  for (const platform of ["MacIntel", "Win32", "Linux"]) {
+    it.each([
+      // Fork defaults the restored navigation, project, and thread actions own.
+      ["e", false, false, "navigation.commandMenu"],
+      ["s", true, true, "thread.settle"],
+      // Mod+Shift+S focuses the composer, so stashing keeps plain Mod+S.
+      ["s", false, false, "composer.stash"],
+    ] as const)(
+      `ships Mod+%s (alt+shift: %s/%s) as %s on ${platform}`,
+      (key, altKey, shiftKey, command) => {
+        assert.strictEqual(
+          resolveShortcutCommand(
+            event({
+              key,
+              altKey,
+              shiftKey,
+              metaKey: platform === "MacIntel",
+              ctrlKey: platform !== "MacIntel",
+            }),
+            DEFAULT_RESOLVED_KEYBINDINGS,
+            { platform },
+          ),
+          command,
+        );
+        assert.isNull(
+          resolveShortcutCommand(
+            event({
+              key,
+              altKey,
+              shiftKey,
+              metaKey: platform === "MacIntel",
+              ctrlKey: platform !== "MacIntel",
+            }),
+            DEFAULT_RESOLVED_KEYBINDINGS,
+            { platform, context: { terminalFocus: true } },
+          ),
+        );
+      },
+    );
+  }
 
   const altEffortBindings = compileResolvedKeybindingsConfig([
     { key: "mod+alt+e", command: "composer.effort", when: "!terminalFocus" },

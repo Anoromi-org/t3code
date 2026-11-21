@@ -2861,6 +2861,11 @@ export default function ChatView(props: ChatViewProps) {
         routeKind !== "draft" &&
         composerRef.current?.isCaretAtStart() === true &&
         queuedRunsControlRef.current?.editLatest(event.repeat) === true,
+      // Fork: lets the keys through when there is no composer to focus.
+      "chat.composer.focus": ({ event }) => {
+        if (!composerRef.current) return false;
+        if (!event.repeat) focusComposerStable();
+      },
       "thread.stop": ({ event }) => {
         if (!canInterruptRunningThread) return false;
         if (!event.repeat) void onInterruptStable();

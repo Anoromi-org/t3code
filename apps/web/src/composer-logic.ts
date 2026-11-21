@@ -33,7 +33,8 @@ export type ComposerSlashCommand =
   | "clear"
   | "branch"
   | "worktree"
-  | "reasoning";
+  | "reasoning"
+  | "fast";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
 
 export interface ComposerTrigger {

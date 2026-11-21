@@ -10,6 +10,11 @@ actions menu. **Reset to default** brings it back.
 as you type. Choosing a project opens its draft or starts a new thread. `mod+k`
 still opens the command palette.
 
+`mod+shift+s` focuses the composer and `mod+shift+c` stops the running turn.
+Settling a thread uses `mod+alt+shift+s`, and copying a thread reference uses
+`mod+alt+shift+c`. Type `/fast` in the composer to turn the selected model's fast
+mode on or off.
+
 On desktop, hold Control and press Tab to cycle recent threads. Add Shift to
 cycle backward, release Control to open the highlighted thread, or press Escape
 to cancel.
