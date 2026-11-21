@@ -209,7 +209,7 @@ import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { shortcutLabelForCommand } from "../keybindings";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { toastManager } from "./ui/toast";
 import { projectScriptIdFromCommand } from "~/projectScripts";
@@ -322,6 +322,8 @@ import {
 } from "./chat/PanelLayoutControls";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
+import { ProjectActionsPanelControl } from "./ProjectActionsPanelControl";
+import type { GitActionRequest, GitActionRequestKind } from "./ProjectActionsPanel.logic";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,
@@ -2035,6 +2037,20 @@ export default function ChatView(props: ChatViewProps) {
         detailsCardInlineOpen: threadPanelInlineOpen,
       }).detailsCardMode,
   );
+  // Fork: git steps chosen in the project actions panel run through the thread
+  // panel's GitActionsControl, which owns their dialogs and toasts, so the panel
+  // opens to run them.
+  const [requestedGitAction, setRequestedGitAction] = useState<GitActionRequest | null>(null);
+  const requestGitActionStable = useStableCallback((action: GitActionRequestKind) => {
+    if (!activeThreadRef) return;
+    setRequestedGitAction({ requestId: randomUUID(), action });
+    useRightPanelStore
+      .getState()
+      .setThreadPanelOpen(activeThreadRef, threadPanelPresentation, true);
+  });
+  const handleRequestedGitActionStable = useStableCallback((requestId: string) => {
+    setRequestedGitAction((current) => (current?.requestId === requestId ? null : current));
+  });
   const threadPanelOpen = useRightPanelStore((state) =>
     selectThreadPanelOpen(
       state.threadPanelVisibilityByThreadKey,
@@ -3998,10 +4014,23 @@ export default function ChatView(props: ChatViewProps) {
                   onConfirm={handleSwitchCheckoutToThreadStable}
                 />
 
+                {activeProject ? (
+                  <ProjectActionsPanelControl
+                    availableEditors={availableEditors}
+                    environmentId={activeThread.environmentId}
+                    gitCwd={gitCwd}
+                    keybindings={keybindings}
+                    onRequestGitAction={requestGitActionStable}
+                    onRunProjectScript={runProjectScriptStable}
+                    scripts={activeProjectScripts}
+                  />
+                ) : null}
                 <ThreadDetailsPanel
                   anchor={threadPanelPopoverAnchorRef}
                   handle={threadPanelPopoverHandle}
                   forceNewWorktree={multipleModelSelections !== null}
+                  requestedGitAction={requestedGitAction}
+                  onRequestedGitActionHandled={handleRequestedGitActionStable}
                   environmentId={activeThread.environmentId}
                   threadId={activeThread.id}
                   projectId={activeThread.projectId}

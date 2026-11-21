@@ -29,10 +29,20 @@ it.effect("drops resolved rules with commands this build does not know", () =>
       { command: "terminal.toggle", shortcut },
       { command: "someFuture.toggle", shortcut },
       { command: "filePicker.toggle", shortcut },
+      // Fork commands.
+      { command: "projectActions.toggle", shortcut },
+      { command: "navigation.commandMenu", shortcut },
+      { command: "chat.composer.focus", shortcut },
     ]);
     assert.deepEqual(
       parsed.map((rule) => rule.command),
-      ["terminal.toggle", "filePicker.toggle"],
+      [
+        "terminal.toggle",
+        "filePicker.toggle",
+        "projectActions.toggle",
+        "navigation.commandMenu",
+        "chat.composer.focus",
+      ],
     );
   }),
 );

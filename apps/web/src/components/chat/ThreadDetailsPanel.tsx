@@ -15,6 +15,7 @@ import { useT3ProjectFileScripts } from "../../hooks/useT3ProjectFileScripts";
 import { type EnvMode, type EnvironmentOption } from "../BranchToolbar.logic";
 import { BranchToolbar } from "../BranchToolbar";
 import GitActionsControl from "../GitActionsControl";
+import type { GitActionRequest } from "../ProjectActionsPanel.logic";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
@@ -52,6 +53,9 @@ interface ThreadDetailsPanelProps extends Pick<
   "anchor" | "handle"
 > {
   forceNewWorktree?: boolean;
+  /** Fork: a git step requested from the project actions panel. */
+  requestedGitAction?: GitActionRequest | null;
+  onRequestedGitActionHandled?: (requestId: string) => void;
   environmentId: EnvironmentId;
   threadId: ThreadId;
   projectId: ProjectId;
@@ -259,6 +263,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         activeThreadRef={activeThreadRef}
                         {...(props.draftId ? { draftId: props.draftId } : {})}
                         {...(props.onOpenChanges ? { onOpenChanges: props.onOpenChanges } : {})}
+                        requestedAction={props.requestedGitAction ?? null}
+                        {...(props.onRequestedGitActionHandled
+                          ? { onRequestedActionHandled: props.onRequestedGitActionHandled }
+                          : {})}
                       />
                     ) : null}
                   </div>

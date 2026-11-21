@@ -10,6 +10,10 @@ actions menu. **Reset to default** brings it back.
 as you type. Choosing a project opens its draft or starts a new thread. `mod+k`
 still opens the command palette.
 
+`mod+p` opens project actions for the current thread: the project's actions,
+its source control steps, and the editors you can open it in. The file picker
+uses `mod+shift+p`, and pinning a thread uses `mod+alt+shift+p`.
+
 `mod+shift+s` focuses the composer and `mod+shift+c` stops the running turn.
 Settling a thread uses `mod+alt+shift+s`, and copying a thread reference uses
 `mod+alt+shift+c`. Type `/fast` in the composer to turn the selected model's fast

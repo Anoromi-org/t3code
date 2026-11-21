@@ -125,6 +125,7 @@ import {
   THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./chat/threadDetailsPanelStyles";
+import type { GitActionRequest } from "./ProjectActionsPanel.logic";
 import { getSourceControlPresentation, sourceControlIcon } from "~/sourceControlPresentation";
 import {
   isSourceControlProviderOffered,
@@ -145,6 +146,9 @@ interface GitActionsControlProps {
   showChanges?: boolean;
   onOpenChanges?: () => void;
   workspaceMutationId?: string | null;
+  /** Fork: an action requested from the project actions panel, run once per request id. */
+  requestedAction?: GitActionRequest | null;
+  onRequestedActionHandled?: (requestId: string) => void;
 }
 
 interface PendingDefaultBranchAction {
@@ -975,6 +979,8 @@ function CheckoutGitActionsControl({
   showChanges = true,
   onOpenChanges,
   workspaceMutationId = null,
+  requestedAction,
+  onRequestedActionHandled,
 }: GitActionsControlProps) {
   const gt = useGT();
   const messages = useMessages();
@@ -1398,50 +1404,54 @@ function CheckoutGitActionsControl({
     }).then(restoreDialogCommitMessageOnFailure(commitMessage));
   };
 
+  const runPullAction = () => {
+    void (async () => {
+      setInlineSuccess(null);
+      const result = await pullAction.run();
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) {
+          return;
+        }
+        const error = squashAtomCommandFailure(result);
+        const errorToastTiming = resolveGitActionResultToastTiming("error");
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: gt("Pull failed"),
+            description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
+            timeout: errorToastTiming.timeout,
+            ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+          }),
+        );
+        return;
+      }
+
+      const pullResult = result.value;
+      const title = pullResult.status === "pulled" ? gt("Pulled") : gt("Already up to date");
+      const description =
+        pullResult.status === "pulled"
+          ? pullResult.upstreamRef
+            ? gt("Updated {ref} from {upstream}", {
+                ref: pullResult.refName,
+                upstream: pullResult.upstreamRef,
+              })
+            : gt("Updated {ref} from upstream", { ref: pullResult.refName })
+          : gt("{ref} is already synchronized.", { ref: pullResult.refName });
+      setInlineSuccess({
+        title,
+        description,
+        expiresAtMs: inlineSuccessExpiresAt(),
+      });
+    })();
+  };
+
   const runQuickAction = () => {
     if (quickAction.kind === "open_publish") {
       setIsPublishDialogOpen(true);
       return;
     }
     if (quickAction.kind === "run_pull") {
-      void (async () => {
-        setInlineSuccess(null);
-        const result = await pullAction.run();
-        if (result._tag === "Failure") {
-          if (isAtomCommandInterrupted(result)) {
-            return;
-          }
-          const error = squashAtomCommandFailure(result);
-          const errorToastTiming = resolveGitActionResultToastTiming("error");
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: gt("Pull failed"),
-              description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
-              timeout: errorToastTiming.timeout,
-              ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-            }),
-          );
-          return;
-        }
-
-        const pullResult = result.value;
-        const title = pullResult.status === "pulled" ? gt("Pulled") : gt("Already up to date");
-        const description =
-          pullResult.status === "pulled"
-            ? pullResult.upstreamRef
-              ? gt("Updated {ref} from {upstream}", {
-                  ref: pullResult.refName,
-                  upstream: pullResult.upstreamRef,
-                })
-              : gt("Updated {ref} from upstream", { ref: pullResult.refName })
-            : gt("{ref} is already synchronized.", { ref: pullResult.refName });
-        setInlineSuccess({
-          title,
-          description,
-          expiresAtMs: inlineSuccessExpiresAt(),
-        });
-      })();
+      runPullAction();
       return;
     }
     if (quickAction.kind === "show_hint") {
@@ -1551,6 +1561,29 @@ function CheckoutGitActionsControl({
       );
     })();
   };
+
+  const handleRequestedGitAction = useEffectEvent((action: GitActionRequest["action"]) => {
+    if (action === "quick") return runQuickAction();
+    if (action === "pull") return runPullAction();
+    if (action === "publish") return setIsPublishDialogOpen(true);
+    if (action === "init") return initializeGit();
+    if (action === "commit") {
+      setExcludedFiles(new Set());
+      setIsEditingFiles(false);
+      setIsCommitDialogOpen(true);
+      return;
+    }
+    const item = gitActionMenuItems.find((candidate) => candidate.dialogAction === action);
+    if (item) openDialogForMenuItem(item);
+  });
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- runs each project actions panel request once per request id
+  useEffect(() => {
+    if (!requestedAction) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- the request opens this control's own dialogs once per id
+    handleRequestedGitAction(requestedAction.action);
+    onRequestedActionHandled?.(requestedAction.requestId);
+  }, [requestedAction, onRequestedActionHandled]);
   const gitItems = (
     <>
       {gitActionMenuItems.map((item) => {

@@ -977,6 +977,9 @@ describe("composer and pull request shortcuts", () => {
     it.each([
       // Fork defaults the restored navigation, project, and thread actions own.
       ["e", false, false, "navigation.commandMenu"],
+      ["p", false, false, "projectActions.toggle"],
+      ["p", false, true, "filePicker.toggle"],
+      ["p", true, true, "thread.pin"],
       ["s", true, true, "thread.settle"],
       // Mod+Shift+S focuses the composer, so stashing keeps plain Mod+S.
       ["s", false, false, "composer.stash"],
