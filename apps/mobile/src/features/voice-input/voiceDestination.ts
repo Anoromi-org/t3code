@@ -31,6 +31,7 @@ import { fetch as expoFetch } from "expo/fetch";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { environmentPresentations } from "../../state/presentation";
 import { environmentSession, sessionHasScope } from "../../state/session";
+import { withCloudflareAccess } from "../../connection/cloudflare-access";
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { uuidv4 } from "../../lib/uuid";
 import { createEnvironmentTranscriber } from "./environmentTranscriber";
@@ -129,7 +130,10 @@ export function runSpeech<A, E>(
                 code: "cancelled",
                 message: m(msg("Your transcription choice changed.")),
               });
-            return expoFetch(url, { ...options, redirect: "error" });
+            return expoFetch(
+              url,
+              await withCloudflareAccess(url, { ...options, redirect: "error" as const }),
+            );
           }),
           Effect.provide(context),
         ),

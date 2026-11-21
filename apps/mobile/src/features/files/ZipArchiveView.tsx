@@ -17,6 +17,7 @@ import {
 import { LegendList } from "@legendapp/list/react-native";
 import * as Schema from "effect/Schema";
 import { fetch } from "expo/fetch";
+import { cloudflareAccessHeaders } from "../../connection/cloudflare-access";
 import { File } from "expo-file-system";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { msg, T, useGT, useMessages, Var } from "gt-react-native";
@@ -211,7 +212,10 @@ function useZipArchive(input: {
         return openArchive(await file.arrayBuffer());
       }
       const url = (await refresh()) ?? uri;
-      const response = await fetch(url, { signal: abort.signal });
+      const response = await fetch(url, {
+        signal: abort.signal,
+        headers: await cloudflareAccessHeaders(url),
+      });
       if (!response.ok || !response.body) throw new ZipFailureError({ failure: NETWORK });
       const bytes = await readArchiveBody(response.body, (receivedBytes) =>
         setState({

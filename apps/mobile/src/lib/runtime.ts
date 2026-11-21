@@ -4,6 +4,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 
 import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
 
+import * as CloudflareAccess from "../connection/cloudflare-access";
 import * as Dpop from "../features/cloud/dpop";
 import * as ManagedRelayLayer from "../features/cloud/managedRelayLayer";
 import { resolveCloudPublicConfig } from "../features/cloud/publicConfig";
@@ -19,11 +20,12 @@ function configuredRelayUrl(): string {
   return resolveCloudPublicConfig().relay.url ?? "http://relay.invalid";
 }
 
-const layerHttpClient = layerRemoteHttpClient(fetch);
+const layerHttpClient = layerRemoteHttpClient(CloudflareAccess.cloudflareAccessFetch);
+const layerWebSocketConstructor = CloudflareAccess.layerWebSocketConstructor(NativeWebSocket.layer);
 
 type RuntimeLayerSource =
   | ReturnType<typeof ManagedRelayLayer.layer>
-  | typeof NativeWebSocket.layer
+  | typeof layerWebSocketConstructor
   | typeof Dpop.layer
   | typeof layerHttpClient
   | typeof Persistence.layer
@@ -31,7 +33,7 @@ type RuntimeLayerSource =
 
 const layerRuntime = Layer.merge(
   ManagedRelayLayer.layer(configuredRelayUrl()),
-  NativeWebSocket.layer,
+  layerWebSocketConstructor,
 ).pipe(
   Layer.provideMerge(Dpop.layer),
   Layer.provideMerge(layerHttpClient),

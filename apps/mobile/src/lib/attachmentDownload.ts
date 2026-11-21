@@ -4,6 +4,7 @@ import type { SharingOptions } from "expo-sharing";
 import { msg } from "gt-react-native";
 
 import { m } from "../i18n/messages";
+import { cloudflareAccessHeaders } from "../connection/cloudflare-access";
 import { beginForegroundHandoff } from "./foreground-handoff";
 import { uuidv4 } from "./uuid";
 
@@ -182,7 +183,10 @@ export async function openAttachmentInViewer(input: {
     if (/^(file|content):/.test(input.uri)) {
       await new File(input.uri).copy(cached.file);
     } else {
-      await File.downloadFileAsync(input.uri, cached.file, { signal: input.signal });
+      await File.downloadFileAsync(input.uri, cached.file, {
+        signal: input.signal,
+        headers: await cloudflareAccessHeaders(input.uri),
+      });
     }
     if (input.signal.aborted) return;
     const endHandoff = beginForegroundHandoff();
@@ -216,7 +220,10 @@ export async function downloadAttachmentForPreview(input: {
       cached.preview.dispose();
       return null;
     }
-    await File.downloadFileAsync(input.url, cached.file, { signal: input.signal });
+    await File.downloadFileAsync(input.url, cached.file, {
+      signal: input.signal,
+      headers: await cloudflareAccessHeaders(input.url),
+    });
     if (input.signal.aborted) {
       cached.preview.dispose();
       return null;

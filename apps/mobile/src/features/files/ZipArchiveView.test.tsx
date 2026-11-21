@@ -95,6 +95,9 @@ vi.mock("expo-file-system", () => ({
   },
 }));
 vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
+vi.mock("../../connection/cloudflare-access", () => ({
+  cloudflareAccessHeaders: async () => ({}),
+}));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn() }));
 vi.mock("@react-navigation/native", () => ({
   useNavigation: () => ({ canGoBack: () => false }),

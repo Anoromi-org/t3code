@@ -16,6 +16,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { useEffect, useRef, useState } from "react";
 
+import { cloudflareAccessHeaders } from "../connection/cloudflare-access";
 import type { FileBackedComposerAttachment } from "./composerImages";
 import { localAttachmentPreviewAtom, localAttachmentPreviewState } from "./localAttachmentPreview";
 import { downloadAndShareAttachment, shareLocalAttachment } from "./attachmentDownload";
@@ -54,6 +55,7 @@ async function readAttachmentText(key: AttachmentTextKey, signal: AbortSignal) {
   const response = await fetch(target, {
     signal,
     headers: {
+      ...(await cloudflareAccessHeaders(target)),
       ...(key.sizeBytes > 0 ? { Range: `bytes=0-${FILE_TEXT_PREVIEW_MAX_BYTES}` } : {}),
       ...(key.revision > 0 ? { "Cache-Control": "no-cache" } : {}),
     },

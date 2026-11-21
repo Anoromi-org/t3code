@@ -24,6 +24,7 @@ import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-typ
 import { serverEnvironment } from "../../state/server";
 import { environmentPresentations } from "../../state/presentation";
 import { ConnectionDiagnosisDetails, useConnectionDiagnosis } from "./ConnectionDiagnosisDetails";
+import { CloudflareAccessFields, useCloudflareAccessCredential } from "./CloudflareAccessFields";
 import { ConnectionFormField } from "./ConnectionFormField";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { environmentStatusText } from "./environmentStatusText";
@@ -66,6 +67,7 @@ export function ConnectionEnvironmentRow(props: {
   const m = useMessages();
   const [label, setLabel] = useState(props.environment.environmentLabel);
   const [url, setUrl] = useState(props.environment.displayUrl);
+  const accessCredential = useCloudflareAccessCredential(url);
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(props.environment.environmentId),
   );
@@ -90,6 +92,8 @@ export function ConnectionEnvironmentRow(props: {
     (props.environment.connectionState === "connecting" ||
       props.environment.connectionState === "reconnecting");
   const handleSave = async () => {
+    // Save Access headers before the URL update reconnects with them.
+    await accessCredential.save();
     const result = await props.onUpdate(props.environment.environmentId, {
       label: label.trim(),
       displayUrl: url.trim(),
@@ -264,6 +268,11 @@ export function ConnectionEnvironmentRow(props: {
                 placeholder="192.168.1.100:8080"
                 value={url}
                 onChangeText={setUrl}
+              />
+
+              <CloudflareAccessFields
+                credential={accessCredential.credential}
+                onChange={accessCredential.setCredential}
               />
             </>
           )}

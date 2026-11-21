@@ -7,6 +7,7 @@ import { Image } from "expo-image";
 import { T, useGT } from "gt-react-native";
 import { createContext, useContext, useId, useState } from "react";
 import { fetch } from "expo/fetch";
+import { cloudflareAccessHeaders } from "../../connection/cloudflare-access";
 import { parse, SvgAst, type JsxAST } from "react-native-svg";
 import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
 
@@ -51,7 +52,7 @@ async function readSvgXml(uri: string, signal: AbortSignal): Promise<string> {
       : content;
   }
   // expo/fetch, not the runtime HttpClient: it is the one that reads file:// URIs.
-  const response = await fetch(uri, { signal });
+  const response = await fetch(uri, { signal, headers: await cloudflareAccessHeaders(uri) });
   if (!response.ok && !(response.status === 0 && uri.startsWith("file://")))
     throw new Error(`SVG request failed: ${response.status}`);
   return response.text();

@@ -79,6 +79,14 @@ vi.mock("../layout/workspace/workspace-selection-store", () => ({
 }));
 vi.mock("../cloud/publicConfig", () => ({ hasCloudPublicConfig: () => false }));
 vi.mock("./CloudEnvironmentRows", () => ({ CloudEnvironmentRows: () => null }));
+vi.mock("./CloudflareAccessFields", () => ({
+  CloudflareAccessFields: () => null,
+  useCloudflareAccessCredential: () => ({
+    credential: { clientId: "", clientSecret: "" },
+    setCredential: () => undefined,
+    save: () => Promise.resolve(),
+  }),
+}));
 vi.mock("./environmentSections", () => ({
   splitEnvironmentSections: () => ({ connectedCloudEnvironments: [] }),
 }));
