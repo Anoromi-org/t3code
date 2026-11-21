@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
+  "include": ["src", "examples/browser.tsx", "scripts", "vite.config.ts", "examples/env.d.ts"]
+}

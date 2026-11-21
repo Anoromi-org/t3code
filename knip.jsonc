@@ -174,6 +174,10 @@
       "entry": ["graphql.config.ts"],
       "ignoreIssues": { "**/*.graphql.ts": ["exports", "types", "namespaceMembers"] },
     },
+    "packages/sdk": {
+      // Fork: the published SDK. Its package exports point at dist, so name the sources here.
+      "entry": ["src/index.ts!", "src/react.tsx!", "src/contracts.ts!", "examples/*.{ts,tsx}"],
+    },
     "packages/source-control-github": {
       // graphqlgen reads its config; the generated operations export every selection's class.
       "entry": ["graphql.config.ts", "scripts/measure-pr-preview.ts"],
