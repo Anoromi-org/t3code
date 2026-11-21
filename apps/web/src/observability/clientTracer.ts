@@ -16,6 +16,11 @@ export function hasDelegate(): boolean {
   return delegate !== null;
 }
 
+/** Fork: the configured exporter, for spans recorded outside an Effect runtime. */
+export function currentDelegate(): Tracer.Tracer | null {
+  return delegate;
+}
+
 // Install before exporters exist so spans reach whichever exporter is configured later.
 export const layer = Layer.succeed(
   Tracer.Tracer,
