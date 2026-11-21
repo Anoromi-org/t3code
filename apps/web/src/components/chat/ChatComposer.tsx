@@ -83,6 +83,7 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
+  isNamedWorktreeQuery,
   isPathSuggestionCurrent,
   extendReplacementRangeForTrailingSpace,
   replaceTextRange,
@@ -403,6 +404,11 @@ export interface ChatComposerProps {
   onFreshSession?: (() => void) | undefined;
   /** Fork: opens the branch picker for `/branch`; omitted where there is no branch toolbar. */
   onOpenBranchPicker?: (() => void) | undefined;
+  /**
+   * Fork: `/worktree` targets a new worktree on the named branch, or an auto-named one for null.
+   * Omitted where the workspace can no longer change.
+   */
+  onSelectNewWorktree?: ((branch: string | null) => void) | undefined;
   environmentUnavailable: {
     readonly label: string;
     readonly connection: EnvironmentConnectionPresentation;
@@ -1010,7 +1016,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return collapseExpandedComposerCursor(value, value.length, isLiteralPendingAnswer);
   });
   const {
-    trigger: composerTrigger,
+    trigger: detectedComposerTrigger,
     setTrigger: setComposerTrigger,
     followCaret: followComposerCaret,
     resolveTrigger: resolveComposerTrigger,
@@ -1019,6 +1025,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   } = useComposerTriggerState(() =>
     isLiteralPendingAnswer ? null : detectComposerTrigger(prompt, prompt.length),
   );
+  const { onSelectNewWorktree } = props;
+  // `/worktree <branch>` is plain prompt text where the workspace can no longer change.
+  const withoutUnavailableNamedWorktree = (trigger: ComposerTrigger | null) =>
+    trigger?.kind === "slash-command" && !onSelectNewWorktree && isNamedWorktreeQuery(trigger.query)
+      ? null
+      : trigger;
+  const composerTrigger = withoutUnavailableNamedWorktree(detectedComposerTrigger);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   const composerSuggestionId = useId();
   const composerSuggestionListId = `${composerSuggestionId}-${encodeURIComponent(draftId ?? activeThreadId ?? "new")}-suggestions`;
@@ -1967,7 +1980,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       snapshot,
       trigger: isLiteralPendingAnswer
         ? null
-        : resolveComposerTrigger(detectComposerTrigger(snapshot.value, snapshot.expandedCursor)),
+        : withoutUnavailableNamedWorktree(
+            resolveComposerTrigger(detectComposerTrigger(snapshot.value, snapshot.expandedCursor)),
+          ),
     };
   };
 
@@ -2020,6 +2035,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return;
     }
     if (item.type === "slash-command") {
+      if (item.command === "worktree" && onSelectNewWorktree) {
+        const atLineStart =
+          trigger.rangeStart === 0 || snapshot.value[trigger.rangeStart - 1] === "\n";
+        if (item.worktreeAction === undefined && atLineStart) {
+          // Keep the menu open so the branch name can be typed right after the command.
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            "/worktree ",
+            { expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd) },
+          );
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
+        if (item.worktreeAction !== undefined && item.worktreeAction !== "picker") {
+          const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          });
+          if (!applied) return;
+          setComposerHighlightedItemId(null);
+          onSelectNewWorktree(item.worktreeAction === "auto" ? null : item.worktreeAction.branch);
+          return;
+        }
+      }
       if (
         item.command === "branch" ||
         item.command === "worktree" ||

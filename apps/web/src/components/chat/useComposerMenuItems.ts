@@ -26,7 +26,11 @@ import {
 } from "@t3tools/shared/composerPullRequestMatches";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 
-import type { ComposerTrigger } from "../../composer-logic";
+import {
+  isNamedWorktreeQuery,
+  parseNamedWorktreeBranch,
+  type ComposerTrigger,
+} from "../../composer-logic";
 import type { DraftId } from "../../composerDraftStore";
 import { basenameOfPath } from "../../pierre-icons";
 import {
@@ -257,6 +261,39 @@ export function useComposerMenuItems({
             .normalize("NFC"),
         })),
       ];
+    }
+    if (composerTrigger.kind === "slash-command" && isNamedWorktreeQuery(composerTrigger.query)) {
+      const branch = parseNamedWorktreeBranch(composerTrigger.query);
+      if (branch !== null) {
+        return [
+          {
+            id: "slash:worktree:named",
+            type: "slash-command",
+            command: "worktree",
+            worktreeAction: { branch },
+            label: gt("New worktree on {branch}", { branch }),
+            description: gt("Creates this branch when the first message is sent"),
+          },
+        ] satisfies ReadonlyArray<ComposerCommandItem>;
+      }
+      return [
+        {
+          id: "slash:worktree:auto",
+          type: "slash-command",
+          command: "worktree",
+          worktreeAction: "auto",
+          label: gt("New worktree"),
+          description: gt("Type a branch name, or let the first message name it"),
+        },
+        {
+          id: "slash:worktree:picker",
+          type: "slash-command",
+          command: "worktree",
+          worktreeAction: "picker",
+          label: gt("Choose workspace…"),
+          description: gt("Local checkout, a new worktree or the previous one"),
+        },
+      ] satisfies ReadonlyArray<ComposerCommandItem>;
     }
     if (composerTrigger.kind === "slash-command") {
       const builtInSlashCommandItems = [

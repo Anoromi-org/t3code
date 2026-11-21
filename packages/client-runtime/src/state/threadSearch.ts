@@ -16,6 +16,7 @@ import {
   THREAD_OPEN_DEDUPE_MS,
   type ThreadSearchSubject,
 } from "@t3tools/shared/paletteSearch";
+import { fileBasename } from "@t3tools/shared/path";
 import { threadSearchPullRequests } from "@t3tools/shared/threadPullRequests";
 
 import type { EnvironmentThreadShell } from "./models.ts";
@@ -214,7 +215,12 @@ export type ThreadSearchShell = Pick<
   | "latestUserAuthoredMessageAt"
   | "opens"
 > &
-  Partial<Pick<EnvironmentThreadShell, "pullRequests" | "linkedPullRequest" | "branchPullRequest">>;
+  Partial<
+    Pick<
+      EnvironmentThreadShell,
+      "pullRequests" | "linkedPullRequest" | "branchPullRequest" | "worktreePath"
+    >
+  >;
 
 /**
  * What the web and mobile palettes rank a thread shell by. Pass the
@@ -266,6 +272,7 @@ function buildThreadSearchSubject(
     id: thread.id,
     title: thread.title,
     branch: thread.branch,
+    worktreeFolder: thread.worktreePath ? fileBasename(thread.worktreePath) : null,
     projectTitle: projectTitle ?? null,
     environmentLabel: environmentLabel ?? null,
     pullRequests: threadSearchPullRequests(thread),

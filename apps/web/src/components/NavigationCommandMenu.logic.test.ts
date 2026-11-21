@@ -5,6 +5,8 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import { describe, expect, it } from "vite-plus/test";
 
+import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+
 import {
   buildNavigationCommandResults,
   resolveDraftProjectKeys,
@@ -31,6 +33,7 @@ const thread = {
   updatedAt: "2026-07-11T00:00:00.000Z",
   latestUserMessageAt: null,
   archivedAt: null,
+  lineage: { rootThreadId: "thread-nav", parentThreadId: null, relationshipToParent: null },
 } as EnvironmentThreadShell;
 
 describe("buildNavigationCommandResults", () => {
@@ -145,6 +148,40 @@ describe("buildNavigationCommandResults", () => {
     ).toMatchObject([{ type: "thread", title: "Fix command hotkeys" }]);
   });
 
+  it("matches the worktree folder name but not its parent path", () => {
+    const worktreeThread = { ...thread, worktreePath: "/home/dev/worktrees/latency-padding" };
+    const search = (query: string) =>
+      buildNavigationCommandResults({ query, projects: [project], threads: [worktreeThread] });
+    expect(search("latency-padding")).toMatchObject([{ type: "thread" }]);
+    expect(search("worktrees")).toEqual([]);
+  });
+
+  it("matches query words that are split across title and project", () => {
+    expect(
+      buildNavigationCommandResults({
+        query: "hotkeys navigation fix",
+        projects: [project],
+        threads: [thread],
+      }),
+    ).toMatchObject([{ type: "thread", title: "Fix command hotkeys" }]);
+  });
+
+  it("matches threads by server-side message content", () => {
+    expect(
+      buildNavigationCommandResults({
+        query: "latency padding",
+        projects: [project],
+        threads: [thread],
+        contentSnippetByThreadKey: new Map([
+          [
+            threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id }),
+            "move the latency padding to frontends",
+          ],
+        ]),
+      }),
+    ).toMatchObject([{ type: "thread", title: "Fix command hotkeys" }]);
+  });
+
   it("ranks an active project before an equal-score project without activity", () => {
     const inactiveProject = {
       ...project,
@@ -173,5 +210,33 @@ describe("buildNavigationCommandResults", () => {
         threads: [archivedThread],
       }),
     ).toEqual([]);
+  });
+
+  it("excludes subagent threads but keeps forks", () => {
+    const lineage = { rootThreadId: thread.id, parentThreadId: thread.id };
+    const subagent = {
+      ...thread,
+      id: "thread-subagent",
+      lineage: { ...lineage, relationshipToParent: "subagent" },
+    } as EnvironmentThreadShell;
+    const fork = {
+      ...thread,
+      id: "thread-fork",
+      lineage: { ...lineage, relationshipToParent: "fork" },
+    } as EnvironmentThreadShell;
+    for (const query of ["", "hotkeys"]) {
+      expect(
+        buildNavigationCommandResults({
+          query,
+          projects: [project],
+          threads: [thread, subagent, fork],
+        }).map((item) => (item.type === "thread" ? item.thread.id : item.type)),
+      ).toEqual(expect.arrayContaining(["thread-nav", "thread-fork"]));
+      expect(
+        buildNavigationCommandResults({ query, projects: [project], threads: [subagent] }).filter(
+          (item) => item.type === "thread",
+        ),
+      ).toEqual([]);
+    }
   });
 });

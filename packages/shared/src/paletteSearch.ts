@@ -809,6 +809,8 @@ export interface ThreadSearchSubject {
   readonly id?: string;
   readonly title: string;
   readonly branch?: string | null;
+  /** The worktree folder name only: its parent path is shared by every worktree. */
+  readonly worktreeFolder?: string | null;
   readonly projectTitle?: string | null;
   /** Only set with two or more environments; it tells same-named threads apart. */
   readonly environmentLabel?: string | null;
@@ -919,6 +921,7 @@ export interface ThreadSearchMatch {
 export type SearchMatchHintField =
   | "pull-request"
   | "branch"
+  | "worktree"
   | "project"
   | "environment"
   | "reference";
@@ -971,6 +974,7 @@ function matchHint(
       text: `#${pullRequest.number}${pullRequest.title ? ` ${pullRequest.title}` : ""}`,
     })),
     { field: "branch", label: "Branch", text: searchableBranch(thread.branch) },
+    { field: "worktree", label: "Worktree", text: thread.worktreeFolder },
     { field: "project", label: "Project", text: thread.projectTitle },
     { field: "environment", label: "Environment", text: thread.environmentLabel },
   ];
@@ -1008,6 +1012,7 @@ function threadSearchFields(thread: ThreadSearchSubject): ReadonlyArray<Weighted
   }
   const branch = searchableBranch(thread.branch);
   if (branch) fields.push({ value: branch, weight: 0.6 });
+  if (thread.worktreeFolder) fields.push({ value: thread.worktreeFolder, weight: 0.6 });
   if (thread.projectTitle) {
     fields.push({ value: thread.projectTitle, weight: 0.25, context: true });
   }

@@ -35,6 +35,7 @@ import {
   resolveContextStripLabelsCompact,
   resolveCurrentWorkspaceLabel,
   resolveEnvModeLabel,
+  resolveNewWorktreeLabel,
   resolveLockedWorkspaceLabel,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
@@ -90,6 +91,7 @@ interface BranchToolbarProps {
   layout?: "composer" | "panel";
   panelSection?: "all" | "workspace" | "branch";
   forceNewWorktree?: boolean;
+  newWorktreeBranch?: string | null;
   ref?: Ref<BranchToolbarHandle>;
   environmentId: EnvironmentId;
   threadId: ThreadId;
@@ -153,6 +155,7 @@ interface RunContextSelectorProps {
   displayMode?: "toolbar" | "panel";
   workspaceRoot?: string;
   forceNewWorktree: boolean;
+  newWorktreeBranch: string | null;
   autoEnvironmentLabel?: string | undefined;
   onAutoEnvironment?: (() => void) | undefined;
   envLocked: boolean;
@@ -176,6 +179,7 @@ const RunContextSelector = memo(function RunContextSelector({
   displayMode = "toolbar",
   workspaceRoot,
   forceNewWorktree,
+  newWorktreeBranch,
   autoEnvironmentLabel,
   onAutoEnvironment,
   envLocked,
@@ -210,7 +214,7 @@ const RunContextSelector = memo(function RunContextSelector({
     : envModeLocked
       ? resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode, m)
       : effectiveEnvMode === "worktree"
-        ? resolveEnvModeLabel("worktree", m)
+        ? resolveNewWorktreeLabel(newWorktreeBranch, m)
         : resolveCurrentWorkspaceLabel(activeWorktreePath, m);
   const isPanel = displayMode === "panel";
   const isLocked = envLocked || (envModeLocked && (!isPanel || !showEnvironmentPicker));
@@ -444,7 +448,9 @@ const RunContextSelector = memo(function RunContextSelector({
             <MenuRadioItem disabled={envModeLocked} value="worktree" closeOnClick>
               <span className="flex min-w-0 items-center gap-1.5">
                 <FolderGit2Icon className="size-3" />
-                <span className="min-w-0 truncate">{resolveEnvModeLabel("worktree", m)}</span>
+                <span className="min-w-0 truncate">
+                  {resolveNewWorktreeLabel(newWorktreeBranch, m)}
+                </span>
               </span>
             </MenuRadioItem>
             {previousWorktreeLabel ? (
@@ -624,6 +630,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   layout = "composer",
   panelSection = "all",
   forceNewWorktree = false,
+  newWorktreeBranch = null,
   ref,
   environmentId,
   threadId,
@@ -725,6 +732,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             displayMode="panel"
             workspaceRoot={activeProject.workspaceRoot}
             forceNewWorktree={forceNewWorktree}
+            newWorktreeBranch={newWorktreeBranch}
             autoEnvironmentLabel={autoEnvironmentLabel}
             onAutoEnvironment={onAutoEnvironment}
             envLocked={envLocked}
@@ -775,6 +783,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         <div className="contents @xl/composer-surface:hidden">
           <RunContextSelector
             forceNewWorktree={forceNewWorktree}
+            newWorktreeBranch={newWorktreeBranch}
             autoEnvironmentLabel={autoEnvironmentLabel}
             onAutoEnvironment={onAutoEnvironment}
             envLocked={envLocked}
@@ -826,6 +835,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           {showGitControls ? (
             <BranchToolbarEnvModeSelector
               forceNewWorktree={forceNewWorktree}
+              newWorktreeBranch={newWorktreeBranch}
               envLocked={envModeLocked}
               effectiveEnvMode={effectiveEnvMode}
               activeWorktreePath={activeWorktreePath}

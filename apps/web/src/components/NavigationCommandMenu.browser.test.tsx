@@ -61,6 +61,7 @@ const thread = (id: string, title: string, updatedAt: string) =>
     updatedAt,
     latestUserMessageAt: null,
     archivedAt: null,
+    lineage: { rootThreadId: id, parentThreadId: null, relationshipToParent: null },
   }) as EnvironmentThreadShell;
 
 const press = (key: string, init: KeyboardEventInit = {}, target: EventTarget = window) =>

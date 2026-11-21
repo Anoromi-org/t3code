@@ -113,6 +113,16 @@ export function resolveEnvModeLabel(mode: EnvMode, resolve: MessageResolver = m)
   return mode === "worktree" ? resolve(msg("New worktree")) : resolve(msg("Current checkout"));
 }
 
+/** Fork: names the branch a pending `/worktree <branch>` will create. */
+export function resolveNewWorktreeLabel(
+  branch: string | null,
+  resolve: MessageResolver = m,
+): string {
+  return branch === null
+    ? resolveEnvModeLabel("worktree", resolve)
+    : resolve(msg("New worktree: {branch}", { branch }));
+}
+
 export const WORKTREE_SUBMODULES_LABELS: Record<WorktreeSubmodules, string> = {
   recursive: msg("Recursive"),
   "top-level": msg("Top level only"),

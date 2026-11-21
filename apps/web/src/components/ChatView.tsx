@@ -763,6 +763,11 @@ export default function ChatView(props: ChatViewProps) {
     readonly threadId: ThreadId;
     readonly branch: string | null;
   } | null>(null);
+  // Fork: the branch `/worktree <branch>` named for this route's new worktree.
+  const [newWorktreeBranchEntry, setNewWorktreeBranchEntry] = useState<{
+    readonly routeThreadKey: string;
+    readonly branch: string;
+  } | null>(null);
   const [
     pendingServerThreadStartFromOriginByThreadId,
     setPendingServerThreadStartFromOriginByThreadId,
@@ -2335,6 +2340,18 @@ export default function ChatView(props: ChatViewProps) {
     requestedEnvMode: envMode,
     isGitRepo,
   });
+  // A fan-out send gives each model its own worktree, so one branch name cannot serve them all.
+  const canChooseNewWorktree =
+    (isLocalDraftThread || canOverrideServerThreadEnvMode) &&
+    !envLocked &&
+    isGitRepo &&
+    multipleModelSelections === null;
+  const newWorktreeBranch =
+    canChooseNewWorktree &&
+    envMode === "worktree" &&
+    newWorktreeBranchEntry?.routeThreadKey === routeThreadKey
+      ? newWorktreeBranchEntry.branch
+      : null;
   const localCheckoutBranchMismatch = isServerThread
     ? resolveLocalCheckoutBranchMismatch({
         effectiveEnvMode: envMode,
@@ -2995,7 +3012,7 @@ export default function ChatView(props: ChatViewProps) {
   const {
     getModelDisabledReason,
     handleRuntimeModeChangeStable,
-    onEnvModeChangeStable,
+    onEnvModeChangeStable: onComposerEnvModeChange,
     onProviderModelSelectStable,
     onStartFromOriginChange,
     openProviderSetupStable,
@@ -3017,6 +3034,14 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus: scheduleComposerFocusStable,
+  });
+  const onEnvModeChangeStable = useStableCallback((mode: DraftThreadEnvMode) => {
+    setNewWorktreeBranchEntry(null);
+    onComposerEnvModeChange(mode);
+  });
+  const onSelectNewWorktreeStable = useStableCallback((branch: string | null) => {
+    onEnvModeChangeStable("worktree");
+    if (branch !== null) setNewWorktreeBranchEntry({ routeThreadKey, branch });
   });
   const { onResume, isResuming } = useComposerResume({
     environmentId,
@@ -3057,6 +3082,7 @@ export default function ChatView(props: ChatViewProps) {
     phase,
     runtimeMode,
     sendEnvMode,
+    newWorktreeBranch,
     startFromOrigin,
     localCheckoutBranchMismatch,
     logicalProjectEnvironments,
@@ -3823,6 +3849,9 @@ export default function ChatView(props: ChatViewProps) {
                                   freshSessionCommandAvailable ? armFreshSessionStable : undefined
                                 }
                                 onOpenBranchPicker={openBranchPickerStable}
+                                {...(canChooseNewWorktree
+                                  ? { onSelectNewWorktree: onSelectNewWorktreeStable }
+                                  : {})}
                                 onUsageLimitsCommand={
                                   usageLimitsOffered &&
                                   usageLimitsKey !== null &&
@@ -3919,6 +3948,7 @@ export default function ChatView(props: ChatViewProps) {
                               <div className="pointer-events-auto">
                                 <BranchToolbar
                                   forceNewWorktree={multipleModelSelections !== null}
+                                  newWorktreeBranch={newWorktreeBranch}
                                   ref={branchToolbarRef}
                                   environmentId={activeThread.environmentId}
                                   threadId={activeThread.id}
@@ -4029,6 +4059,7 @@ export default function ChatView(props: ChatViewProps) {
                   anchor={threadPanelPopoverAnchorRef}
                   handle={threadPanelPopoverHandle}
                   forceNewWorktree={multipleModelSelections !== null}
+                  newWorktreeBranch={newWorktreeBranch}
                   requestedGitAction={requestedGitAction}
                   onRequestedGitActionHandled={handleRequestedGitActionStable}
                   environmentId={activeThread.environmentId}
