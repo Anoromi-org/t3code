@@ -292,6 +292,13 @@ jobs:
             !/.repos/
             !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
           sparse-checkout-cone-mode: false
+          fetch-depth: 0
+
+      # scripts/repo-config.test.ts checks a commit note for every fork commit above upstream/main.
+      - name: Fetch canonical upstream main
+        run: |
+          git remote get-url upstream >/dev/null 2>&1 || git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
 
       - uses: ./.github/actions/setup-apt-mirrors
 

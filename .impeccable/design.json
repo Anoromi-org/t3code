@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-09T15:50:57Z",
+  "title": "Design System: T3 Code",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Agent Blue",
+        "canonical": "oklch(0.488 0.217 264)",
+        "tonalRamp": ["oklch(0.488 0.217 264)", "oklch(0.588 0.217 264)", "var(--primary)/90"]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Workspace Surface",
+        "canonical": "var(--background)",
+        "tonalRamp": [
+          "var(--app-chrome-background)",
+          "var(--background)",
+          "var(--card)",
+          "var(--popover)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline Structure",
+        "canonical": "var(--border)",
+        "tonalRamp": [
+          "var(--border)",
+          "var(--input)",
+          "color-mix(in srgb, var(--border) 60%, transparent)"
+        ]
+      },
+      "status": {
+        "role": "semantic",
+        "displayName": "Operational Status",
+        "canonical": "var(--destructive), var(--info), var(--success), var(--warning)",
+        "tonalRamp": ["var(--destructive)", "var(--info)", "var(--success)", "var(--warning)"]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "Compact section headings, card titles, and dialogs."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Chat prose, settings descriptions, and general interface text."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Metadata, controls, status, and command annotations."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Paths, branches, code, terminal-adjacent labels, and keyboard-centric details."
+      }
+    },
+    "elevation": {
+      "controlLift": "shadow-xs/5 plus one-pixel inner highlight",
+      "foregroundPanel": "shadow-lg/5 for menus, dialogs, comboboxes, command palettes",
+      "focusRing": "ring-ring/24, focus-visible:ring-[3px], or focus-visible:ring-2",
+      "temporaryStateGlow": "sidebar worktree settle animation only"
+    },
+    "motion": {
+      "defaultDuration": "150ms to 200ms",
+      "commandSurfaceDuration": "75ms",
+      "sidebarDuration": "200ms",
+      "easing": "ease-out or cubic-bezier(0.22, 1, 0.36, 1)",
+      "reducedMotion": "Disable nonessential enter animations and keep state changes direct."
+    },
+    "componentSnippets": {
+      "buttonPrimary": "rounded-lg border-primary bg-primary text-primary-foreground shadow-primary/24 shadow-xs focus-visible:ring-2 focus-visible:ring-ring",
+      "inputDefault": "rounded-lg border-input bg-background text-foreground shadow-xs/5 focus-visible:border-ring focus-visible:ring-[3px]",
+      "cardDefault": "rounded-2xl border bg-card text-card-foreground shadow-xs/5 before:shadow-[0_1px_--theme(--color-black/4%)]",
+      "menuItem": "rounded-sm px-2 py-1 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+    },
+    "rules": {
+      "northStar": "The Agent Workbench",
+      "do": [
+        "Keep working state visible.",
+        "Make keyboard focus structural.",
+        "Use Agent Blue only for primary action, focus, selection, and meaningful state.",
+        "Keep terminal and diff surfaces visually primary."
+      ],
+      "dont": [
+        "Do not make the app feel like a generic SaaS dashboard, chat toy, flashy AI wrapper, or bloated IDE clone.",
+        "Do not add decorative feature explanations, noisy onboarding, or UI chrome that competes with code and diffs.",
+        "Do not use gradient text, side-stripe borders, decorative glassmorphism, hero metrics, or repeated identical card grids."
+      ]
+    }
+  }
+}
