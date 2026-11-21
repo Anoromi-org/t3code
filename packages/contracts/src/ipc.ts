@@ -1207,6 +1207,11 @@ export interface DesktopBridge {
   openSystemSettings: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission: (pane: SystemSettingsPane) => Promise<boolean>;
   probeRemoteEditors: () => Promise<readonly EditorId[]>;
+  /** Hyprland-only, primary local environment Corkdiff integration. */
+  openExternalCorkdiff?: (input: { readonly cwd: string; readonly threadId: string }) => Promise<{
+    readonly workspaceId: number;
+    readonly reused: boolean;
+  }>;
   pasteAsText: () => Promise<void>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   onSnapShotEvent: (listener: (event: DesktopSnapShotEvent) => void) => () => void;

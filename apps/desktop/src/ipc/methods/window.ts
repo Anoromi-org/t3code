@@ -12,6 +12,8 @@ import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   REMOTE_CAPABLE_EDITOR_IDS,
   SystemSettingsPaneSchema,
+  ThreadId,
+  TrimmedNonEmptyString,
   type DesktopEnvironmentBootstrap,
   type PickedThemeFile,
 } from "@t3tools/contracts";
@@ -39,6 +41,7 @@ import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
 import * as ElectronApp from "../../electron/ElectronApp.ts";
 import * as ElectronAudio from "../../electron/ElectronAudio.ts";
+import * as ExternalCorkdiff from "../../corkdiff/ExternalCorkdiff.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronMenu from "../../electron/ElectronMenu.ts";
 import * as ElectronShell from "../../electron/ElectronShell.ts";
@@ -611,4 +614,21 @@ export const restartAudioService = DesktopIpc.makeIpcMethod({
   payload: Schema.Void,
   result: Schema.Boolean,
   handler: ElectronAudio.restart,
+});
+
+export const openExternalCorkdiff = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.OPEN_EXTERNAL_CORKDIFF_CHANNEL,
+  payload: Schema.Struct({
+    cwd: TrimmedNonEmptyString,
+    threadId: ThreadId,
+  }),
+  result: Schema.Struct({
+    // Negative ids are Hyprland special workspaces.
+    workspaceId: Schema.Int,
+    reused: Schema.Boolean,
+  }),
+  handler: Effect.fn("desktop.ipc.window.openExternalCorkdiff")(function* (input) {
+    const corkdiff = yield* ExternalCorkdiff.ExternalCorkdiff;
+    return yield* corkdiff.openOrFocus(input);
+  }),
 });

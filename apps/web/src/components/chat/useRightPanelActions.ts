@@ -39,6 +39,7 @@ import { openDeviceSetupDialog } from "./ChatOverlayHosts";
 import { previewEnvironment } from "../../state/preview";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
+import { routeDiffShortcut } from "../externalCorkdiffRouting";
 interface RightPanelActionsInput {
   readonly activeThreadRef: ScopedThreadRef | null;
   readonly activeProject: EnvironmentProject | null;
@@ -64,6 +65,7 @@ interface RightPanelActionsInput {
   readonly gitCwd: string | null;
   readonly activeProjectCwd: string | null;
   readonly onDiffPanelOpen: (() => void) | undefined;
+  readonly primaryEnvironmentId: string | null;
   readonly closeRightPanelSurface: (surface: RightPanelSurface) => void;
 }
 
@@ -97,6 +99,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     gitCwd,
     activeProjectCwd,
     onDiffPanelOpen,
+    primaryEnvironmentId,
   } = input;
 
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
@@ -112,6 +115,32 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     }
   };
   const onToggleDiffStable = useStableCallback(onToggleDiff);
+  const openDiffFallback = () => {
+    if (!isServerThread) return;
+    if (!diffOpen) onDiffPanelOpen?.();
+    if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "diff");
+  };
+  // Fork: external Corkdiff runs in a local Ghostty process and Electron main owns only the
+  // primary backend credential, so remote threads keep the in-app viewer.
+  const onToggleDiffShortcut = () => {
+    void routeDiffShortcut({
+      activeEnvironmentId: activeThreadRef?.environmentId,
+      activeThreadId: activeThreadRef?.threadId,
+      activeWorkspaceRoot: gitCwd,
+      isServerThread,
+      openExternalCorkdiff: window.desktopBridge?.openExternalCorkdiff,
+      openInApp: openDiffFallback,
+      primaryEnvironmentId,
+      reportExternalError: (description) => {
+        toastManager.add({
+          type: "error",
+          title: m(msg("Unable to open Corkdiff")),
+          description,
+        });
+      },
+      toggleInApp: onToggleDiff,
+    });
+  };
   const createBrowserSurface = (profileId?: string, duplicateFrom?: PreviewSessionSnapshot) => {
     if (!activeThreadRef || !canOperatePreview) return;
     void addBrowserSurface({
@@ -340,7 +369,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
       if (!activeRightPanelSurface) return false;
       if (!event.repeat) closeRightPanelSurface(activeRightPanelSurface);
     },
-    "diff.toggle": () => onToggleDiff(),
+    "diff.toggle": () => onToggleDiffShortcut(),
   } satisfies ChatShortcutCommands;
 
   return {

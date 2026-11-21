@@ -310,6 +310,27 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
       }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
     );
 
+    it.effect("accepts only websocket tickets in Corkdiff's redacted token parameter", () =>
+      Effect.gen(function* () {
+        const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+        const bearer = yield* serverAuth.issueSession();
+        const { ticket } = yield* serverAuth.issueWebSocketTicket(bearer);
+        const upgrade = (token: string) =>
+          serverAuth.authenticateWebSocketUpgrade(
+            {
+              url: `/ws?token=${encodeURIComponent(token)}`,
+              cookies: {},
+              headers: { host: "127.0.0.1:3773" },
+            } as never,
+            "rpc",
+          );
+
+        expect((yield* upgrade(Redacted.value(ticket))).sessionId).toBe(bearer.sessionId);
+        const accessToken = yield* Effect.flip(upgrade(bearer.token));
+        expect(accessToken._tag).toBe("ServerAuthInvalidCredentialError");
+      }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "127.0.0.1" }))),
+    );
+
     it.effect(
       "holds an untrusted T3 Connect device until it is approved, and revocation cuts it off",
       () =>

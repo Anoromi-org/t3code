@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import { EnvironmentAuthInvalidError } from "@t3tools/contracts";
 import { hashTelemetryId } from "@t3tools/shared/telemetryId";
 import {
+  attachWebSocketTicket,
   bootstrapRemoteBearerSession,
   exchangeRemoteDpopAccessToken,
   issueRemoteDpopWebSocketTicket,
@@ -75,6 +76,16 @@ const expectFetchCall = (
 };
 
 describe("remote environment authorization", () => {
+  it("replaces stale websocket credentials with an encoded plugin ticket", () => {
+    expect(
+      attachWebSocketTicket(
+        "ws://127.0.0.1:3773/?token=old&wsToken=older&wsTicket=stale",
+        "fresh ticket",
+        "token",
+      ),
+    ).toBe("ws://127.0.0.1:3773/ws?token=fresh+ticket");
+  });
+
   it.effect("exchanges managed credentials and admits websocket requests with DPoP", () =>
     Effect.gen(function* () {
       const fetch = recordedFetch(

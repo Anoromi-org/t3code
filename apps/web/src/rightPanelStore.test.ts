@@ -848,6 +848,17 @@ describe("rightPanelStore", () => {
     ).toEqual({ inlineOpen: true, popoverOpen: true });
   });
 
+  it("keeps the diff fallback open across repeated external launch failures", () => {
+    useRightPanelStore.getState().open(refA, "diff");
+    useRightPanelStore.getState().open(refA, "diff");
+
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "diff",
+      surfaces: [{ id: "diff", kind: "diff" }],
+    });
+  });
+
   it("opens workspace-root links as the singleton files explorer", () => {
     const store = useRightPanelStore.getState();
     store.openFile(refA, "README.md");

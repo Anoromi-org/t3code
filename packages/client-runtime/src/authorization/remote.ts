@@ -29,6 +29,20 @@ export type RemoteEnvironmentAuthError = RemoteEnvironmentRequestError;
 const DEFAULT_REMOTE_REQUEST_TIMEOUT_MS = 10_000;
 const isUndeclaredStatusError = Schema.is(RemoteEnvironmentAuthUndeclaredStatusError);
 
+/** Replaces any stale socket credential with `ticket`; plugins such as Corkdiff use `token`. */
+export function attachWebSocketTicket(
+  wsBaseUrl: string,
+  ticket: string,
+  queryParam: "wsTicket" | "token" = "wsTicket",
+): string {
+  const url = rpcSocketUrl(wsBaseUrl);
+  url.searchParams.delete("token");
+  url.searchParams.delete("wsToken");
+  url.searchParams.delete("wsTicket");
+  url.searchParams.set(queryParam, ticket);
+  return url.toString();
+}
+
 const clientMetadataTokenExchangeFields = (
   clientMetadata: AuthClientPresentationMetadata | undefined,
 ) => {

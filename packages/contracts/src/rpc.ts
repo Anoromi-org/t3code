@@ -45,7 +45,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
-import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { SecretSourceCheckResult } from "./settingsSecretValue.ts";
 import { SecretReference } from "./secretReference.ts";
 import {
@@ -611,6 +611,9 @@ export const WS_METHODS = {
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
 
+  // Desktop control methods
+  desktopRequestCorkdiffAppFocus: "desktop.requestCorkdiffAppFocus",
+
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
 
@@ -694,6 +697,17 @@ export const WS_METHODS = {
   subscribeAuthAccess: "subscribeAuthAccess",
   subscribeResourceTelemetry: "subscribeResourceTelemetry",
 } as const;
+
+export class DesktopCorkdiffFocusError extends Schema.TaggedError<DesktopCorkdiffFocusError>()(
+  "DesktopCorkdiffFocusError",
+  { message: Schema.String },
+) {}
+
+const WsDesktopRequestCorkdiffAppFocusRpc = Rpc.make(WS_METHODS.desktopRequestCorkdiffAppFocus, {
+  payload: Schema.Struct({ threadId: ThreadId }),
+  success: Schema.Struct({ accepted: Schema.Literal(true) }),
+  error: Schema.Union([DesktopCorkdiffFocusError, EnvironmentAuthorizationError]),
+});
 
 const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
   payload: ServerUpsertKeybindingInput,
@@ -2344,6 +2358,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsIssueTrackersBindProjectRpc,
   WsGuestShareCreateRpc,
   WsServerProbeRpc,
+  WsDesktopRequestCorkdiffAppFocusRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,

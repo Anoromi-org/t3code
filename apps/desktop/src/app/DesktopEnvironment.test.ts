@@ -38,6 +38,11 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it("derives Electron's native Wayland app id from its display name", () => {
+    assert.equal(DesktopEnvironment.resolveLinuxWaylandAppId("T3 Code (Alpha)"), "t3-code-alpha");
+    assert.equal(DesktopEnvironment.resolveLinuxWaylandAppId("T3 Code (Dev)"), "t3-code-dev");
+  });
+
   it.effect("uses the packaged Windows server sidecar as the backend root", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment({

@@ -86,7 +86,7 @@ describe("DesktopLocalEnvironmentAuth", () => {
         Layer.provide(Layer.mergeAll(layerPool, layerHttpClient, NodeCrypto.layerMac)),
       );
 
-      const [first, second] = yield* Effect.gen(function* () {
+      const [first, second, afterInvalidation] = yield* Effect.gen(function* () {
         const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
         const tokens = yield* Effect.all([auth.getBearerToken, auth.getBearerToken]).pipe(
           Effect.forkChild,
@@ -95,12 +95,17 @@ describe("DesktopLocalEnvironmentAuth", () => {
         yield* TestClock.adjust(Duration.seconds(16));
         assert.strictEqual(yield* Ref.get(requestCount), 0);
         yield* Deferred.succeed(ready, true);
-        return yield* Fiber.join(tokens);
+        const cached = yield* Fiber.join(tokens);
+        assert.strictEqual(yield* Ref.get(requestCount), 1);
+        // Corkdiff invalidates a bearer the server rejected; the next read exchanges again.
+        yield* auth.invalidateBearerToken;
+        return [...cached, yield* auth.getBearerToken] as const;
       }).pipe(Effect.provide(layerTest));
 
       assert.strictEqual(first, "desktop-bearer-token");
       assert.strictEqual(second, "desktop-bearer-token");
-      assert.strictEqual(yield* Ref.get(requestCount), 1);
+      assert.strictEqual(afterInvalidation, "desktop-bearer-token");
+      assert.strictEqual(yield* Ref.get(requestCount), 2);
     }).pipe(Effect.provide(TestClock.layer())),
   );
 

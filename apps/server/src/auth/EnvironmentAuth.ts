@@ -675,6 +675,9 @@ const DPOP_AUTHORIZATION_PREFIX = "DPoP ";
 const WebSocketUpgradeQuery = Schema.Struct({
   wsTicket: Schema.optionalKey(Schema.RedactedFromValue(Schema.String)),
   dpop: Schema.optionalKey(Schema.RedactedFromValue(Schema.String)),
+  // Corkdiff sends its websocket ticket in its redacted `token` parameter. Only websocket tickets
+  // are accepted there; access tokens stay header-only.
+  token: Schema.optionalKey(Schema.RedactedFromValue(Schema.String)),
 });
 const decodeWebSocketUpgradeQuery = Schema.decodeEffect(WebSocketUpgradeQuery);
 
@@ -1535,7 +1538,8 @@ export const make = Effect.gen(function* () {
         const query = yield* decodeWebSocketUpgradeQuery(
           Object.fromEntries(url.value.searchParams),
         ).pipe(Effect.orDie);
-        const websocketTicket = query.wsTicket && Redacted.value(query.wsTicket);
+        const ticketParam = query.wsTicket ?? query.token;
+        const websocketTicket = ticketParam && Redacted.value(ticketParam);
         if (websocketTicket && websocketTicket.trim().length > 0) {
           const session = yield* sessions
             .verifyWebSocketToken(websocketTicket)
