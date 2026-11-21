@@ -139,9 +139,35 @@ const knownRecords: Record<(typeof COMPOSER_CONTEXT_KINDS)[number], Record<strin
       { threadId: "thread-3", title: "review pr 413", environmentId: "environment-2" },
     ],
   },
+  "app-reference": {
+    ...base,
+    kind: "app-reference",
+    label: "LR parsing · Items",
+    app: "Learning",
+    url: "learningapps://open/learn-lr-game",
+    details: [
+      { name: "lesson", value: "3" },
+      { name: "stack", value: "E + n" },
+    ],
+  },
 };
 
 describe("ComposerContextRecord", () => {
+  it("rejects an app reference that breaks its limits", () => {
+    const record = knownRecords["app-reference"];
+    expect(Option.getOrThrow(decodeRecord(record))).toEqual(record);
+    const details = Array.from({ length: 13 }, () => ({ name: "n", value: "v" }));
+    expect(Option.isNone(decodeRecord({ ...record, details }))).toBe(true);
+    expect(
+      Option.isNone(decodeRecord({ ...record, details: [{ name: "x".repeat(41), value: "" }] })),
+    ).toBe(true);
+    expect(Option.isNone(decodeRecord({ ...record, url: undefined }))).toBe(true);
+    expect(Option.getOrThrow(decodeRecord({ ...record, app: null, url: null }))).toMatchObject({
+      app: null,
+      url: null,
+    });
+  });
+
   it("keeps unknown kinds with their payload", () => {
     const decoded = decodeRecord({
       ...base,

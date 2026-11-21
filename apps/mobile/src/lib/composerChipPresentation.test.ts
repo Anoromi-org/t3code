@@ -23,6 +23,7 @@ const CHIP_ACCENTS = [
         "skill",
         "thread",
         "environment",
+        "app-reference",
       ].map((kind) => contextChipPresentation(kind)),
       ...[
         { state: "open", isDraft: false },
@@ -112,5 +113,14 @@ describe("contextChipAccent", () => {
 describe("contextChipPresentation", () => {
   it("draws a mentioned machine as a machine, not the generic file chip", () => {
     expect(contextChipPresentation("environment")).toEqual({ accent: "#3f9a4f", icon: "server" });
+  });
+});
+
+describe("app reference chip", () => {
+  it("has its own colour and a link glyph instead of the file fallback", () => {
+    expect(contextChipPresentation("app-reference", { kind: "app-reference" })).toEqual({
+      accent: "#699630",
+      icon: "link-2",
+    });
   });
 });

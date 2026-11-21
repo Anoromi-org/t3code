@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const drafts = vi.hoisted(() => ({
   text: new Map<string, string>(),
+  context: new Map<string, { version: 1; records: ReadonlyArray<{ contextId: string }> }>(),
   selection: new Map<string, { text: string; start: number; end: number }>(),
 }));
 const alerts = vi.hoisted(
@@ -28,7 +29,14 @@ vi.mock("expo-crypto", () => ({
 vi.mock("../../lib/copyTextWithHaptic", () => ({ tryCopyTextWithHaptic: vi.fn() }));
 vi.mock("../../state/use-composer-drafts", () => ({
   waitForComposerDraftsLoaded: async () => undefined,
-  getComposerDraftSnapshot: (key: string) => ({ text: drafts.text.get(key) ?? "" }),
+  getComposerDraftSnapshot: (key: string) => ({
+    text: drafts.text.get(key) ?? "",
+    context: drafts.context.get(key),
+  }),
+  setComposerDraftContext: (
+    key: string,
+    context: { version: 1; records: ReadonlyArray<{ contextId: string }> },
+  ) => drafts.context.set(key, context),
   setComposerDraftText: (key: string, text: string) => drafts.text.set(key, text),
   rememberComposerDraftSelection: (
     key: string,
@@ -61,6 +69,7 @@ beforeEach(() => {
   secureStore.clear();
   resetTrustedLinkSourcesForTest();
   drafts.text.clear();
+  drafts.context.clear();
   drafts.selection.clear();
   alerts.length = 0;
   takeLinkedComposerFocus(KEY);
@@ -94,6 +103,51 @@ describe("applyLinkedPromptToThreadDraft", () => {
     expect(drafts.text.get(KEY)).toBe(PROMPT.text);
     expect(drafts.selection.get(KEY)?.end).toBe(PROMPT.text.length);
     expect(takeLinkedComposerFocus(KEY)).toBe(true);
+  });
+});
+
+describe("app references", () => {
+  const REFERENCED = {
+    text: "Why is this a shift?",
+    hiddenCharacters: 0,
+    reference: { title: "LR parsing · Items", url: null, details: [] },
+  };
+
+  it("fills the chip, then the prompt, with its record and the caret at the end", async () => {
+    const other = { version: 1, kind: "skill", contextId: "skill_x", label: "x", name: "x" };
+    drafts.context.set(KEY, { version: 1, records: [other] });
+    await applyLinkedPromptToThreadDraft(KEY, REFERENCED, "notice", SOURCE, "Learning");
+
+    const text = drafts.text.get(KEY)!;
+    const records = drafts.context.get(KEY)!.records as ReadonlyArray<Record<string, unknown>>;
+    const record = records.find((entry) => entry.kind === "app-reference")!;
+    expect(text).toBe(
+      `[LR parsing · Items](t3-context://v1/app-reference/${String(record.contextId)}) Why is this a shift?`,
+    );
+    expect(record).toMatchObject({ label: "LR parsing · Items", app: "Learning" });
+    expect(records).toContain(other);
+    expect(drafts.selection.get(KEY)).toEqual({ text, start: text.length, end: text.length });
+    press("OK");
+    expect(takeLinkedComposerFocus(KEY)).toBe(true);
+  });
+
+  it("treats the same link opened twice as the draft it already made", async () => {
+    await applyLinkedPromptToThreadDraft(KEY, REFERENCED, "notice", null, "Learning");
+    const first = drafts.text.get(KEY);
+    alerts.length = 0;
+    await applyLinkedPromptToThreadDraft(KEY, REFERENCED, "notice", null, "Learning");
+    expect(alerts.at(-1)?.title).toBe("Prompt from a link");
+    expect(drafts.text.get(KEY)).toBe(first);
+  });
+
+  it("asks before replacing typed text, and keeps the chip first when replacing", async () => {
+    drafts.text.set(KEY, "my notes");
+    await applyLinkedPromptToThreadDraft(KEY, REFERENCED, "notice", null, "Learning");
+    expect(alerts.at(-1)?.title).toBe("Linked prompt ready. Replace draft?");
+    press("Replace");
+    expect(drafts.text.get(KEY)).toMatch(
+      /^\[LR parsing · Items\]\(t3-context:\/\/v1\/app-reference\/[^)]+\) Why is this a shift\?$/,
+    );
   });
 });
 

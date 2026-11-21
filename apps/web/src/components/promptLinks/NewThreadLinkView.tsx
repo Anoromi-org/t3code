@@ -445,10 +445,7 @@ function PullRequestLinkCheckout({
         size="sm"
         disabled={handoff !== null}
         onClick={() =>
-          void startHandoff(
-            "prompt-link",
-            link.prompt === null ? null : { prompt: link.prompt.text },
-          )
+          void startHandoff("prompt-link", link.prompt?.text ? { prompt: link.prompt.text } : null)
         }
       >
         {handoff !== null ? gt("Checking out...") : gt("Check out")}

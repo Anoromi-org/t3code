@@ -48,6 +48,8 @@ const CONTEXT_CHIP_PRESENTATIONS = {
   environment: { accent: "#3f9a4f", icon: "server" },
   // An earlier response the message replies to. Mobile shows it as a plain labelled chip.
   response: { accent: "#7f8793", icon: null },
+  // Where the user was in another app, from a prompt link. Web uses oklch(0.62 0.14 130).
+  "app-reference": { accent: "#699630", icon: "link-2" },
 } as const satisfies Record<string, ContextChipPresentation>;
 
 const CHIP_CONTRAST = 5;

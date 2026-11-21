@@ -12,11 +12,12 @@ import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import {
   getComposerDraftSnapshot,
   rememberComposerDraftSelection,
+  setComposerDraftContext,
   setComposerDraftText,
   waitForComposerDraftsLoaded,
 } from "../../state/use-composer-drafts";
 import { requestLinkedComposerFocus } from "./linked-composer-focus";
-import { linkedThreadDraftAction } from "./prompt-link-model";
+import { linkedPromptDraft, linkedThreadDraftAction } from "./prompt-link-model";
 import { isTrustedLinkKey, trustLinkSource } from "./trusted-link-sources";
 
 interface PromptLinkNoticeRequest {
@@ -78,7 +79,20 @@ function linkedPromptNoticeRequest(
   return { notice, source, skippable: clean, offerTrust: clean };
 }
 
-function fillLinkedThreadDraft(draftKey: string, text: string): void {
+/** Replaces the draft's text with the link's draft, chip first. */
+export function fillLinkedDraft(
+  draftKey: string,
+  draft: ReturnType<typeof linkedPromptDraft>,
+): void {
+  const { text, record } = draft;
+  if (record) {
+    const existing = getComposerDraftSnapshot(draftKey).context?.records ?? [];
+    // Setting the text next drops every record it no longer references.
+    setComposerDraftContext(draftKey, {
+      version: 1,
+      records: [...existing.filter((entry) => entry.contextId !== record.contextId), record],
+    });
+  }
   setComposerDraftText(draftKey, text);
   // A composer already showing this thread clamps its caret to the old (empty) text otherwise.
   rememberComposerDraftSelection(draftKey, text, { start: text.length, end: text.length });
@@ -89,6 +103,8 @@ export async function applyLinkedPromptToThreadDraft(
   prompt: LinkedPrompt,
   notice: string,
   source?: PromptLinkSource | null,
+  /** The link's `from`, which names the app on its reference chip. */
+  app: string | null = source?.label ?? null,
 ): Promise<void> {
   try {
     await waitForComposerDraftsLoaded();
@@ -99,11 +115,12 @@ export async function applyLinkedPromptToThreadDraft(
     );
     return;
   }
-  const action = linkedThreadDraftAction(getComposerDraftSnapshot(draftKey).text, prompt.text);
+  const draft = linkedPromptDraft(prompt, app);
+  const action = linkedThreadDraftAction(getComposerDraftSnapshot(draftKey).text, draft.text);
   // Focus waits for the dialog: the keyboard would otherwise open under it.
   const focusComposer = () => requestLinkedComposerFocus(draftKey);
   if (action !== "ask") {
-    if (action === "fill") fillLinkedThreadDraft(draftKey, prompt.text);
+    if (action === "fill") fillLinkedDraft(draftKey, draft);
     await showPromptLinkNotice(linkedPromptNoticeRequest(prompt, notice, source), focusComposer);
     return;
   }
@@ -112,7 +129,7 @@ export async function applyLinkedPromptToThreadDraft(
     {
       text: m(msg("Replace", { $context: "verb, replaces the draft" })),
       onPress: () => {
-        fillLinkedThreadDraft(draftKey, prompt.text);
+        fillLinkedDraft(draftKey, draft);
         focusComposer();
       },
     },

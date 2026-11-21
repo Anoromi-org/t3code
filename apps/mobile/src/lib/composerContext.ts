@@ -5,6 +5,7 @@ import {
 import { isProviderSkillUserInvocable } from "@t3tools/client-runtime/providerSkills";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
+import type { PromptLinkReference } from "@t3tools/shared/promptLinks";
 import { videoMimeType } from "@t3tools/shared/video";
 import { msg } from "gt-react-native";
 import { m } from "../i18n/messages";
@@ -15,6 +16,7 @@ import {
 } from "@t3tools/shared/assistantCitations";
 import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  type AppReferenceContextRecord,
   COMPOSER_CONTEXT_MAX_RECORDS,
   COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS,
   ComposerContextId,
@@ -30,10 +32,12 @@ import * as Schema from "effect/Schema";
 import {
   ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
   collectComposerContextReferences,
+  composerContextDigest,
   formatComposerContextReference,
   isImageReferencesOnly,
   replaceComposerContextReferences,
   sanitizeComposerContextLabel,
+  toKindScopedComposerContextId,
 } from "@t3tools/shared/composerContextReferences";
 import {
   collectComposerInlineTokens,
@@ -134,6 +138,27 @@ export function environmentComposerContext(
     contextId: ComposerContextId.make(`environment_${environmentId}`),
     label: sanitizeComposerContextLabel(label, "environment"),
     environmentId,
+  };
+}
+
+/** Identity is the content, so opening the same link twice reuses one chip. */
+export function appReferenceComposerContext(
+  reference: PromptLinkReference,
+  app: string | null,
+): AppReferenceContextRecord {
+  const label = sanitizeComposerContextLabel(reference.title, "app-reference");
+  const details = reference.details.map(({ name, value }) => ({ name, value }));
+  return {
+    version: 1,
+    kind: "app-reference",
+    contextId: toKindScopedComposerContextId(
+      "app-reference",
+      composerContextDigest(JSON.stringify([app, label, reference.url, details])),
+    ),
+    label,
+    app,
+    url: reference.url,
+    details,
   };
 }
 

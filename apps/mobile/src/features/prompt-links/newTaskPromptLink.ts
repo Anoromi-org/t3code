@@ -21,6 +21,7 @@ import {
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
+  parsePromptLinkFrom,
   parsePromptLinkSource,
   type LinkedPrompt,
   type PromptLinkPullRequest,
@@ -42,14 +43,18 @@ import { environmentServerConfigsAtom } from "../../state/server";
 import { environmentThreadShells } from "../../state/threads";
 import {
   createNewTaskDraft,
-  setComposerDraftText,
   updateComposerDraftSettings,
   waitForComposerDraftsLoaded,
 } from "../../state/use-composer-drafts";
 import { workspaceConnections, workspaceStateAtom } from "../../state/workspace";
-import { applyLinkedPromptToThreadDraft, showPromptLinkNotice } from "./prompt-link-actions";
+import {
+  applyLinkedPromptToThreadDraft,
+  fillLinkedDraft,
+  showPromptLinkNotice,
+} from "./prompt-link-actions";
 import {
   latestThreadEnvironmentIds,
+  linkedPromptDraft,
   promptLinkNotice,
   promptLinkRepositoryName,
   promptLinkScratchEnvironmentId,
@@ -69,6 +74,8 @@ type LinkedDraftRequest = {
   readonly model: string | null;
   readonly pullRequest: PromptLinkPullRequest | null;
   readonly source: PromptLinkSource | null;
+  /** The link's `from`, which names the app on its reference chip. */
+  readonly app: string | null;
 };
 
 // A cold launch from a link has no projects or threads yet. Matching then would offer to clone a
@@ -159,7 +166,7 @@ function writeDraft(
   environmentId: EnvironmentId,
   request: LinkedDraftRequest,
 ): boolean {
-  if (request.prompt) setComposerDraftText(draftKey, request.prompt.text);
+  if (request.prompt) fillLinkedDraft(draftKey, linkedPromptDraft(request.prompt, request.app));
   if (request.provider === null) return false;
   const resolved = resolvePromptLinkModelSelection(
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.providers ?? [],
@@ -171,7 +178,7 @@ function writeDraft(
 
 function openThread(
   thread: { readonly environmentId: EnvironmentId; readonly id: ThreadId },
-  { prompt, source }: Pick<LinkedDraftRequest, "prompt" | "source">,
+  { prompt, source, app }: Pick<LinkedDraftRequest, "prompt" | "source" | "app">,
 ) {
   dispatchFromNewTask(
     StackActions.replace("Thread", {
@@ -185,6 +192,7 @@ function openThread(
       prompt,
       promptLinkNotice({ hiddenCharacters: prompt.hiddenCharacters }),
       source,
+      app,
     );
   }
 }
@@ -343,8 +351,10 @@ function cloneRepository(repository: PromptLinkRepository, request: LinkedDraftR
     Dialog.alert(m(msg("Could not clone")), m(msg("Connect an environment first.")));
     return;
   }
+  // The destination screen takes text only, so an app reference does not survive a clone.
   const prompt =
     request.pullRequest === null &&
+    request.prompt?.text &&
     appAtomRegistry.get(environmentServerConfigsAtom).has(environmentId)
       ? request.prompt
       : null;
@@ -384,6 +394,7 @@ function resolveLink(linkSearch: string) {
   }
   const link = parsed.value;
   const source = parsePromptLinkSource(linkSearch);
+  const app = parsePromptLinkFrom(linkSearch);
   const request: LinkedDraftRequest =
     link.kind === "new"
       ? {
@@ -392,6 +403,7 @@ function resolveLink(linkSearch: string) {
           model: link.model,
           pullRequest: null,
           source,
+          app,
         }
       : {
           prompt: link.prompt,
@@ -399,6 +411,7 @@ function resolveLink(linkSearch: string) {
           model: null,
           pullRequest: link.pullRequest,
           source,
+          app,
         };
 
   if (link.kind === "pull-request") {

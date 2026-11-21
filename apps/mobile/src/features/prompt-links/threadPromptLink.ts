@@ -2,6 +2,7 @@ import * as Dialog from "../../components/ui/Dialog";
 import type { NavigationState, PartialState } from "@react-navigation/native";
 import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
 import {
+  parsePromptLinkFrom,
   parsePromptLinkSource,
   type LinkedPrompt,
   type PromptLinkSource,
@@ -24,12 +25,14 @@ import {
   stepPendingPromptLink,
 } from "./prompt-link-model";
 
-const THREAD_LINK_KEYS = ["prompt", "from", "key"];
+const THREAD_LINK_KEYS = ["prompt", "from", "key", "ref"];
 
 type PendingThreadLink = {
   readonly ref: ScopedThreadRef;
   readonly prompt: LinkedPrompt;
   readonly source: PromptLinkSource | null;
+  /** The link's `from`, which names the app on its reference chip. */
+  readonly app: string | null;
 };
 
 function firstString(value: unknown): string | null {
@@ -58,7 +61,7 @@ export function takeThreadPromptLink(
   if (!route || !params || search === null) return state;
   // A newer link replaces a waiting one even when it turns out to be invalid.
   dropPendingLink();
-  const { prompt: _prompt, from: _from, key: _key, ...rest } = params;
+  const { prompt: _prompt, from: _from, key: _key, ref: _ref, ...rest } = params;
   const routes = state.routes.slice();
   routes[index] = { ...route, params: rest };
   const nextState = { ...state, routes };
@@ -76,6 +79,7 @@ export function takeThreadPromptLink(
       ref: { environmentId: EnvironmentId.make(environmentId), threadId: ThreadId.make(threadId) },
       prompt: parsed.value,
       source: parsePromptLinkSource(search),
+      app: parsePromptLinkFrom(search),
     };
   }
   return nextState;
@@ -107,12 +111,13 @@ export function resolvePendingThreadPromptLink(state: NavigationState | undefine
   });
   if (step.pending === null) dropPendingLink();
   if (step.resolve !== null) {
-    const { prompt, source } = step.resolve;
+    const { prompt, source, app } = step.resolve;
     void applyLinkedPromptToThreadDraft(
       scopedThreadKey(ref.environmentId, ref.threadId),
       prompt,
       promptLinkNotice({ hiddenCharacters: prompt.hiddenCharacters }),
       source,
+      app,
     );
   } else if (step.pending !== null) {
     stopWaitingForShell ??= appAtomRegistry.subscribe(shellAtom, (shell) => {

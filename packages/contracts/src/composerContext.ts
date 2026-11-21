@@ -30,6 +30,7 @@ export const COMPOSER_CONTEXT_KINDS = [
   "thread",
   "environment",
   "response",
+  "app-reference",
 ] as const;
 export type KnownComposerContextKind = (typeof COMPOSER_CONTEXT_KINDS)[number];
 
@@ -254,6 +255,27 @@ export const ResponseContextRecord = Schema.Struct({
 });
 export type ResponseContextRecord = typeof ResponseContextRecord.Type;
 
+export const APP_REFERENCE_TITLE_MAX_CHARS = 120;
+export const APP_REFERENCE_URL_MAX_CHARS = 2_048;
+export const APP_REFERENCE_MAX_DETAILS = 12;
+export const APP_REFERENCE_DETAIL_NAME_MAX_CHARS = 40;
+export const APP_REFERENCE_DETAIL_VALUE_MAX_CHARS = 200;
+
+/** Where the user was in another app, as that app described it in a prompt link. */
+export const AppReferenceContextRecord = Schema.Struct({
+  ...recordBase,
+  kind: Schema.Literal("app-reference"),
+  app: Schema.NullOr(BoundedString(64)),
+  url: Schema.NullOr(BoundedString(APP_REFERENCE_URL_MAX_CHARS)),
+  details: Schema.Array(
+    Schema.Struct({
+      name: BoundedString(APP_REFERENCE_DETAIL_NAME_MAX_CHARS),
+      value: BoundedString(APP_REFERENCE_DETAIL_VALUE_MAX_CHARS),
+    }),
+  ).check(Schema.isMaxLength(APP_REFERENCE_MAX_DETAILS)),
+});
+export type AppReferenceContextRecord = typeof AppReferenceContextRecord.Type;
+
 const isJson = Schema.is(Schema.Json);
 
 /** Excludes known discriminators so malformed known records fail their own schema. */
@@ -286,6 +308,7 @@ export const KnownComposerContextRecord = Schema.Union([
   ThreadContextRecord,
   EnvironmentContextRecord,
   ResponseContextRecord,
+  AppReferenceContextRecord,
 ]);
 export type KnownComposerContextRecord = typeof KnownComposerContextRecord.Type;
 

@@ -16,7 +16,7 @@ import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments"
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { changeRequestTermKind } from "../lib/changeRequestTerm";
 import { videoMimeType } from "@t3tools/shared/video";
-import { Pressable, ScrollView, View } from "react-native";
+import { Linking, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { REVIEW_MONO_FONT_FAMILY } from "../features/review/reviewDiffRendering";
 import { ReviewCommentCard, useReviewCommentColors } from "../features/review/ReviewCommentCard";
@@ -391,6 +391,47 @@ export function ComposerContextSheet(props: {
             ) : null}
             {record.kind === "environment" ? (
               <ContextField label={gt("Machine", { $context: "computer" })} value={record.label} />
+            ) : null}
+            {record.kind === "app-reference" ? (
+              <View className="gap-3">
+                <ContextField
+                  label={gt("From", { $context: "the app a prompt link came from" })}
+                  value={record.app ?? gt("Another app")}
+                />
+                {record.details.length > 0 ? (
+                  <View className="gap-2 rounded-xl bg-subtle p-4">
+                    {record.details.map((detail) => (
+                      <View key={`${detail.name}\n${detail.value}`} className="flex-row gap-3">
+                        <Text className="w-28 text-sm text-foreground-muted">{detail.name}</Text>
+                        <Text selectable className="flex-1 text-sm text-foreground">
+                          {detail.value}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+                {record.url ? (
+                  <Button
+                    label={
+                      record.app ? gt("Open in {app}", { app: record.app }) : gt("Open in the app")
+                    }
+                    tone="secondary"
+                    onPress={() => {
+                      const url = record.url!;
+                      props.onClose();
+                      Linking.openURL(url).catch(() =>
+                        Dialog.alert(
+                          record.app
+                            ? gt("Could not open {app}", { app: record.app })
+                            : gt("Could not open the app"),
+                          gt("It may not be installed on this device."),
+                        ),
+                      );
+                    }}
+                    fullWidth
+                  />
+                ) : null}
+              </View>
             ) : null}
             {record.kind === "skill" ? (
               <View className="gap-3">
