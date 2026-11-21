@@ -43,6 +43,8 @@ interface MarkdownFileLinkProps {
   theme: "light" | "dark";
   threadRef?: ScopedThreadRef | undefined;
   onOpen?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
+  /** Fork: whether a plain click opens `onOpen`; false when no code editor is preferred. */
+  preferEditorOnClick?: boolean | undefined;
   onOpenInPanel: (panelPath: string, line: number | undefined) => void;
   resolveDragPath: () => Promise<string>;
   resolveCopyPaths: () => Promise<ReturnType<typeof markdownFileCopyPaths>>;
@@ -69,6 +71,7 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
   theme,
   threadRef,
   onOpen,
+  preferEditorOnClick = false,
   onOpenInPanel,
   openInEditorMenuLabel,
   onOpenInBrowser,
@@ -264,6 +267,9 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
             ? ([{ id: "open-in-browser", label: gt("Open in integrated browser") }] as const)
             : []),
           ...(onReveal && revealLabel ? ([{ id: "reveal", label: revealLabel }] as const) : []),
+          ...(threadRef && panelPath
+            ? ([{ id: "open-in-preview", label: gt("Open in file preview") }] as const)
+            : []),
           ...copyItems.map(({ id, label }) => ({ id, label })),
         ] as const,
         position,
@@ -284,6 +290,10 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
       }
       if (clicked === "reveal") {
         handleRevealInFileManager();
+        return;
+      }
+      if (clicked === "open-in-preview") {
+        handleOpenInFilePreview();
         return;
       }
       if (clicked === "copy-relative" || clicked === "copy-full") {
@@ -330,6 +340,14 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
     canOpenInBrowser,
     canOpenInPanel,
   });
+  // Fork: media previews, PDFs, and folders (the files panel shows their tree) keep their in-app
+  // primary action; every other file opens in the preferred editor.
+  const useEditorPrimaryAction =
+    canOpenInEditor &&
+    preferEditorOnClick &&
+    onOpenMedia === undefined &&
+    !/\.pdf$/i.test(iconPath) &&
+    !(canOpenInPanel && /[\\/]$/.test(iconPath));
   const chipKind = documentChipKindForFileName(iconPath) ?? "mention";
 
   return (
@@ -353,6 +371,10 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
                 }
                 if (useBrowserPrimaryAction) {
                   handleOpenInBrowser();
+                  return;
+                }
+                if (useEditorPrimaryAction) {
+                  handleOpenInEditor();
                   return;
                 }
                 handleOpenInFilePreview();
@@ -424,6 +446,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.threadRef === next.threadRef &&
     previous.isAppBundle === next.isAppBundle &&
     previous.onOpen === next.onOpen &&
+    previous.preferEditorOnClick === next.preferEditorOnClick &&
     previous.onOpenInPanel === next.onOpenInPanel &&
     previous.openInEditorMenuLabel === next.openInEditorMenuLabel &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&

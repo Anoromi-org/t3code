@@ -992,6 +992,9 @@ function useChatMarkdownState({
         resolveCopyPaths={async () =>
           markdownFileCopyPaths(fileLinkMeta, await resolveHostPath(), cwd)
         }
+        preferEditorOnClick={
+          !canOpenApp && preferredEditor !== null && preferredEditor !== "file-manager"
+        }
         onOpenInPanel={(path) => openFileInPanel(fileLinkMeta, path)}
         onOpenMedia={
           threadRef && canPreviewMedia
