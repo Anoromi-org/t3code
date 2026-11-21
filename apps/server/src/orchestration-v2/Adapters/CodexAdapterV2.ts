@@ -86,6 +86,11 @@ import type {
   RuntimeMode,
 } from "@t3tools/contracts";
 import * as CodexClient from "effect-codex-app-server/client";
+import {
+  codexReconciledHistoryArtifacts,
+  readCodexSettledHistoryTurns,
+  unrecordedCodexTurns,
+} from "./codexResumeHistory.ts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexSchema from "effect-codex-app-server/schema";
 import * as Cause from "effect/Cause";
@@ -2441,6 +2446,76 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
         // Setting a goal passes through cleared and paused states; publish only the result.
         const goalUpdatesHeld = new Set<string>();
+        // Fork: recovers turns continued outside T3 Code (see codexResumeHistory.ts).
+        // Best effort: a failed read logs and the session still starts.
+        const reconcileResumedCodexHistory = Effect.fn(
+          "CodexAdapterV2.reconcileResumedCodexHistory",
+        )(
+          function* (reconcileInput: {
+            readonly nativeThreadId: string;
+            readonly threadId: ThreadId;
+            readonly providerThread: OrchestrationV2ProviderThread;
+            readonly reconcile: NonNullable<
+              Parameters<
+                ProviderAdapter.ProviderAdapterV2SessionRuntime["resumeThread"]
+              >[0]["reconcileHistory"]
+            >;
+          }) {
+            const turns = yield* readCodexSettledHistoryTurns(
+              client.raw,
+              reconcileInput.nativeThreadId,
+            );
+            const unrecorded = unrecordedCodexTurns(
+              turns,
+              new Set(reconcileInput.reconcile.knownNativeTurnIds),
+            );
+            if (unrecorded.length === 0) return;
+            const artifacts = codexReconciledHistoryArtifacts({
+              turns: unrecorded,
+              target: {
+                threadId: reconcileInput.threadId,
+                providerThreadId: reconcileInput.providerThread.id,
+                runId: reconcileInput.reconcile.runId,
+                nodeId: reconcileInput.reconcile.nodeId,
+              },
+              ids: {
+                message: (nativeItemId) =>
+                  idAllocator.derive.messageFromProviderItem({
+                    driver: CODEX_PROVIDER,
+                    nativeItemId,
+                  }),
+                turnItem: (nativeItemId) =>
+                  idAllocator.derive.turnItemFromProviderItem({
+                    driver: CODEX_PROVIDER,
+                    nativeItemId,
+                  }),
+              },
+              now: yield* DateTime.now,
+            });
+            for (const artifact of artifacts) {
+              yield* emitProviderEvent({
+                type: "message.updated",
+                driver: CODEX_PROVIDER,
+                message: artifact.message,
+              });
+              yield* emitProviderEvent({
+                type: "turn_item.updated",
+                driver: CODEX_PROVIDER,
+                turnItem: artifact.turnItem,
+              });
+            }
+            yield* Effect.logInfo("Recovered Codex turns continued outside T3 Code", {
+              turnCount: unrecorded.length,
+              messageCount: artifacts.length,
+            });
+          },
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Could not recover Codex turns continued outside T3 Code", {
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
+
         const emitGoalUpdate = Effect.fnUntraced(function* (nativeThreadId: string) {
           const providerThread = rootProviderThreads.get(nativeThreadId);
           if (
@@ -8143,6 +8218,16 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   }),
                 ),
               );
+              const reconcileThreadId =
+                threadInput.threadId ?? threadInput.providerThread.appThreadId;
+              if (threadInput.reconcileHistory !== undefined && reconcileThreadId !== null) {
+                yield* reconcileResumedCodexHistory({
+                  nativeThreadId: response.thread.id,
+                  threadId: reconcileThreadId,
+                  providerThread: threadInput.providerThread,
+                  reconcile: threadInput.reconcileHistory,
+                });
+              }
               const resumed = {
                 ...threadInput.providerThread,
                 providerSessionId: input.providerSessionId,

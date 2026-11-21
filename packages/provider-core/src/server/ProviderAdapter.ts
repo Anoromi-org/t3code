@@ -757,6 +757,16 @@ export interface ProviderAdapterV2SessionRuntime {
     readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
     /** The native session is the only copy of the thread's imported history: fail when it is gone. */
     readonly importedNativeSession?: boolean;
+    /**
+     * Fork: native turns T3 Code recorded on this provider thread and the run the
+     * recovered history follows. Adapters that can read native history (Codex)
+     * add turns that happened outside T3 Code after the last recorded one.
+     */
+    readonly reconcileHistory?: {
+      readonly knownNativeTurnIds: ReadonlyArray<string>;
+      readonly runId: RunId | null;
+      readonly nodeId: NodeId | null;
+    };
   }) => Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapterV2Error>;
   /** False means the native protocol explicitly does not support history injection. */
   readonly injectHistory?: (
