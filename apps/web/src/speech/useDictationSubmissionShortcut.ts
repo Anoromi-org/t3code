@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 
-import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
 
 /** Keep submission shortcuts reachable when the frozen composer loses focus to the page. */
 export function useDictationSubmissionShortcut(input: {
@@ -17,7 +17,7 @@ export function useDictationSubmissionShortcut(input: {
   useEffect(() => {
     if (!input.enabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isCommandPaletteOpen()) return;
+      if (event.defaultPrevented || isAnyCommandSurfaceOpen()) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (target !== document.body && target !== document.documentElement) {

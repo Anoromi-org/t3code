@@ -36,7 +36,7 @@ import { resolveHour12 } from "../../timestampFormat";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentPresentations } from "../../state/presentation";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/server";
-import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../../commandSurface";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
@@ -276,7 +276,7 @@ export function UsagePage() {
       event.defaultPrevented ||
       event.repeat ||
       event.isComposing ||
-      isCommandPaletteOpen() ||
+      isAnyCommandSurfaceOpen() ||
       isModelPickerOpen()
     )
       return;

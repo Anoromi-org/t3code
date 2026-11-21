@@ -17,6 +17,7 @@ import {
   type OrchestrationV2CreationSource,
   type PlanId,
   type ProjectId,
+  type ProjectHyprnavOverride,
   type ProjectIconOverride,
   type ProjectScript,
   type ProviderApprovalDecision,
@@ -75,6 +76,7 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly scripts?: ReadonlyArray<ProjectScript>;
   readonly pinned?: boolean;
   readonly archived?: boolean;
+  readonly hyprnav?: ProjectHyprnavOverride;
 }
 
 export interface DeleteProjectInput extends CommandMetadata {
@@ -457,6 +459,7 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
     ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
     ...(input.archived === undefined ? {} : { archived: input.archived }),
+    ...(input.hyprnav === undefined ? {} : { hyprnav: input.hyprnav }),
   });
 });
 

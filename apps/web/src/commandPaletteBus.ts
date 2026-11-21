@@ -31,10 +31,3 @@ export function openCommandPalette(detail: CommandPaletteOpenDetail = {}): void 
     dispatchCommandPalette({ _tag: "SetOpen", open: true });
   }
 }
-
-/** True while the palette popup is on screen, including its closing animation. */
-export function isCommandPaletteOpen(): boolean {
-  return (
-    typeof document !== "undefined" && document.querySelector("[data-command-palette]") !== null
-  );
-}

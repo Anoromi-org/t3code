@@ -3,7 +3,7 @@ import { readPastedComposerContext } from "../composerInlineTokenPaste";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { useEffect, useRef } from "react";
 import { isMacPlatform } from "../../lib/utils";
-import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../../commandSurface";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
 import { isInSideChatPane } from "../../lib/sideChatPane";
 import type { ThreadId } from "@t3tools/contracts";
@@ -29,7 +29,7 @@ export function usePasteToFocusComposer(
       }
     };
     const handler = (event: ClipboardEvent) => {
-      if (isCommandPaletteOpen() || isInSideChatPane(event.target)) return;
+      if (isAnyCommandSurfaceOpen() || isInSideChatPane(event.target)) return;
       if (getTerminalFocusOwner() !== null) return;
       if (composerRef.current?.isModelPickerOpen()) return;
       const text = pasteTextToFocusComposer(event);

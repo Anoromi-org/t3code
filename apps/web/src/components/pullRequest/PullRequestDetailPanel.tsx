@@ -55,7 +55,7 @@ import { type PullRequestDetailTab, useRightPanelStore } from "~/rightPanelStore
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { isCommandPaletteOpen } from "~/commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "~/commandSurface";
 import { resolveShortcutCommand, type ShortcutMatchContext } from "~/keybindings";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import {
@@ -617,7 +617,7 @@ export function PullRequestDetailPanel({
       }),
   });
   const copyFromShortcut = useEffectEvent((event: KeyboardEvent) => {
-    if (!shortcutsEnabled || event.defaultPrevented || isCommandPaletteOpen()) return;
+    if (!shortcutsEnabled || event.defaultPrevented || isAnyCommandSurfaceOpen()) return;
     const command = resolveShortcutCommand(event, keybindings, {
       context: getShortcutContext(),
     });

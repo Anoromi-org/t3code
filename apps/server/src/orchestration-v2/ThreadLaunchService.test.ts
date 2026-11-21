@@ -301,6 +301,7 @@ function makeHarness(options: HarnessOptions = {}) {
               autoPull: false,
               faviconPath: null,
               projectIcon: null,
+              hyprnav: null,
               scripts: project.scripts,
               pinnedAt: null,
               archivedAt: null,

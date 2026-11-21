@@ -45,7 +45,7 @@ import {
   ComboboxListVirtualized,
 } from "../ui/combobox";
 import { ModelEsque } from "./providerIconUtils";
-import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../../commandSurface";
 import { registerModelPickerContent } from "../../modelPickerVisibility";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import {
@@ -884,7 +884,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       event.repeat ||
       event.isComposing ||
       event.keyCode === 229 ||
-      isCommandPaletteOpen()
+      isAnyCommandSurfaceOpen()
     ) {
       return;
     }

@@ -389,6 +389,7 @@ function CommandPaletteDialog(props: {
       }
       className={cn("overflow-hidden", props.mode === "content" && "h-105")}
       data-command-palette="true"
+      data-command-surface="command-palette"
       data-palette-mode={props.mode}
       data-testid="command-palette"
       finalFocus={() => {

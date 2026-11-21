@@ -3,6 +3,7 @@ import {
   IsoDateTime,
   ModelSelection,
   type OrchestrationProjectShell,
+  ProjectHyprnavOverride,
   StoredProjectIcon,
   ProjectId,
   ProjectScript,
@@ -42,11 +43,24 @@ export const ProjectRow = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   pinnedAt: Schema.NullOr(IsoDateTime),
   archivedAt: Schema.NullOr(IsoDateTime),
+  hyprnav: ProjectHyprnavOverride,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectRow = typeof ProjectRow.Type;
+
+/**
+ * Fork: codec for `hyprnav_json`. An override that no longer decodes falls back
+ * to inheriting the client defaults, so one bad value cannot hide its project.
+ */
+const ProjectHyprnavOverrideJsonColumn = Schema.fromJsonString(ProjectHyprnavOverride).pipe(
+  Schema.catchDecoding((issue) =>
+    Effect.logWarning("Ignoring undecodable project Hyprnav override", {
+      issue: String(issue),
+    }).pipe(Effect.as(Option.some(null))),
+  ),
+);
 
 const ProjectDbRow = Schema.Struct({
   ...ProjectRow.fields,
@@ -55,6 +69,7 @@ const ProjectDbRow = Schema.Struct({
   autoPull: Schema.BooleanFromBit,
   projectIcon: Schema.NullOr(Schema.fromJsonString(StoredProjectIcon)),
   scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+  hyprnav: ProjectHyprnavOverrideJsonColumn,
 });
 
 function toShell(row: ProjectRow): OrchestrationProjectShell {
@@ -72,6 +87,7 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
     scripts: row.scripts,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
+    hyprnav: row.hyprnav,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -130,6 +146,7 @@ export const make = Effect.gen(function* () {
         scripts_json AS "scripts",
         pinned_at AS "pinnedAt",
         archived_at AS "archivedAt",
+        hyprnav_json AS "hyprnav",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
         deleted_at AS "deletedAt"
@@ -163,6 +180,7 @@ export const make = Effect.gen(function* () {
             scripts_json,
             pinned_at,
             archived_at,
+            hyprnav_json,
             created_at,
             updated_at,
             deleted_at
@@ -180,6 +198,7 @@ export const make = Effect.gen(function* () {
             ${encoded.scripts},
             ${encoded.pinnedAt},
             ${encoded.archivedAt},
+            ${encoded.hyprnav},
             ${encoded.createdAt},
             ${encoded.updatedAt},
             ${encoded.deletedAt}
@@ -201,6 +220,7 @@ export const make = Effect.gen(function* () {
             scripts_json = excluded.scripts_json,
             pinned_at = excluded.pinned_at,
             archived_at = excluded.archived_at,
+            hyprnav_json = excluded.hyprnav_json,
             created_at = excluded.created_at,
             updated_at = excluded.updated_at,
             deleted_at = excluded.deleted_at
@@ -239,6 +259,14 @@ export const make = Effect.gen(function* () {
     function* (event) {
       if (event.type === "project.created") {
         const payload = event.payload;
+        // A baseline re-creation of an existing project carries no override; keep the stored one.
+        const hyprnav =
+          payload.hyprnav !== undefined
+            ? payload.hyprnav
+            : Option.match(yield* get(payload.projectId, { includeDeleted: true }), {
+                onNone: () => null,
+                onSome: (existing) => existing.hyprnav,
+              });
         return yield* upsertRow({
           projectId: payload.projectId,
           title: payload.title,
@@ -252,6 +280,7 @@ export const make = Effect.gen(function* () {
           scripts: payload.scripts,
           pinnedAt: null,
           archivedAt: null,
+          hyprnav,
           createdAt: payload.createdAt,
           updatedAt: payload.updatedAt,
           deletedAt: null,
@@ -284,6 +313,7 @@ export const make = Effect.gen(function* () {
         ...(payload.scripts === undefined ? {} : { scripts: payload.scripts }),
         ...(payload.pinnedAt === undefined ? {} : { pinnedAt: payload.pinnedAt }),
         ...(payload.archivedAt === undefined ? {} : { archivedAt: payload.archivedAt }),
+        ...(payload.hyprnav === undefined ? {} : { hyprnav: payload.hyprnav }),
         updatedAt: payload.updatedAt,
       }).pipe(mapError("apply"));
     },

@@ -60,7 +60,6 @@ vi.mock(import("../state/server"), async (original) => {
 });
 vi.mock("../commandPaletteBus", () => ({
   openCommandPalette: vi.fn(),
-  isCommandPaletteOpen: () => false,
 }));
 vi.mock("./sidebar/SidebarChrome", () => ({
   SidebarChromeHeader: () => null,

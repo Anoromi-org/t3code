@@ -78,7 +78,7 @@ import {
 } from "~/components/ui/empty";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "~/components/ui/menu";
 import { SidebarInset } from "~/components/ui/sidebar";
-import { isCommandPaletteOpen } from "~/commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "~/commandSurface";
 import { isElectron } from "~/env";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
@@ -483,7 +483,7 @@ export function IssuesPage() {
   };
 
   const onRightPanelKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (event.defaultPrevented || isCommandPaletteOpen() || panelSurface === null) return;
+    if (event.defaultPrevented || isAnyCommandSurfaceOpen() || panelSurface === null) return;
     const command = resolveShortcutCommand(event, keybindings, {
       context: { ...getShortcutContext(), rightPanelOpen: rightPanelState.isOpen },
     });

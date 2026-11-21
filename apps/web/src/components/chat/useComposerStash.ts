@@ -34,7 +34,7 @@ import { collapseExpandedComposerCursor } from "../../composer-logic";
 import { collectComposerPromptInlineTokens } from "../../composer-editor-mentions";
 import { compressImageForStash } from "../../lib/imageCompression";
 import { formatInlineContextReference } from "~/lib/composerContextReferences";
-import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../../commandSurface";
 import { pendingDraftWork } from "./pendingDraftWork";
 import { countPreparingComposerImages } from "./preparingComposerImages";
 import {
@@ -774,7 +774,7 @@ export function useComposerStash(input: {
     // even when the composer is in a state that can't stash.
     event.preventDefault();
     event.stopPropagation();
-    if (isCommandPaletteOpen() || isRevertingCheckpoint()) return;
+    if (isAnyCommandSurfaceOpen() || isRevertingCheckpoint()) return;
     if (pendingUserInputs.length > 0) {
       setIsStashMenuOpen((open) => !open);
       return;

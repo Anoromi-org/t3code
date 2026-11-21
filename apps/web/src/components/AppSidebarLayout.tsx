@@ -11,7 +11,7 @@ import {
 import { useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
 
 import { moveWorkspaceFocus, workspaceAreaProps } from "../lib/workspaceFocus";
-import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import { isElectron } from "../env";
 import {
   releaseThreadUndoShortcut,
@@ -41,6 +41,7 @@ import {
 } from "../panelAnimations";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
+import { NavigationCommandMenuControl } from "./NavigationCommandMenuControl";
 import ThreadSidebar from "./Sidebar";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage } from "./sidebar/mainAppLocation";
@@ -272,7 +273,7 @@ function registerThreadUndoCommands(
           if (!MODIFIER_KEYS.has(event.key)) releaseThreadUndoShortcut();
           return false;
         }
-        if (isCommandPaletteOpen() || isModelPickerOpen()) return false;
+        if (isAnyCommandSurfaceOpen() || isModelPickerOpen()) return false;
         if (!undoLatestThreadAction()) return false;
         heldUndoKey = event.code;
         event.preventDefault();
@@ -502,6 +503,7 @@ export function AppSidebarLayout({
         {children}
         <BackgroundThreadAnnouncer />
         <SidebarControl showSidebar={showSidebar} />
+        <NavigationCommandMenuControl />
         {isElectron ? <HistorySwipeNavigation /> : null}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>

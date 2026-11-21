@@ -1,6 +1,6 @@
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { useEffect, useEffectEvent } from "react";
-import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../../commandSurface";
 import { resolveChatShortcutCommand, type ShortcutMatchContext } from "../../keybindings";
 import { isTerminalCloseConfirmPending } from "../../lib/terminalCloseConfirm";
 import {
@@ -71,7 +71,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
       event.stopPropagation();
       return;
     }
-    if (!input.enabled || isCommandPaletteOpen()) return;
+    if (!input.enabled || isAnyCommandSurfaceOpen()) return;
     const inSideChatPane = isInSideChatPane(event.target);
     const terminalFocusOwner = getTerminalFocusOwner();
     if (event.defaultPrevented && terminalFocusOwner === null) return;
@@ -108,7 +108,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
       event.defaultPrevented ||
       event.isComposing ||
       event.keyCode === 229 ||
-      isCommandPaletteOpen() ||
+      isAnyCommandSurfaceOpen() ||
       isInSideChatPane(event.target)
     )
       return;
@@ -118,7 +118,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     input.closeThreadFind();
   });
   const handleComposerShortcut = useEffectEvent((event: KeyboardEvent) => {
-    if (event.defaultPrevented || isCommandPaletteOpen()) return;
+    if (event.defaultPrevented || isAnyCommandSurfaceOpen()) return;
     const command = resolveChatShortcutCommand(event, input.keybindings, input.scriptKeybindings, {
       context: input.getShortcutContext(event.target),
     });

@@ -103,6 +103,7 @@ const layerWithPolicy = (policy?: ManagedPolicySummary) =>
             autoPull: false,
             faviconPath: null,
             projectIcon: null,
+            hyprnav: null,
             scripts: [],
             pinnedAt: null,
             archivedAt: null,

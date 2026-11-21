@@ -129,6 +129,25 @@ describe("storage cleanup settings", () => {
   });
 });
 
+describe("ClientSettings Hyprnav defaults", () => {
+  it("hydrates project defaults and grouped state for legacy settings", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.defaultProjectHyprnavSettings.bindings.map((binding) => binding.slot)).toEqual([
+      1, 2, 8,
+    ]);
+    expect(decoded.groupedProjectHyprnavStateByLogicalProjectKey).toEqual({});
+  });
+
+  it("defaults grouped Hyprnav state to one shared override", () => {
+    const decoded = decodeClientSettings({
+      groupedProjectHyprnavStateByLogicalProjectKey: { "repo:t3code": {} },
+    });
+    expect(decoded.groupedProjectHyprnavStateByLogicalProjectKey).toEqual({
+      "repo:t3code": { mode: "same" },
+    });
+  });
+});
+
 describe("ClientSettings terminal close confirmation", () => {
   it("keeps confirmation enabled for settings without a saved preference", () => {
     expect(decodeClientSettings({}).confirmTerminalClose).toBe(true);

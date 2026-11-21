@@ -89,6 +89,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "appearance.cycle",
   "themeEditor.toggle",
   "composer.stash",
+  "navigation.commandMenu",
   "composer.sendAlternate",
   "composer.sendBackground",
   "composer.sendAndNewThread",

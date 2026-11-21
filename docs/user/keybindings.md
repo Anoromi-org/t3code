@@ -6,6 +6,10 @@ also lists the command IDs and defaults available in your version.
 To free a default shortcut for another command, choose **Unassign** from its row's
 actions menu. **Reset to default** brings it back.
 
+`mod+e` opens thread navigation: recent threads first, then threads and projects
+as you type. Choosing a project opens its draft or starts a new thread. `mod+k`
+still opens the command palette.
+
 ## Composer controls
 
 `mod+shift+d` starts dictation in the focused editor, or the composer, and finishes it on the next press;

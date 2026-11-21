@@ -1,5 +1,12 @@
 import { assert, describe, it } from "@effect/vitest";
-import { CommandId, EventId, ProjectId, type ProjectScript } from "@t3tools/contracts";
+import {
+  CommandId,
+  DEFAULT_PROJECT_HYPRNAV_SETTINGS,
+  EventId,
+  ProjectId,
+  type ProjectHyprnavOverride,
+  type ProjectScript,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
 
@@ -23,6 +30,7 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   autoPull: false,
   faviconPath: null,
   projectIcon: null,
+  hyprnav: null,
   scripts: [],
   pinnedAt: null,
   archivedAt: null,
@@ -110,6 +118,36 @@ describe("planProjectCommand", () => {
     const untouched = update(organized, {});
     assert.notProperty(untouched, "pinnedAt");
     assert.notProperty(untouched, "archivedAt");
+  });
+
+  it("starts projects inheriting Hyprnav defaults and carries an override or reset", () => {
+    const created = Result.getOrThrow(
+      plan({
+        type: "project.create",
+        commandId: CommandId.make("cmd-create"),
+        projectId,
+        title: "Scripts",
+        workspaceRoot: "/tmp/scripts",
+      }),
+    );
+    assert.isNull((created.payload as Record<string, unknown>).hyprnav);
+    const update = (change: { hyprnav?: ProjectHyprnavOverride; title?: string }) =>
+      payloadOf(
+        plan(
+          {
+            type: "project.meta.update",
+            commandId: CommandId.make("cmd-update"),
+            projectId,
+            ...change,
+          },
+          { project: row() },
+        ),
+      );
+    const override: ProjectHyprnavOverride = { ...DEFAULT_PROJECT_HYPRNAV_SETTINGS, bindings: [] };
+    assert.deepEqual(update({ hyprnav: override }).hyprnav, override);
+    // `null` returns the project to the device defaults; omitting it leaves the override alone.
+    assert.isNull(update({ hyprnav: null }).hyprnav);
+    assert.notProperty(update({ title: "Renamed" }), "hyprnav");
   });
 
   it("rejects a workspace root held by another active project", () => {

@@ -11,7 +11,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useGT } from "gt-react";
 import { useEffect, useEffectEvent, useRef } from "react";
 
-import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "../commandSurface";
 import { useClosedViewStore } from "../closedViewStore";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { environmentCatalog } from "../connection/catalog";
@@ -178,7 +178,7 @@ export function ReopenClosedViewShortcut() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (
         event.defaultPrevented ||
-        isCommandPaletteOpen() ||
+        isAnyCommandSurfaceOpen() ||
         useClosedViewStore.getState().entries.length === 0 ||
         (event.target instanceof HTMLElement && event.target.closest("[data-keybinding-capture]"))
       )
@@ -200,7 +200,7 @@ export function ReopenClosedViewShortcut() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     const unsubscribe = window.desktopBridge?.onMenuAction((action) => {
-      if (action === "view.reopenClosed" && !isCommandPaletteOpen()) enqueueReopen();
+      if (action === "view.reopenClosed" && !isAnyCommandSurfaceOpen()) enqueueReopen();
     });
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);

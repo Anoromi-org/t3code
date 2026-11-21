@@ -92,7 +92,7 @@ import { PullRequestListGhost } from "./PullRequestGhosts";
 import { type PullRequestRowTarget } from "./PullRequestRow";
 import { PullRequestsUnavailableState } from "./PullRequestsUnavailableState";
 import { RightPanelTabs } from "../RightPanelTabs";
-import { isCommandPaletteOpen } from "~/commandPaletteBus";
+import { isAnyCommandSurfaceOpen } from "~/commandSurface";
 import { isElectron } from "~/env";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 import { registerCommands } from "~/shortcuts/dispatcher";
@@ -1566,7 +1566,7 @@ export function PullRequestsPage() {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- document keydown listener for the right panel and copy-reference shortcuts
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isCommandPaletteOpen()) return;
+      if (event.defaultPrevented || isAnyCommandSurfaceOpen()) return;
       const command = resolveShortcutCommand(event, keybindings, {
         context: getShortcutContext(),
       });
