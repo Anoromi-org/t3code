@@ -1269,6 +1269,8 @@ export interface DesktopBridge {
   onMenuAction: (listener: (action: string) => void) => () => void;
   onSnapShotEvent: (listener: (event: DesktopSnapShotEvent) => void) => () => void;
   onQuitShortcut: (listener: (event: QuitShortcutHintEvent) => void) => () => void;
+  /** Ctrl+Tab recent-thread gesture, driven by Electron main. */
+  onThreadSwitcherAction?: (listener: (action: DesktopThreadSwitcherAction) => void) => () => void;
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   getWindowZoomFactor: () => number;
@@ -1309,6 +1311,14 @@ export interface DesktopBridge {
 
 /** Renderer callback invoked by Electron with a fresh user gesture before display-media capture. */
 export const DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER = "__t3DesktopPreviewRecordingCapture";
+
+export const DesktopThreadSwitcherAction = Schema.Literals([
+  "advance-forward",
+  "advance-backward",
+  "commit",
+  "cancel",
+]);
+export type DesktopThreadSwitcherAction = typeof DesktopThreadSwitcherAction.Type;
 export interface DesktopHyprnavScopedSlot {
   readonly slot: number;
   readonly scope: ProjectHyprnavScope;

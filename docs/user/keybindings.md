@@ -10,6 +10,10 @@ actions menu. **Reset to default** brings it back.
 as you type. Choosing a project opens its draft or starts a new thread. `mod+k`
 still opens the command palette.
 
+On desktop, hold Control and press Tab to cycle recent threads. Add Shift to
+cycle backward, release Control to open the highlighted thread, or press Escape
+to cancel.
+
 ## Composer controls
 
 `mod+shift+d` starts dictation in the focused editor, or the composer, and finishes it on the next press;
