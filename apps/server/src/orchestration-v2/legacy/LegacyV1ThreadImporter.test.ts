@@ -93,7 +93,8 @@ it.effect("routes shell selectors to readers while imports stay writable", () =>
         query.includes("FROM orchestration_v2_legacy_imports AS legacy_import") ||
         query.includes("FROM projection_thread_messages AS message"),
     );
-    assert.lengthOf(selectors, 6);
+    // Includes the fork lineage read of `projection_threads.fork_source_thread_id`.
+    assert.lengthOf(selectors, 7);
     assert.deepEqual([...new Set(selectors.map((row) => row.connection))], ["reader"]);
     assert.deepEqual(yield* importer.reconcileShells, {
       importedThreadCount: 0,

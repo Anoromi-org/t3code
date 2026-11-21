@@ -7,6 +7,12 @@ import {
   DATABASE_MIGRATIONS_STARTED_MESSAGE,
 } from "@t3tools/shared/databaseMigrationLog";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
+import {
+  FORK_REPLAY_MAX_ID,
+  readCanonicalReplayIds,
+  replaySkippedCanonicalEffects,
+  runForkMigrations,
+} from "./Migrations/Fork/ForkMigrations.ts";
 
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
 import Migration0002 from "./Migrations/002_OrchestrationCommandReceipts.ts";
@@ -324,6 +330,16 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
           readonly id: number | null;
         }>`SELECT MAX(migration_id) AS id FROM effect_sql_migrations`;
   const latestRecordedId = latest?.id ?? 0;
+  // Fork databases recorded fork migrations at canonical ids up to 49. Replay the
+  // upstream effects those rows hid before the Migrator skips past them.
+  const replayThroughId = Math.min(
+    latestRecordedId,
+    toMigrationInclusive ?? latestRecordedId,
+    FORK_REPLAY_MAX_ID,
+  );
+  if (replayThroughId > 0) {
+    yield* replaySkippedCanonicalEffects(sql, migrationEntries, replayThroughId);
+  }
   const pending = migrationEntries.filter(
     ([id]) =>
       id > latestRecordedId && (toMigrationInclusive === undefined || id <= toMigrationInclusive),
@@ -342,10 +358,18 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     }
     executedMigrations.push(...(yield* run({ loader: makeMigrationLoader(id) })));
   }
+  const forkMigrations = toMigrationInclusive === undefined ? yield* runForkMigrations(sql) : [];
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
-  yield* migrations.length === 0
+  yield* migrations.length === 0 && forkMigrations.length === 0
     ? Effect.logDebug("Database schema is current")
-    : Effect.log(DATABASE_MIGRATIONS_FINISHED_MESSAGE).pipe(Effect.annotateLogs({ migrations }));
+    : Effect.log(DATABASE_MIGRATIONS_FINISHED_MESSAGE).pipe(
+        Effect.annotateLogs({
+          migrations,
+          forkMigrations: forkMigrations.map(([key, name]) => `fork_${key}_${name}`),
+        }),
+      );
+
+  const replayed = yield* readCanonicalReplayIds(sql);
 
   const recorded = yield* sql<{
     readonly migration_id: number;
@@ -353,6 +377,8 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   }>`SELECT migration_id, name FROM effect_sql_migrations`;
   const manifestNames = new Map<number, string>(migrationEntries.map(([id, name]) => [id, name]));
   const divergent = recorded.flatMap((row) => {
+    // The fork ledger already replayed the upstream effect hidden by this row.
+    if (replayed.has(row.migration_id)) return [];
     const expected = manifestNames.get(row.migration_id);
     if (expected === undefined) {
       return [`${row.migration_id}:${row.name} (unknown to this build)`];

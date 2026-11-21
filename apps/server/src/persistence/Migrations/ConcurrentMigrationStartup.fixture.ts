@@ -1,0 +1,28 @@
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as Effect from "effect/Effect";
+import * as SqlClient from "effect/sql/SqlClient";
+
+import { runMigrations } from "../Migrations.ts";
+import * as SqliteClient from "@t3tools/shared/nodeSqliteClient";
+
+const filename = process.argv[2];
+
+if (filename === undefined) {
+  throw new Error("Expected a SQLite filename");
+}
+
+Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  // Same wait as the server setup in Sqlite.ts.
+  yield* sql`PRAGMA busy_timeout = 5000`;
+  yield* Effect.callback<void>((resume) => {
+    const onMessage = (message: unknown) => {
+      if (message !== "start") return;
+      process.off("message", onMessage);
+      resume(Effect.void);
+    };
+    process.on("message", onMessage);
+    process.send?.("ready");
+  });
+  yield* runMigrations();
+}).pipe(Effect.provide(SqliteClient.layer({ filename })), NodeRuntime.runMain);

@@ -11,6 +11,9 @@ const KEPT_ENV = new Set([
   "T3CODE_TRANSFER_BUDGET_SCENARIOS_PATH",
   // Opt-in: points the HtmlRender tests at a headless browser, which they skip without.
   "T3CODE_TEST_HEADLESS_SHELL",
+  // Opt-in: point the fork migration checks at a copy of a real database, which they skip without.
+  "T3CODE_MIGRATION_COMPAT_DB",
+  "T3CODE_REBASE_SNAPSHOT",
 ]);
 
 if (process.env.T3CODE_TEST_KEEP_PROVIDER_ENV !== "1") {
