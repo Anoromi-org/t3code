@@ -406,8 +406,8 @@ function buildMacLauncher(electronBinaryPath) {
   return launcherBinaryPath;
 }
 
-function isLinuxSetuidSandboxConfigured(electronBinaryPath) {
-  if (hostPlatform !== "linux") {
+function isLinuxSetuidSandboxConfigured(electronBinaryPath, platform) {
+  if (platform !== "linux") {
     return true;
   }
 
@@ -420,8 +420,17 @@ function isLinuxSetuidSandboxConfigured(electronBinaryPath) {
   }
 }
 
-function resolveLinuxSandboxArgs(electronBinaryPath) {
-  if (isLinuxSetuidSandboxConfigured(electronBinaryPath)) {
+export function resolveLinuxSandboxArgs(
+  electronBinaryPath,
+  environment = process.env,
+  platform = hostPlatform,
+) {
+  // The Nix Electron wrapper picks its own sandbox strategy (nix/electron-sandbox.sh).
+  if (environment.T3CODE_DESKTOP_ELECTRON_PATH?.trim() === electronBinaryPath) {
+    return environment.T3CODE_DESKTOP_DISABLE_SANDBOX === "1" ? ["--no-sandbox"] : [];
+  }
+
+  if (isLinuxSetuidSandboxConfigured(electronBinaryPath, platform)) {
     return [];
   }
 
@@ -452,8 +461,14 @@ export function resolveElectronLaunchCommand(args = []) {
 export function resolveElectronBinaryPath({
   ensureRuntime = ensureElectronRuntime,
   createRequire = NodeModule.createRequire,
+  environment = process.env,
   moduleUrl = import.meta.url,
 } = {}) {
+  const configuredPath = environment.T3CODE_DESKTOP_ELECTRON_PATH?.trim();
+  if (configuredPath) {
+    return configuredPath;
+  }
+
   ensureRuntime();
 
   const require = createRequire(moduleUrl);

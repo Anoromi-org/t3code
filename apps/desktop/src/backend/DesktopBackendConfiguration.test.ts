@@ -247,6 +247,10 @@ describe("DesktopBackendConfiguration", () => {
           first.env.T3CODE_DESKTOP_WAYLAND_APP_ID,
           DesktopEnvironment.resolveLinuxWaylandAppId(environment.displayName),
         );
+        assert.equal(
+          first.env.T3CODE_DESKTOP_WM_CLASS,
+          environment.linuxDesktopEntryName.replace(/\.desktop$/u, ""),
+        );
         assert.isUndefined(first.env.T3CODE_PORT);
         assert.isUndefined(first.env.T3CODE_MODE);
         assert.isUndefined(first.env.T3CODE_DESKTOP_LAN_HOST);

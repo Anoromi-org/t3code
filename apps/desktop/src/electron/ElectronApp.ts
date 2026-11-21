@@ -110,6 +110,23 @@ export function toSystemLocaleTag(identifier: string, hourCycle?: "h12" | "h23")
   }
 }
 
+export const resolveIsPackaged = (
+  electronIsPackaged: boolean,
+  forcePackaged: string | undefined,
+): boolean => electronIsPackaged || forcePackaged === "1";
+
+const isPackaged = Effect.gen(function* () {
+  const env = yield* HostProcess.Environment;
+  return resolveIsPackaged(Electron.app.isPackaged, env.T3CODE_DESKTOP_FORCE_PACKAGED);
+});
+
+// System packages (Nix) launch a shared Electron whose own resources directory
+// is immutable, so their wrapper points packaged resource lookups at the app.
+export const resolveResourcesPath = (
+  electronResourcesPath: string,
+  resourcesPathOverride: string | undefined,
+): string => resourcesPathOverride?.trim() || electronResourcesPath;
+
 /** @public */
 export const make = ElectronApp.of({
   metadata: Effect.gen(function* () {
@@ -130,11 +147,13 @@ export const make = ElectronApp.of({
         }),
     });
 
+    const env = yield* HostProcess.Environment;
+
     return {
       appVersion,
       appPath,
-      isPackaged: Electron.app.isPackaged,
-      resourcesPath: process.resourcesPath,
+      isPackaged: yield* isPackaged,
+      resourcesPath: resolveResourcesPath(process.resourcesPath, env.T3CODE_DESKTOP_RESOURCES_PATH),
       runningUnderArm64Translation: Electron.app.runningUnderARM64Translation === true,
     };
   }),
@@ -158,10 +177,10 @@ export const make = ElectronApp.of({
   }),
   preferredSystemLanguages: Effect.sync(() => Electron.app.getPreferredSystemLanguages()),
   whenReady: Effect.gen(function* () {
-    const isPackaged = Electron.app.isPackaged;
+    const packaged = yield* isPackaged;
     yield* Effect.tryPromise({
       try: () => Electron.app.whenReady(),
-      catch: (cause) => new ElectronAppWhenReadyError({ isPackaged, cause }),
+      catch: (cause) => new ElectronAppWhenReadyError({ isPackaged: packaged, cause }),
     });
   }),
   requestSingleInstanceLock: Effect.sync(() => Electron.app.requestSingleInstanceLock()),

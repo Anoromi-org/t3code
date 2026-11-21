@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
@@ -75,6 +76,36 @@ describe("DesktopEnvironment", () => {
 
       assert.equal(development.stateDir, "/Users/alice/.t3/dev");
       assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+    }),
+  );
+
+  it.effect("uses a configured Linux desktop entry name override", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { platform: "linux" },
+        { T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME: " t3-code-alpha.desktop " },
+      );
+      const defaultEnvironment = yield* makeEnvironment({ platform: "linux" });
+
+      assert.equal(environment.linuxDesktopEntryName, "t3-code-alpha.desktop");
+      assert.isTrue(environment.linuxDesktopEntryExternal);
+      assert.equal(defaultEnvironment.linuxDesktopEntryName, "com.t3tools.T3Code.desktop");
+      assert.isFalse(defaultEnvironment.linuxDesktopEntryExternal);
+    }),
+  );
+
+  // The fork's T3CODE_DESKTOP_LINUX_URL_HANDLER_EXEC is upstream's T3CODE_DESKTOP_LAUNCHER_PATH.
+  it.effect("uses a configured Linux URL handler executable", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { platform: "linux" },
+        { T3CODE_DESKTOP_LAUNCHER_PATH: " /nix/store/t3-code/bin/t3-code " },
+      );
+
+      assert.deepEqual(
+        environment.desktopLauncherPath,
+        Option.some("/nix/store/t3-code/bin/t3-code"),
+      );
     }),
   );
 });

@@ -2,6 +2,8 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodePath from "node:path";
 
 import { desktopDir, resolveElectronLaunchCommand } from "./electron-launcher.mjs";
+import { resolveElectronRuntimeEnvironment } from "./launch-environment.mjs";
+import { resolveDesktopOzoneArgs, resolveDesktopOzoneEnv } from "./runtime-args.mjs";
 
 NodeChildProcess.execFileSync(
   process.execPath,
@@ -14,10 +16,17 @@ NodeChildProcess.execFileSync(
   { stdio: "inherit" },
 );
 
-const childEnv = { ...process.env };
+const childEnv = await resolveElectronRuntimeEnvironment(process.env);
+Object.assign(childEnv, resolveDesktopOzoneEnv(childEnv));
 delete childEnv.ELECTRON_RUN_AS_NODE;
 
-const electronCommand = resolveElectronLaunchCommand(["dist-electron/main.cjs"]);
+// "." starts the package entry (boot.cjs); trailing arguments carry t3code:// URLs from the
+// desktop entry's %U.
+const electronCommand = resolveElectronLaunchCommand([
+  ...resolveDesktopOzoneArgs(childEnv),
+  ".",
+  ...process.argv.slice(2),
+]);
 const child = NodeChildProcess.spawn(electronCommand.electronPath, electronCommand.args, {
   stdio: "inherit",
   cwd: desktopDir,

@@ -226,6 +226,24 @@ describe("DesktopPreReadyPlatform", () => {
     },
   );
 
+  it.effect("uses a package-managed desktop entry before Clerk registers the scheme", () => {
+    vi.stubEnv("VITE_DEV_SERVER_URL", "");
+    vi.stubEnv("T3CODE_DESKTOP_LINUX_DESKTOP_ENTRY_NAME", " t3-code-alpha.desktop ");
+    getSwitchValueMock.mockReturnValue("");
+
+    return Effect.gen(function* () {
+      const options = yield* DesktopPreReadyPlatform.make.pipe(
+        Effect.provideService(HostProcess.Platform, "linux"),
+      );
+
+      assert.equal(options.linux?.linuxDesktopEntryName, "t3-code-alpha.desktop");
+      assert.deepEqual(setDesktopNameMock.mock.calls, [["t3-code-alpha.desktop"]]);
+      assert.isFalse(
+        writeFileSyncMock.mock.calls.some(([path]) => String(path).endsWith(".desktop")),
+      );
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));
+  });
+
   it.effect("points the early portal entry at a configured distribution launcher", () => {
     vi.stubEnv("VITE_DEV_SERVER_URL", "");
     getSwitchValueMock.mockReturnValue("");

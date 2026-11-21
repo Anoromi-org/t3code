@@ -578,6 +578,9 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         T3CODE_DESKTOP_WAYLAND_APP_ID: DesktopEnvironment.resolveLinuxWaylandAppId(
           environment.displayName,
         ),
+        // Electron names the window after its desktop entry when one is set (packages, launchers),
+        // so Corkdiff's focus lookup also tries the entry id.
+        T3CODE_DESKTOP_WM_CLASS: environment.linuxDesktopEntryName.replace(/\.desktop$/u, ""),
       },
       extendEnv: true,
       bootstrap,

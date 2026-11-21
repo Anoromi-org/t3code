@@ -322,6 +322,15 @@ export const make = Effect.gen(function* () {
     if (environment.platform !== "linux") {
       return;
     }
+    // A package-managed entry already declares the scheme, and its package
+    // manager owns the entry, icon, and MIME cache. Overwriting it with the
+    // hidden handler entry would hide the installed launcher.
+    if (environment.linuxDesktopEntryExternal) {
+      if (!environment.isPackaged) return;
+      yield* setDefaultHandler;
+      yield* logInfo("registered URL scheme handler", { scheme });
+      return;
+    }
     yield* writeDesktopEntry;
     if (!environment.isPackaged) return;
 

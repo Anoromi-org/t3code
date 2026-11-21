@@ -38,6 +38,7 @@ const makeEnvironment = (path: Path.Path, overrides: Record<string, unknown> = {
     isDevelopment: false,
     displayName: "T3 Code (Alpha)",
     linuxDesktopEntryName: "com.t3tools.T3Code.desktop",
+    linuxDesktopEntryExternal: false,
     linuxApplicationsDir: "/home/alice/.local/share/applications",
     desktopLauncherPath: Option.none(),
     appImagePath: Option.some("/home/alice/Applications/T3-Code.AppImage"),
@@ -281,6 +282,28 @@ describe("DesktopLinuxUrlHandler", () => {
           iconPath: "/home/alice/.local/share/icons/com.t3tools.T3Code.desktop.png",
         }),
       );
+    });
+  });
+
+  it.effect("claims the scheme for a package-managed entry without overwriting it", () => {
+    const recorded = emptyRecording();
+
+    return Effect.gen(function* () {
+      yield* runRegister(recorded, {
+        environment: {
+          linuxDesktopEntryName: "t3-code-alpha.desktop",
+          linuxDesktopEntryExternal: true,
+        },
+      });
+
+      assert.deepEqual(recorded.files, []);
+      assert.deepEqual(recorded.icons, []);
+      assert.deepEqual(recorded.commands, [
+        {
+          command: "xdg-mime",
+          args: ["default", "t3-code-alpha.desktop", "x-scheme-handler/t3code"],
+        },
+      ]);
     });
   });
 
