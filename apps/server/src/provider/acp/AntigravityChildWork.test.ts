@@ -13,6 +13,7 @@ import {
   describeAntigravitySubagentLaunches,
   readAntigravityChildrenAtWork,
   readAntigravityChildWork,
+  readAntigravitySilentBackgroundTools,
 } from "./AntigravityChildWork.ts";
 import { sanitizeAntigravityToolPayload } from "./AntigravityProtocol.ts";
 import {
@@ -538,6 +539,110 @@ it.layer(NodeServices.layer)("readAntigravityChildWork", (it) => {
         }),
       ).toEqual(["call_alive"]);
     }),
+  );
+
+  it.effect(
+    "detects undelivered low-priority background task cancellations unless system stopped them",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const profile = yield* fs.makeTempDirectoryScoped({ prefix: "t3-agy-silent-bg-" });
+        const messagesDir = (name: string) =>
+          path.join(
+            profile,
+            "antigravity-acp",
+            "brain",
+            ROOT,
+            ".system_generated",
+            "messages",
+            name,
+          );
+        const undeliveredDir = (id: string) =>
+          path.join(
+            profile,
+            "antigravity-acp",
+            "brain",
+            ROOT,
+            ".system_generated",
+            "messages",
+            "undelivered",
+            id,
+          );
+        const writeMessage = (id: string, value: unknown, undelivered: boolean) =>
+          fs
+            .makeDirectory(path.dirname(undeliveredDir(id)), { recursive: true })
+            .pipe(
+              Effect.andThen(fs.writeFileString(messagesDir(`${id}.json`), JSON.stringify(value))),
+              Effect.andThen(
+                undelivered ? fs.writeFileString(undeliveredDir(id), "") : Effect.void,
+              ),
+            );
+
+        // Delivered low-priority cancellation must not wake again.
+        yield* writeMessage(
+          "msg-delivered-low",
+          {
+            sender: `${ROOT}/task-1`,
+            priority: "MESSAGE_PRIORITY_LOW",
+            sourceMetadata: {
+              tool: { conversationId: ROOT, toolCall: { id: "call_old", name: "run_command" } },
+            },
+          },
+          false,
+        );
+        // Undelivered high-priority failure wakes agy on its own.
+        yield* writeMessage(
+          "msg-high",
+          {
+            sender: `${ROOT}/task-2`,
+            priority: "MESSAGE_PRIORITY_HIGH",
+            sourceMetadata: {
+              tool: { conversationId: ROOT, toolCall: { id: "call_high", name: "run_command" } },
+            },
+          },
+          true,
+        );
+        // Undelivered low-priority cancellation (e.g. SIGTERM) never wakes agy on its own.
+        yield* writeMessage(
+          "msg-low",
+          {
+            sender: `${ROOT}/task-3`,
+            priority: "MESSAGE_PRIORITY_LOW",
+            sourceMetadata: {
+              tool: { conversationId: ROOT, toolCall: { id: "call_sigterm", name: "run_command" } },
+            },
+          },
+          true,
+        );
+
+        expect(
+          yield* readAntigravitySilentBackgroundTools({
+            profileDirectory: profile,
+            rootSessionId: ROOT,
+            toolCallIds: ["call_old", "call_high", "call_sigterm"],
+          }),
+        ).toEqual(["call_sigterm"]);
+
+        // A user force-cancel or server restart writes an undelivered system notice; never wake.
+        yield* writeMessage(
+          "msg-system",
+          {
+            sender: "system",
+            priority: "MESSAGE_PRIORITY_LOW",
+            content:
+              "[Notice] All your subagents and background tasks have been stopped due to user force cancellation.",
+          },
+          true,
+        );
+        expect(
+          yield* readAntigravitySilentBackgroundTools({
+            profileDirectory: profile,
+            rootSessionId: ROOT,
+            toolCallIds: ["call_sigterm"],
+          }),
+        ).toEqual([]);
+      }),
   );
 
   it.effect("shares one transcript budget across the batch", () =>

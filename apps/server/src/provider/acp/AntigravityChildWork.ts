@@ -501,6 +501,7 @@ const decodeChildMessage = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
       sender: Schema.String,
+      priority: Schema.optional(Schema.String),
       content: Schema.optional(Schema.String),
       sourceMetadata: Schema.optional(
         Schema.Struct({
@@ -695,3 +696,68 @@ export const readAntigravityChildrenAtWork = Effect.fn("readAntigravityChildrenA
     }).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
   },
 );
+
+/**
+ * When a backgrounded command dies from a signal (for instance `SIGTERM` via `pkill -f`), agy 1.5
+ * classifies it as canceled and queues a `MESSAGE_PRIORITY_LOW` entry in `messages/undelivered/`
+ * without waking the model. Returns matching tool call ids unless an undelivered `system` notice
+ * is also present (which indicates user force-cancellation or a server restart).
+ */
+export const readAntigravitySilentBackgroundTools = Effect.fn(
+  "readAntigravitySilentBackgroundTools",
+)(function* (input: {
+  readonly profileDirectory: string;
+  readonly rootSessionId: string;
+  readonly toolCallIds: ReadonlyArray<string>;
+}) {
+  if (!NATIVE_ID.test(input.rootSessionId) || input.toolCallIds.length === 0) return [];
+  const read = async (): Promise<ReadonlyArray<string>> => {
+    const profileRoot = await antigravityProfileRoot(input.profileDirectory);
+    if (profileRoot === undefined) return [];
+    const messagesDir = [
+      "antigravity-acp",
+      "brain",
+      input.rootSessionId,
+      ".system_generated",
+      "messages",
+    ];
+    const undelivered = await antigravityManagedPath(
+      profileRoot,
+      [...messagesDir, "undelivered"],
+      "directory",
+    );
+    if (undelivered === undefined) return [];
+    const ids = (await NodeFSP.readdir(undelivered.path)).filter((name) => NATIVE_ID.test(name));
+    if (ids.length === 0 || ids.length > MAX_MESSAGE_FILES) return [];
+    const wanted = new Set(input.toolCallIds);
+    const matched = new Set<string>();
+    for (const id of ids) {
+      const file = await antigravityManagedPath(
+        profileRoot,
+        [...messagesDir, `${id}.json`],
+        "file",
+      );
+      if (file === undefined || file.info.size > MAX_STEP_BYTES) continue;
+      const message = Option.getOrUndefined(
+        decodeChildMessage(await NodeFSP.readFile(file.path, "utf8")),
+      );
+      if (message === undefined) continue;
+      if (message.sender === "system") return [];
+      if (message.priority !== "MESSAGE_PRIORITY_LOW") continue;
+      if (!message.sender.startsWith(`${input.rootSessionId}/`)) continue;
+      const tool = message.sourceMetadata?.tool;
+      if (tool?.conversationId !== undefined && tool.conversationId !== input.rootSessionId) {
+        continue;
+      }
+      const toolCallId = tool?.toolCall?.id;
+      if (toolCallId !== undefined && wanted.has(toolCallId)) {
+        matched.add(toolCallId);
+      }
+    }
+    return [...matched];
+  };
+  return yield* Effect.tryPromise({
+    try: read,
+    catch: (cause) => new AntigravityChildWorkReadError({ cause }),
+  }).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+});

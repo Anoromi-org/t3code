@@ -34,6 +34,7 @@ import {
   antigravitySubagentLaunches,
   describeAntigravitySubagentLaunches,
   readAntigravityChildrenAtWork,
+  readAntigravitySilentBackgroundTools,
 } from "../../provider/acp/AntigravityChildWork.ts";
 import { readAntigravityClientTextFile } from "../../provider/acp/AntigravityClientFiles.ts";
 import { watchAntigravityPromptOutcome } from "../../provider/acp/AntigravityTurnOutcome.ts";
@@ -56,6 +57,8 @@ import {
 } from "@t3tools/provider-acp/server/adapter";
 
 const ANTIGRAVITY_PROVIDER = ProviderDriverKind.make("antigravity");
+const ANTIGRAVITY_SILENT_BACKGROUND_WAKE_PROMPT =
+  "A background command was terminated unexpectedly (not canceled by the user) and its completion did not wake the session. Check its task log and continue.";
 
 const AntigravityProviderCapabilitiesV2 = {
   ...AcpProviderCapabilitiesV2,
@@ -304,6 +307,21 @@ export function makeAntigravityAcpAdapterFlavor(
               rootSessionId: sessionId,
               toolCallIds: nativeTaskIds,
             }),
+          silentBackgroundToolWake: ({ sessionId, toolCallIds }) =>
+            readAntigravitySilentBackgroundTools({
+              profileDirectory,
+              rootSessionId: sessionId,
+              toolCallIds,
+            }).pipe(
+              Effect.map((matched) =>
+                matched.length === 0
+                  ? undefined
+                  : {
+                      toolCallIds: matched,
+                      prompt: ANTIGRAVITY_SILENT_BACKGROUND_WAKE_PROMPT,
+                    },
+              ),
+            ),
         }),
   };
 }

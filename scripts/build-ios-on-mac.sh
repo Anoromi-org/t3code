@@ -81,6 +81,10 @@ rm -f "$log" "$state_dir/$ipa_name"
 cat > "$state_dir/run.sh" <<RUN
 #!/bin/zsh -l
 cd "$HOME/$remote_dir/apps/mobile"
+# The default /tmp is a symlink to /private/tmp, and Metro cannot resolve the /tmp paths
+# expo-widgets writes into its generated imports.
+export EAS_LOCAL_BUILD_WORKINGDIR="$state_dir/work"
+rm -rf "\$EAS_LOCAL_BUILD_WORKINGDIR"
 $remote_env npx -y eas-cli@latest build --local --profile "$profile" --platform ios \
   --non-interactive --output "$state_dir/$ipa_name" > "$log" 2>&1
 echo "EXIT=\$?" >> "$log"

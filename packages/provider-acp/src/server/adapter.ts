@@ -153,6 +153,7 @@ const ACP_BUSY_PROMPT_RETRY_INTERVAL: Duration.Input = "1 second";
 const ACP_LOADED_COMMANDS_WAIT: Duration.Input = "2 seconds";
 const ACP_PROMPT_INACTIVITY_SLICE_MILLIS = 60_000;
 const ACP_HOST_SLEEP_TOLERANCE_MILLIS = 10_000;
+const MAX_SILENT_BACKGROUND_RESUMES_PER_TURN = 3;
 
 // pi-agent-core agents (oh-my-pi) end a turn while background work runs and reject
 // prompts until it finishes; the prompt is resent rather than failing the turn.
@@ -635,6 +636,17 @@ export interface AcpAdapterV2Flavor {
    * tool ends. With `deferFinalizeForBackgroundWork`, the turn stays open until then.
    */
   readonly toolOutlivesPrompt?: (toolCall: AcpToolCallState) => boolean;
+  /**
+   * Background tools that ended without waking the agent (for instance, a low-priority
+   * cancellation left undelivered in the agent's inbox). When returned, the adapter wakes
+   * the agent once with `prompt` instead of letting the turn time out in silence.
+   */
+  readonly silentBackgroundToolWake?: (input: {
+    readonly sessionId: string;
+    readonly toolCallIds: ReadonlyArray<string>;
+  }) => Effect.Effect<
+    { readonly toolCallIds: ReadonlyArray<string>; readonly prompt: string } | undefined
+  >;
   readonly isProviderWakeNotification?: (
     notification: EffectAcpSchema.SessionNotification,
   ) => boolean;
@@ -1721,6 +1733,12 @@ interface ActiveAcpTurn {
   backgroundFinalizeGeneration: number;
   /** `replyEndsWithUsageUpdate`: output arrived and its closing `usage_update` has not. */
   replyOpen: boolean;
+  /** Outliving tools that failed and have not yet triggered an automatic wake. */
+  readonly failedDeferredToolCallIds: Set<string>;
+  /** Failed outliving tool calls that already triggered an automatic wake in this turn. */
+  readonly resumedSilentBackgroundToolCallIds: Set<string>;
+  /** Automatic wakes dispatched for silent failed background tools in this turn. */
+  silentBackgroundResumes: number;
   /** The agent's own id for this turn's prompt, from `forkFromTurn.nativeTurnId`. */
   nativePromptId: string | undefined;
   /** Clock millis of the prompt's last progress, for `promptInactivityTimeout`. */
@@ -4917,6 +4935,21 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             }
           }
           yield* emitProviderEvent({ type: "turn_item.updated", driver, turnItem });
+          if (
+            flavor.silentBackgroundToolWake !== undefined &&
+            flavor.toolOutlivesPrompt !== undefined &&
+            flavor.toolOutlivesPrompt(toolCall)
+          ) {
+            if (
+              status === "failed" &&
+              !context.interrupted &&
+              !context.resumedSilentBackgroundToolCallIds.has(toolCall.toolCallId)
+            ) {
+              context.failedDeferredToolCallIds.add(toolCall.toolCallId);
+            } else if (status !== "failed") {
+              context.failedDeferredToolCallIds.delete(toolCall.toolCallId);
+            }
+          }
           yield* rearmDeferredFinalize(context);
         });
 
@@ -8714,6 +8747,70 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           yield* Deferred.succeed(context.completed, undefined).pipe(Effect.ignore);
         });
 
+        const checkSilentBackgroundToolWake = Effect.fn(
+          "AcpAdapterV2.checkSilentBackgroundToolWake",
+        )(function* (context: ActiveAcpTurn) {
+          if (
+            flavor.silentBackgroundToolWake === undefined ||
+            context.finalized ||
+            context.interrupted ||
+            context.silentBackgroundResumes >= MAX_SILENT_BACKGROUND_RESUMES_PER_TURN ||
+            context.failedDeferredToolCallIds.size === 0
+          ) {
+            return undefined;
+          }
+          const toolCallIds = [...context.failedDeferredToolCallIds].filter(
+            (id) => !context.resumedSilentBackgroundToolCallIds.has(id),
+          );
+          if (toolCallIds.length === 0) return undefined;
+          const wake = yield* flavor.silentBackgroundToolWake({
+            sessionId: context.nativeThreadId,
+            toolCallIds,
+          });
+          if (wake === undefined || wake.toolCallIds.length === 0) return undefined;
+          return wake;
+        });
+
+        const dispatchSilentBackgroundToolWake = Effect.fn(
+          "AcpAdapterV2.dispatchSilentBackgroundToolWake",
+        )(function* (
+          context: ActiveAcpTurn,
+          wake: { readonly toolCallIds: ReadonlyArray<string>; readonly prompt: string },
+        ) {
+          if (context.finalized || context.interrupted) return;
+          for (const toolCallId of wake.toolCallIds) {
+            context.resumedSilentBackgroundToolCallIds.add(toolCallId);
+            context.failedDeferredToolCallIds.delete(toolCallId);
+          }
+          context.silentBackgroundResumes += 1;
+          context.backgroundFinalizeGeneration += 1;
+          const generation = yield* Ref.get(runtimeCallbackGeneration);
+          yield* steerWithPrompt({
+            threadId: context.input.threadId,
+            runId: context.input.runId,
+            providerThread: context.input.providerThread,
+            providerTurnId: context.providerTurnId,
+            message: { ...context.input.message, text: wake.prompt, attachments: [] },
+          }).pipe(
+            Effect.catchCause((cause) =>
+              runRuntimeCallbackAtGeneration(
+                generation,
+                Effect.gen(function* () {
+                  if (context.finalized || context.interrupted) return;
+                  const failure = Cause.squash(cause);
+                  yield* finalizeTurn(
+                    context,
+                    "failed",
+                    flavor.promptFailure?.(failure) ??
+                      makeProviderFailure({ cause: failure, class: "provider_error" }),
+                  );
+                }),
+              ),
+            ),
+            Effect.forkIn(sessionScope),
+          );
+        });
+
         scheduleDeferredFinalize = Effect.fn("scheduleDeferredFinalize")(function* (context) {
           if (!defersFinalizeForBackgroundWork) return;
           if (!context.promptSettled || context.finalized || context.interrupted) return;
@@ -8724,7 +8821,44 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             ? ACP_OPEN_REPLY_QUIET_LIMIT
             : ACP_DEFERRED_FINALIZE_DEBOUNCE;
           yield* Effect.gen(function* () {
-            yield* Effect.sleep(debounce);
+            const canCheckSilentWake =
+              flavor.silentBackgroundToolWake !== undefined &&
+              context.failedDeferredToolCallIds.size > 0 &&
+              context.silentBackgroundResumes < MAX_SILENT_BACKGROUND_RESUMES_PER_TURN;
+            if (canCheckSilentWake && context.replyOpen) {
+              yield* Effect.sleep(ACP_DEFERRED_FINALIZE_DEBOUNCE);
+              if (
+                context.finalized ||
+                context.interrupted ||
+                context.backgroundFinalizeGeneration !== generation ||
+                hasDeferredBackgroundWork(context)
+              ) {
+                return;
+              }
+              const silentWake = yield* checkSilentBackgroundToolWake(context);
+              if (
+                context.finalized ||
+                context.interrupted ||
+                context.backgroundFinalizeGeneration !== generation ||
+                hasDeferredBackgroundWork(context)
+              ) {
+                return;
+              }
+              if (silentWake !== undefined) {
+                yield* dispatchSilentBackgroundToolWake(context, silentWake);
+                return;
+              }
+              const remainingMillis = Math.max(
+                0,
+                Duration.toMillis(ACP_OPEN_REPLY_QUIET_LIMIT) -
+                  Duration.toMillis(ACP_DEFERRED_FINALIZE_DEBOUNCE),
+              );
+              if (remainingMillis > 0) {
+                yield* Effect.sleep(`${remainingMillis} millis`);
+              }
+            } else {
+              yield* Effect.sleep(debounce);
+            }
             if (
               context.finalized ||
               context.interrupted ||
@@ -8733,6 +8867,21 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               return;
             }
             if (hasDeferredBackgroundWork(context)) return;
+            if (canCheckSilentWake && !context.replyOpen) {
+              const silentWake = yield* checkSilentBackgroundToolWake(context);
+              if (
+                context.finalized ||
+                context.interrupted ||
+                context.backgroundFinalizeGeneration !== generation ||
+                hasDeferredBackgroundWork(context)
+              ) {
+                return;
+              }
+              if (silentWake !== undefined) {
+                yield* dispatchSilentBackgroundToolWake(context, silentWake);
+                return;
+              }
+            }
             const status = context.promptSettledStatus ?? "completed";
             yield* finalizeTurn(context, status);
           }).pipe(Effect.forkIn(sessionScope), Effect.asVoid);
@@ -9164,6 +9313,19 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                     );
                     return;
                   }
+                  if (defersFinalizeForBackgroundWork && !context.interrupted) {
+                    const silentWake = yield* checkSilentBackgroundToolWake(context);
+                    if (
+                      silentWake !== undefined &&
+                      !context.finalized &&
+                      !context.interrupted &&
+                      !superseded()
+                    ) {
+                      yield* closeTextStreams(context);
+                      yield* dispatchSilentBackgroundToolWake(context, silentWake);
+                      return;
+                    }
+                  }
                   yield* finalizeTurn(context, status);
                 }),
               ).pipe(
@@ -9413,6 +9575,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               promptUsage: undefined,
               backgroundFinalizeGeneration: 0,
               replyOpen: false,
+              failedDeferredToolCallIds: new Set(),
+              resumedSilentBackgroundToolCallIds: new Set(),
+              silentBackgroundResumes: 0,
               nativePromptId: undefined,
               lastProgressAt: 0,
               inactivityWatchdog: undefined,

@@ -997,7 +997,11 @@ const openSessionWithRunningCommand = Effect.fn("openSessionWithRunningCommand")
   /** The prompt launches one agy 1.5 subagent instead; its records live below this profile. */
   detachedChildProfile?: string,
   /** agy 1.5.11 answers a steered prompt once the next one arrives, which runs to `releaseSteer`. */
-  steering?: { readonly agentVersion: string; readonly holdsFirstPrompt: boolean },
+  steering?: {
+    readonly agentVersion: string;
+    readonly holdsFirstPrompt: boolean;
+    readonly profileDirectory?: string;
+  },
 ) {
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const path = yield* Path.Path;
@@ -1099,7 +1103,11 @@ const openSessionWithRunningCommand = Effect.fn("openSessionWithRunningCommand")
     },
     withProcess: (_stop, task) => task,
     defaultModel: Effect.undefined,
-    ...(detachedChildProfile === undefined ? {} : { profileDirectory: detachedChildProfile }),
+    ...(detachedChildProfile !== undefined
+      ? { profileDirectory: detachedChildProfile }
+      : steering?.profileDirectory !== undefined
+        ? { profileDirectory: steering.profileDirectory }
+        : {}),
   });
   const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
     runtimeMode: "full-access",
@@ -1200,6 +1208,7 @@ const openSessionWithRunningCommand = Effect.fn("openSessionWithRunningCommand")
         : requestPermission(...args),
     cancels: () => cancels,
     prompts,
+    awaitSteered: Deferred.await(steered),
     releaseSteer: Deferred.succeed(releaseSteer, undefined),
     runtimeDies: Effect.suspend(
       () =>
@@ -1310,6 +1319,89 @@ describe("AntigravityAdapterV2 work after the prompt ends", () => {
       assert.include(JSON.stringify(run), "Here is the chart.", "the reply is part of the run");
       assert.lengthOf(offers, 0, "the open run needs no continuation");
     }).pipe(Effect.provide(layerSession)),
+  );
+
+  // When a backgrounded run_command dies from SIGTERM (e.g. `pkill -f`), agy 1.5 records an
+  // undelivered MESSAGE_PRIORITY_LOW cancellation instead of waking the model on its own.
+  it.effect(
+    "wakes the agent when a failed background command leaves a low-priority undelivered cancellation",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const profile = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-agy-silent-cmd-" });
+        const messagesDir = path.join(
+          profile,
+          "antigravity-acp",
+          "brain",
+          "mock-session-1",
+          ".system_generated",
+          "messages",
+        );
+        const undeliveredDir = path.join(messagesDir, "undelivered");
+        const opened = yield* openSessionWithRunningCommand(
+          { WaitMsBeforeAsync: 10000 },
+          undefined,
+          {
+            agentVersion: "1.5.14",
+            holdsFirstPrompt: false,
+            profileDirectory: profile,
+          },
+        );
+        const { command, usage, offers, send, startTurn, until, throughPromptSettled } = opened;
+        yield* startTurn(1, false);
+        yield* throughPromptSettled;
+        yield* TestClock.adjust("5 minutes");
+
+        yield* fileSystem.makeDirectory(undeliveredDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(messagesDir, "msg-canceled.json"),
+          JSON.stringify({
+            id: "msg-canceled",
+            sender: "mock-session-1/task-1337",
+            priority: "MESSAGE_PRIORITY_LOW",
+            content:
+              'Task id "mock-session-1/task-1337" was canceled with result:\nTool execution was canceled',
+            sourceMetadata: {
+              tool: {
+                conversationId: "mock-session-1",
+                toolCall: { id: command.toolCallId, name: "run_command" },
+              },
+            },
+          }),
+        );
+        yield* fileSystem.writeFileString(path.join(undeliveredDir, "msg-canceled"), "");
+        yield* send({
+          sessionUpdate: "tool_call_update",
+          ...command,
+          status: "failed",
+          rawOutput: { output: "partial output", exit_code: -1 },
+        });
+
+        // After the 3s debounce (well before the 2m quiet limit), T3 wakes the agent instead of idling.
+        yield* TestClock.adjust("3 seconds");
+        yield* opened.awaitSteered;
+        assert.lengthOf(
+          opened.prompts,
+          2,
+          "T3 must send a wake prompt to drain the undelivered inbox",
+        );
+        assert.include(JSON.stringify(opened.prompts[1]!.prompt), "background command");
+
+        // Simulate agy draining its inbox and replying under the wake prompt.
+        yield* fileSystem.remove(path.join(undeliveredDir, "msg-canceled"));
+        yield* send({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Recovered from task log." },
+        });
+        yield* send(usage);
+        yield* opened.releaseSteer;
+        const run = yield* until((event) => event.type === "turn.terminal");
+        const terminal = run.at(-1);
+        assert.equal(terminal?.type === "turn.terminal" && terminal.status, "completed");
+        assert.include(JSON.stringify(run), "Recovered from task log.");
+        assert.lengthOf(offers, 0, "recovery completes inside the open run");
+      }).pipe(Effect.provide(layerSession)),
   );
 
   // agy names its background commands `<session>/task-<n>`; the agent passes that to
